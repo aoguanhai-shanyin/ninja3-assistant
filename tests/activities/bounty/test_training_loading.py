@@ -41,12 +41,23 @@ class TrainingLoadingTest(unittest.TestCase):
         self.assertEqual(flow.step(Screen(battle_active=True), 26).action, 'wait')
         self.assertEqual(flow.phase, 'battle')
 
-    def test_training_page_waits_but_unknown_and_stuck_loading_remain_bounded(self):
+    def test_training_page_waits_and_transition_has_a_fixed_deadline(self):
         flow = Flow()
         self.assertEqual(flow.step(Screen(training=True), 0).action, 'wait')
         self.assertEqual(flow.step(Screen(training=True), 60).action, 'wait')
         self.assertEqual(flow.step(Screen(), 61).action, 'wait')
-        self.assertEqual(flow.step(Screen(), 76).action, 'reopen')
+        self.assertEqual(flow.step(Screen(), 76).action, 'wait')
+        self.assertEqual(flow.step(Screen(), 104.9).action, 'wait')
+        self.assertEqual(flow.step(Screen(), 105).action, 'reopen')
+        self.assertEqual(flow.step(Screen(), 120).action, 'stop')
+
+    def test_unknown_without_training_reopens_after_fifteen_seconds(self):
+        flow = Flow()
+        self.assertEqual(flow.step(Screen(), 0).action, 'wait')
+        self.assertEqual(flow.step(Screen(), 14.9).action, 'wait')
+        self.assertEqual(flow.step(Screen(), 15).action, 'reopen')
+
+    def test_stuck_loading_remains_bounded_when_detection_flickers(self):
         flow = Flow()
         self.assertEqual(flow.step(Screen(game_loading=True), 0).action, 'wait')
         self.assertEqual(flow.step(Screen(), 10).action, 'wait')

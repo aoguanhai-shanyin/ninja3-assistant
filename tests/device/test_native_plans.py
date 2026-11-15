@@ -37,8 +37,15 @@ class NativePlanTest(unittest.TestCase):
                                     TimedTap(150,(740,630))),
                                    captured_at=captured,deadline=captured+.2)
         self.wait(lambda:len(self.pressed(revision)) == 3)
-        starts = [v['down_start_us']/1e6 for v in self.pressed(revision)]
-        self.assertGreater(starts[2]-starts[0],.11)
+        pressed = self.pressed(revision)
+        self.assertEqual([v['index'] for v in pressed],[0,1,2])
+        captured_us = int(captured*1_000_000)
+        # Each command is scheduled from the captured frame. A late first
+        # command can shorten the observed span without moving later commands.
+        for event,offset_ms in zip(pressed,(30,90,150)):
+            due_us = captured_us+offset_ms*1000
+            self.assertGreaterEqual(event['down_start_us'],due_us)
+            self.assertLess(event['down_start_us'],due_us+20000)
 
     def test_cancel_future_plan_does_not_stop_skate(self):
         self.touch.note_frame(time.perf_counter())

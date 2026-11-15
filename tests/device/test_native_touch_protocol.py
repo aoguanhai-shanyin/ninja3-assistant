@@ -36,12 +36,18 @@ class NativeTouchProtocol(unittest.TestCase):
         self.wait('STARTED 1 ')
         self.plan(4,1,[(20,380,630,15),(100,900,630,15)])
         self.wait('PLAN_RELEASED 4 1 1 ')
-        first = self.wait('CYCLE 1 ').split()
-        second = self.wait('CYCLE 2 ').split()
-        before_stop = list(self.lines)
-        self.assertEqual(sum(' DOWN 2 ' in line for line in before_stop),2)
+        first_line = self.wait('CYCLE 1 ')
+        second_line = self.wait('CYCLE 2 ')
+        # Let the next cycle finish: reader scheduling must not change which
+        # events belong to the two completed cycles under examination.
+        self.wait('CYCLE 3 ')
+        events = self.lines[:self.lines.index(second_line)]
+        first, second = first_line.split(), second_line.split()
+        self.assertEqual(sum(' DOWN 2 ' in line for line in events),2)
         self.assertGreaterEqual(int(second[2])-int(first[2]),280000)
-        self.assertTrue(any(' DOWN 1 190 700 ' in line for line in before_stop))
+        self.assertEqual(sum(' DOWN 1 190 700 ' in line for line in events),4)
+        self.assertTrue(any(' DOWN 4 380 630 ' in line for line in events))
+        self.assertTrue(any(' DOWN 4 900 630 ' in line for line in events))
         self.send('STOP')
         self.wait('STOPPED')
         self.assert_released()
