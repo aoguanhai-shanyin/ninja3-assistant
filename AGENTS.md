@@ -11,7 +11,8 @@
 
 | 位置 | 用途 |
 | --- | --- |
-| 根目录 Python 文件 | 现有运行模块；暂时保留平铺导入，迁移包结构时必须同步修改导入、测试和打包入口 |
+| `src/ninja3_assistant/` | 运行包：按调度、内核、设备、活动、战斗和入口分组；使用绝对包导入 |
+| `packaging/` | PyInstaller 配置，入口与资源路径相对项目根目录解析 |
 | `winui/` | Windows 界面源码，`bin/`、`obj/` 为生成文件 |
 | `native_touch/` | C++ 输入内核源码、协议文档、原生构建入口 |
 | `assets/` | 运行时模板、模型和 OCR 脚本；模板应能追溯到证据 |
@@ -32,11 +33,11 @@
 
 ## 运行架构边界
 
-- `activity_task.py`：任务接口，各任务自己的 `run`、开放时段和后续目标。
-- `task_planner.py`：Plan 管任务、进度、重试和动态优先级；日常优先。
-- `task_scheduler.py`：按 Plan 的优先级排序并串行执行；不写活动玩法判断。
-- `realtime_battle.py`：所有活动/自动战斗共用的实时内核，负责帧时效、动作计划和撤回。
-- `native_touch.py`、`native_touch/`：C++ 输入执行；不能在多个 Python 线程中另起相互竞争的滑步循环。
+- `src/ninja3_assistant/scheduling/activity_task.py`：任务接口，各任务自己的 `run`、开放时段和后续目标。
+- `src/ninja3_assistant/scheduling/task_planner.py`：Plan 管任务、进度、重试和动态优先级；日常优先。
+- `src/ninja3_assistant/scheduling/task_scheduler.py`：按 Plan 的优先级排序并串行执行；不写活动玩法判断。
+- `src/ninja3_assistant/runtime/realtime_battle.py`：所有活动/自动战斗共用的实时内核，负责帧时效、动作计划和撤回。
+- `src/ninja3_assistant/device/native_touch.py`、`native_touch/`：C++ 输入执行；不能在多个 Python 线程中另起相互竞争的滑步循环。
 - 连续移动可以提前提交最多 3 秒；新帧可修改或撤回。暂停、停止和场景退出必须释放手指、取消剩余计划，旧帧不能恢复已撤回动作。
 - 异常保留未完成状态，交给 Plan 重试；不能把异常当任务完成，或直接结束全部任务。
 - 日常只看进度、领取状态和完整滚动扫描结果，不依赖固定任务类型。三项均确认领取才结束；有未完成项就继续打，结算后复查。
@@ -54,12 +55,12 @@
 
 ## 构建与验证
 
-- 统一构建：`tools/build_assistant.ps1 -Python <python.exe>`，输出到 `dist/Ninja3Assistant/`。
-- 使用 Python 3.12 虚拟环境，安装 `requirements-dev.txt`；构建前检查 `assets/asset-manifest.json` 所需的本地资源。
+- 统一构建：`tools/build/build_assistant.ps1 -Python <python.exe>`，输出到 `dist/Ninja3Assistant/`。
+- 使用 Python 3.12 虚拟环境，安装 `requirements-dev.txt` 并执行 `pip install -e .`；构建前检查 `assets/asset-manifest.json` 所需的本地资源。
 - C++：`cmd /c native_touch\build.cmd`，输出 `build/ninja-touch/NinjaTouch.exe`。
-- 常用检查：`python -m unittest tests.test_activity_tasks tests.test_activity_flow tests.test_task_planner tests.test_realtime_battle tests.test_native_touch -q`。
-- 输入协议检查需要先构建 C++：`python -m unittest tests.test_native_touch_protocol -q`。
-- 训练所工具：`tools/verify_skate_kernel.py`，支持 3 秒计划、途中撤回、替换、测试后暂停。
+- 常用检查：`python -m unittest tests.activities.intelligence.test_tasks tests.activities.intelligence.test_flow tests.scheduling.test_task_planner tests.runtime.test_realtime_battle tests.device.test_native_touch -q`。
+- 输入协议检查需要先构建 C++：`python -m unittest tests.device.test_native_touch_protocol -q`。
+- 训练所工具：`tools/diagnostics/verify_skate_kernel.py`，支持 3 秒计划、途中撤回、替换、测试后暂停。
 - 构建后核对发布包三组件和资源；用打包 worker 的无动作启动检查验证参数与导入。发布清单记录组件及源码哈希。
 - 检查范围与剩余失败必须如实报告；已有失败不能靠改断言来伪造通过。
 
@@ -67,4 +68,10 @@
 
 - 不提交游戏原始素材、训练权重、账号截图、录像、模拟器配置、个人路径、运行记录或发布二进制。
 - 游戏识别资源由使用者自行准备，文件清单见 `assets/asset-manifest.json`。
-- 无素材验证运行 `python tools/run_portable_tests.py`；需要私有图像或模型的回归测试另行说明，不得把部分检查称为完整验收。
+- 无素材验证运行 `python -m tools.testing.run_portable_tests`；需要私有图像或模型的回归测试另行说明，不得把部分检查称为完整验收。
+
+## 包与路径
+
+- 资源目录统一通过 `ninja3_assistant.paths` 解析；禁止根据业务模块所在目录猜测项目根目录。
+- Worker 入口为 `python -m ninja3_assistant`；不恢复根目录模块副本或 sys.path 引导兼容层。
+- 工具按 `python -m tools.<分类>.<工具名>` 运行，测试按领域放入对应包。

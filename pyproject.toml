@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ninja3-assistant"
+version = "0.1.0"
+description = "Experimental Windows/MuMu assistant with a shared realtime input kernel"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {file = "LICENSE"}
+dynamic = ["dependencies"]
+
+[project.scripts]
+ninja3-worker = "ninja3_assistant.entrypoints.worker:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ninja3_assistant*"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}

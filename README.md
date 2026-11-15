@@ -24,17 +24,20 @@ cd ninja3-assistant
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
-python tools/run_portable_tests.py
+python -m pip install -e .
+python -m tools.testing.run_portable_tests
 ```
 
 公开核心测试无需游戏资源或模拟器。完整运行还需根据 [assets/README.md](assets/README.md) 准备本地资源：
 
 ```powershell
-python tools/check_assets.py
-./tools/build_assistant.ps1 -Python ./.venv/Scripts/python.exe
+python -m tools.build.check_assets
+./tools/build/build_assistant.ps1 -Python ./.venv/Scripts/python.exe
 ```
 
 构建会生成完整程序到 `dist/Ninja3Assistant/`。先退出正在运行的助手，再构建；不能只替换主 EXE。
+
+安装后也可执行 `ninja3-worker --help` 或 `python -m ninja3_assistant --help` 查看 Worker 参数。开发工具从项目根目录使用 `python -m tools.<分类>.<工具名>` 运行。
 
 ## 使用
 
@@ -49,12 +52,14 @@ python tools/check_assets.py
 
 | 位置 | 内容 |
 | --- | --- |
-| 根目录 `*.py` | 现有 Python 运行模块，暂时保留平铺导入 |
+| `src/ninja3_assistant/` | 按领域分组的 Python 包：调度、实时内核、设备、活动、战斗与入口 |
 | `winui/` | WinUI 界面与 Worker 启动 |
 | `native_touch/` | C++ 输入执行及协议 |
 | `assets/` | OCR 脚本、资源清单；识别素材本地准备 |
 | `configs/` | 示例配置；用户实际配置不提交 |
-| `tests/`、`tools/` | 核心测试、完整回归及开发工具 |
+| `tests/` | 与源码领域对应的测试包 |
+| `tools/` | 按构建、采集、回放、模型、数据集和诊断分组的工具 |
+| `packaging/` | PyInstaller 打包配置 |
 | `docs/` | 架构与目录说明 |
 | `build/`、`dist/`、`data/` | 本地输出、素材及记录，均不提交 |
 

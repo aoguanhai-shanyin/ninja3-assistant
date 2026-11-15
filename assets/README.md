@@ -5,7 +5,7 @@
 在 `asset-manifest.json` 查看所需文件的相对路径、大小和参考 SHA-256。请从你有权使用的本地资源中准备这些文件，保持目录结构放入本目录，然后执行：
 
 ```powershell
-python tools/check_assets.py
+python -m tools.build.check_assets
 ```
 
 清单描述当前实现所需的参考资源，不提供素材下载，也不向其他用户授予游戏内容或第三方模型的权利。自行替换识别素材后，需要重新验证效果。资源不完整时，可以运行公开核心测试，不能直接运行完整游戏任务。
