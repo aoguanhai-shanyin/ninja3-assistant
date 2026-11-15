@@ -227,7 +227,7 @@ class NativeTouchTest(unittest.TestCase):
     def test_frozen_worker_uses_adjacent_executable(self):
         with patch.object(sys, 'frozen', True, create=True), \
                 patch.object(sys, 'executable', str(Path(self.tmp.name)/'Ninja3Worker.exe')):
-            self.assertEqual(executable_path(), Path(self.tmp.name)/'NinjaTouch.exe')
+            self.assertEqual(executable_path(), (Path(self.tmp.name)/'NinjaTouch.exe').resolve())
 
     @unittest.skipUnless(executable_path().is_file(), 'native touch executable not built')
     def test_native_executable_mock_start_tap_and_stop(self):
