@@ -1,0 +1,1096 @@
+{
+  "schema_version": 1,
+  "distribution": "source-only; images, model weights and game-derived metadata are supplied locally",
+  "files": [
+    {
+      "path": "avatar-above-1.png",
+      "bytes": 2076,
+      "sha256": "010ee26575967398f50e55d57201eea8174eb0bffac32b588f440adb26440ace"
+    },
+    {
+      "path": "avatar-above-2.png",
+      "bytes": 2042,
+      "sha256": "15b9ef36daf974257130f1f5bb10b64a48dde24a9de7ced8b40979347d86e6eb"
+    },
+    {
+      "path": "avatar-above-3.png",
+      "bytes": 2079,
+      "sha256": "4564a445c37c4c5af74f3047e22741fcd73050658eef0f0ae1b50111f4458865"
+    },
+    {
+      "path": "avatar-below-1.png",
+      "bytes": 2685,
+      "sha256": "4ada8ac9b8a6e9f5925390089967c8c5058d3cb6dccec7498b7563be7b91c1af"
+    },
+    {
+      "path": "avatar-below-2.png",
+      "bytes": 2739,
+      "sha256": "b4c683ef270e735d5ad689d2abfdd49828157abf1d6a5cc5720f19ccdc8e1b0a"
+    },
+    {
+      "path": "avatar-below.png",
+      "bytes": 2464,
+      "sha256": "b0d4732c9772a0c273e59210b440fa38364900af38622c85ee43b57042a33204"
+    },
+    {
+      "path": "battle-down.png",
+      "bytes": 2432,
+      "sha256": "3e2668ef9a9ffa8bd8e2cce07159155ddb39e731544398437e80e0b831f79d04"
+    },
+    {
+      "path": "battle-jump.png",
+      "bytes": 8838,
+      "sha256": "276c7cd3b1c509705bae76947e65e640e6f41c49f9fffa930cc32bdecfc41f0d"
+    },
+    {
+      "path": "battle-loading-percent.png",
+      "bytes": 1509,
+      "sha256": "97f5a2e5f9907ff9e650d57706fdbe14c044423ba86585e8f0de866373c31f05"
+    },
+    {
+      "path": "battle-slide.png",
+      "bytes": 6694,
+      "sha256": "4f79c9ad9b03e9dce93282d3cad4703582c6585a4e1f6fc4b3e38ce9c3d8d09d"
+    },
+    {
+      "path": "battle-up.png",
+      "bytes": 2962,
+      "sha256": "4fd94bc93a9347b124b2ec100d8bce4003ca7aceaf10fac00f5aac27e596826d"
+    },
+    {
+      "path": "battle-word.png",
+      "bytes": 5104,
+      "sha256": "0d65321e413f5d4bd08ca2c947904f7482f56e546962f778212bd875f3c3f36e"
+    },
+    {
+      "path": "board-title.png",
+      "bytes": 27181,
+      "sha256": "7d22166ce19d2b1d7ecaf7d7bcc72f6ebc0df22f1c776a331f4eb1d7af8082a6"
+    },
+    {
+      "path": "boss-orb.png",
+      "bytes": 340,
+      "sha256": "e1be0354aea0e324741ed67df3f8da880923b83d19214f028e6c052bb8c388e6"
+    },
+    {
+      "path": "boss-red-segmentation.onnx",
+      "bytes": 1381,
+      "sha256": "1742e2560ebf2fd6f4e9bfc2c5a6e1b9dbf2ec0925d2aa100deb30ca7e6d410b"
+    },
+    {
+      "path": "boss-zen-heart.png",
+      "bytes": 2658,
+      "sha256": "0f574b320793bdc475d4a3d7eb328470afc3160acc58100e608e2c70c66e0bad"
+    },
+    {
+      "path": "card-header.png",
+      "bytes": 2042,
+      "sha256": "dc41d638de11c6a8db1bd19391a22485038e61072095b8ce606cf9d5dcbf17ad"
+    },
+    {
+      "path": "hayabusa-boards.json",
+      "bytes": 9383,
+      "sha256": "3ad78b4a1e2df5eb99acee14e7450f126493f68879d36a8fbdc01f80ef6d6dd2"
+    },
+    {
+      "path": "hayabusa-boards.npz",
+      "bytes": 1194434,
+      "sha256": "6256e1fa9fe345ea51383f064ced6c174fb16790180de5099bb8210c3643da8d"
+    },
+    {
+      "path": "hayabusa-colors.onnx",
+      "bytes": 1690,
+      "sha256": "0eb58daa0a4a44c9ee4904421cfe71a0015c24031607cfe2ffbe88c851a5536d"
+    },
+    {
+      "path": "hayabusa-defeat.png",
+      "bytes": 40282,
+      "sha256": "b4a73e1922805e6fe03c68efcb77ecef6901c7159975d2f34b2de4e53970e536"
+    },
+    {
+      "path": "hayabusa-detector.json",
+      "bytes": 4755,
+      "sha256": "59783c37759cf1b2b769567ed14e1f9bce9348b061928453d2b21c6f1e23fe27"
+    },
+    {
+      "path": "hayabusa-detector.onnx",
+      "bytes": 10628021,
+      "sha256": "d4f9d26c1dcd4250b075c7d02b6309ec284fd143a5a35f964e61ea565643d844"
+    },
+    {
+      "path": "hayabusa-down.png",
+      "bytes": 4824,
+      "sha256": "0461eeda7fc99c376c595f9a763ddf44684c2f3431f8637421722ddffdb26293"
+    },
+    {
+      "path": "hayabusa-face-1.png",
+      "bytes": 1987,
+      "sha256": "d2a5c88df7aa9a60b389271f24ee051b0ce47409e4641f0f000210984cf52e71"
+    },
+    {
+      "path": "hayabusa-face-2.png",
+      "bytes": 2111,
+      "sha256": "efb57728da3fd521bdb03f88c7663ace849a5d9e83769b887f8f1bb99100178a"
+    },
+    {
+      "path": "hayabusa-face-3.png",
+      "bytes": 1929,
+      "sha256": "9ae24c2165cf403dd65747fdd342ee630343dee0750001f401d6f04314e6974d"
+    },
+    {
+      "path": "hayabusa-face-4.png",
+      "bytes": 2216,
+      "sha256": "28cc2c6c89d21cfcbdd2e4d07a02ec68ca361433539c1721ca768ad29a1246ea"
+    },
+    {
+      "path": "hayabusa-face-5.png",
+      "bytes": 2221,
+      "sha256": "e83707a51090473e339fd955226628e2043e72158984fdeff9f2b9cecceb926c"
+    },
+    {
+      "path": "hayabusa-name.png",
+      "bytes": 4590,
+      "sha256": "2e08c460ef804e1354f4a9861dbe9cc8581f7b1eedfa2e74b56b0ce1ebfcf08f"
+    },
+    {
+      "path": "hayabusa-player-head-air-tuck.png",
+      "bytes": 2140,
+      "sha256": "d8986e5934eea1e4922165ff6a343a59bc0a5f1c17646ab5be0a93463fc930c8"
+    },
+    {
+      "path": "hayabusa-player-head-air.png",
+      "bytes": 2158,
+      "sha256": "5aa67b696bec01621a942e0d5dd5c725dcc1af10b24a0c9e6b8c204fcfdf9434"
+    },
+    {
+      "path": "hayabusa-player-head-apex.png",
+      "bytes": 2900,
+      "sha256": "0fc7ba1293665a8312917d0b0d673296f6136747cd5279a267a4ef0f5f87e111"
+    },
+    {
+      "path": "hayabusa-player-head-below-2.png",
+      "bytes": 2853,
+      "sha256": "4eb76752adcd6392f4ca56b68b7bba4f7bd75c6e5f752b33f503167c68c22d10"
+    },
+    {
+      "path": "hayabusa-player-head-below.png",
+      "bytes": 2361,
+      "sha256": "3fe3976bcfc6d0327e1a15772d606cbeefccbcf148c5a1b35266965422b5a147"
+    },
+    {
+      "path": "hayabusa-player-head-live-2.png",
+      "bytes": 1344,
+      "sha256": "0f1dab9d7c1cf4cbdd7f5f99f954ad5a25d17861571b5fee57709d3709ff9052"
+    },
+    {
+      "path": "hayabusa-player-head-live-3.png",
+      "bytes": 1353,
+      "sha256": "72c2b19b4cbc83ef4ee6caebfb5477b0c65d7de903f214d0fee275ade2c21093"
+    },
+    {
+      "path": "hayabusa-player-head-live.png",
+      "bytes": 1336,
+      "sha256": "708910c82fe2344e9caa28286e760daf3bee6ae3559809470765f161bf12be53"
+    },
+    {
+      "path": "hayabusa-player-head-run.png",
+      "bytes": 2617,
+      "sha256": "f15ae6a47dd5f0b5169118f6b769a1640f2c49a3292d8bc48a8eef553853f565"
+    },
+    {
+      "path": "hayabusa-player.json",
+      "bytes": 2198,
+      "sha256": "28d44e2feb2fd4511d478140298e1782eb7bf2eb82ded834aaea944b341fad84"
+    },
+    {
+      "path": "hayabusa-player.onnx",
+      "bytes": 10624054,
+      "sha256": "33d3d387057102dc6730bba2abd2c58a6246613ae23a67034cde41a1eedee011"
+    },
+    {
+      "path": "hayabusa-portrait.png",
+      "bytes": 6094,
+      "sha256": "691b446b497bf591eb66a1bf45a6c2189e4566cf28f2b192ad6ed2159cbb5561"
+    },
+    {
+      "path": "hayabusa-result-name.png",
+      "bytes": 22912,
+      "sha256": "3c2b5b0b604a7611c6bae35359100533ef04cb20fe4a157e788717e021f68f36"
+    },
+    {
+      "path": "hayabusa-right-jump-live.png",
+      "bytes": 8795,
+      "sha256": "eb607d8ad564cbe44e95601d8d700b22c0c884d0857833e2b619bc1be954080d"
+    },
+    {
+      "path": "hayabusa-right-jump.png",
+      "bytes": 8142,
+      "sha256": "cb78035c287d0476eb148151fcb55dc2422dd9279566c7db66fe85bb8029b91b"
+    },
+    {
+      "path": "hayabusa-right-up.png",
+      "bytes": 5622,
+      "sha256": "1c841f4df0c1af03c044a94781c1f8c9cfcb695b5abcfb63f770a12b33d5cbac"
+    },
+    {
+      "path": "hayabusa-shadow-name.png",
+      "bytes": 5357,
+      "sha256": "003bcce873d148380294de3540cbe6069bed69343f45c3d21c98125c087e9c1f"
+    },
+    {
+      "path": "hayabusa-shadow-portrait.png",
+      "bytes": 10107,
+      "sha256": "d75896a4003097087bd5cbbff47eea11d040ea5e046f11eae83e73c016969656"
+    },
+    {
+      "path": "hayabusa-shadow-result-name.png",
+      "bytes": 5328,
+      "sha256": "73cd20351a7eb65b9ee8f860a2ed18d8cbb569b646cc4becb3a949303f9587c1"
+    },
+    {
+      "path": "hayabusa-victory.png",
+      "bytes": 94727,
+      "sha256": "d589cfdf18283cea374cc9a085dab6cb4ab91a5ac49e2dd8dd95a26bf5df5c9f"
+    },
+    {
+      "path": "intelligence/achievement-title.png",
+      "bytes": 10683,
+      "sha256": "5474c452a1d0b4fccb27dd7e7f8f9073d8ccc55b770e89911ddfa6ca371cba97"
+    },
+    {
+      "path": "intelligence/daily-characters.png",
+      "bytes": 13171,
+      "sha256": "f6745ae683972ef8f7cd06f5b1beb72cdf64cb89b1d4d6b5075d6ad7b72cedfd"
+    },
+    {
+      "path": "intelligence/daily-damage.png",
+      "bytes": 11519,
+      "sha256": "5113752fb610ee2b6d9b149af89433cf2b2aefb252af6acb6a306352a4aaeb72"
+    },
+    {
+      "path": "intelligence/daily-games.png",
+      "bytes": 7365,
+      "sha256": "97b90d0820a25f6e39b6a2a8c1cba0fc11172688bbbe13400853672871b5694d"
+    },
+    {
+      "path": "intelligence/daily-title.png",
+      "bytes": 9524,
+      "sha256": "3496e8eda062d204cb46d4189bcd6ee20689a02c1da423b10fa21a43cac07484"
+    },
+    {
+      "path": "intelligence/hall-title.png",
+      "bytes": 40614,
+      "sha256": "6605560ff979e0edb7380000969c27af2ff850e63407c28d524a2e00c5b71047"
+    },
+    {
+      "path": "intelligence/home-title.png",
+      "bytes": 54943,
+      "sha256": "5f90acbca13f61d18d11c6cef35a86088d99fc9e94d4873c0b6c72993514bf85"
+    },
+    {
+      "path": "intelligence/live-sources.json",
+      "bytes": 1007,
+      "sha256": "56cc5302d213ca688f688d2d19ec83ddda118653e5fd04aaa38cc6086b65f011"
+    },
+    {
+      "path": "intelligence/navigation-home-summon.png",
+      "bytes": 6229,
+      "sha256": "8d1aac3be82f18b84375d2e7ff04972f9631297635bfa2d52a017684e31f194e"
+    },
+    {
+      "path": "intelligence/navigation-home.png",
+      "bytes": 10069,
+      "sha256": "20b37cee43bec91a53755bbe1c0469687590f7f8ed77b19173e6fa5040f50e3a"
+    },
+    {
+      "path": "intelligence/start.png",
+      "bytes": 10782,
+      "sha256": "2476ebc209e28c5f5bdc56272d2237bd71fd7fd6807fc41773ad556ead1ca7c6"
+    },
+    {
+      "path": "intelligence-battle/combat-corner.png",
+      "bytes": 3428,
+      "sha256": "b421eef3d10c870c40dc74d92856b51529d7ffb9b9f7f360236aa940e0924f19"
+    },
+    {
+      "path": "intelligence-battle/empty-board-0.png",
+      "bytes": 10365,
+      "sha256": "c49ca3db0a5b777ef639f4212b48b12bec0d7b457170766ff8f0d9b9bcfd0c1b"
+    },
+    {
+      "path": "intelligence-battle/empty-board-1.png",
+      "bytes": 9661,
+      "sha256": "366d97903bf9af51f1c09caf7dded89525b7009080f32d92d027c035ac285567"
+    },
+    {
+      "path": "intelligence-battle/empty-board-2.png",
+      "bytes": 10614,
+      "sha256": "d0992e05cd5bdb4d8c56479aa977828ab207b4a5c8069c7c851d67cfbee18098"
+    },
+    {
+      "path": "intelligence-battle/empty-board-3.png",
+      "bytes": 8853,
+      "sha256": "31af6a196b22a24144c71b47810ded8dd41e770b9fcf7f0896bce026c1e7c4d8"
+    },
+    {
+      "path": "intelligence-battle/empty-board-4.png",
+      "bytes": 9232,
+      "sha256": "fed732f9459e39029d104ecf7686f65d0eb997c9add3097f5b76ae5c7b0725bc"
+    },
+    {
+      "path": "intelligence-battle/empty-board-5.png",
+      "bytes": 9603,
+      "sha256": "de2e5db45b44489bb03e6fdef01431b63b893d9603cb84469edc98d2cd6c3e9d"
+    },
+    {
+      "path": "intelligence-battle/empty-board-6.png",
+      "bytes": 8900,
+      "sha256": "c62731bb3abeea0bd274b69023dc38a29d91a098ca8bcbf621c4358422e6629e"
+    },
+    {
+      "path": "intelligence-battle/empty-board-7.png",
+      "bytes": 8442,
+      "sha256": "aba4714859ef4a5d197c53af24807dcc761ac5e8ef849510275b484f15f6e47c"
+    },
+    {
+      "path": "intelligence-battle/empty-board-8.png",
+      "bytes": 9657,
+      "sha256": "ceb06da969753e2772b84b7e8146eb8367c84d88e06dbf416162a9444b134332"
+    },
+    {
+      "path": "intelligence-battle/empty-board.png",
+      "bytes": 10365,
+      "sha256": "c49ca3db0a5b777ef639f4212b48b12bec0d7b457170766ff8f0d9b9bcfd0c1b"
+    },
+    {
+      "path": "intelligence-battle/empty-shop.png",
+      "bytes": 7382,
+      "sha256": "b570c0dda55a5de757ec532594c0e1ee05b15daa2cf540d84fd4f420c9a5842e"
+    },
+    {
+      "path": "intelligence-battle/matching.png",
+      "bytes": 4773,
+      "sha256": "def45f622ed97c8dabdde785623497e411ef1f598b0c446db8c9f3d4e56a2673"
+    },
+    {
+      "path": "intelligence-battle/plus.png",
+      "bytes": 2163,
+      "sha256": "393fa7c4e88b804775ac4d57f733cb2aba035b4cd132c63b9facae211cf89cea"
+    },
+    {
+      "path": "intelligence-battle/ready.png",
+      "bytes": 9008,
+      "sha256": "8041f174cee3bd889a3e76a5882b33f97f40eb9f73570f8530fc5333dedb302e"
+    },
+    {
+      "path": "intelligence-battle/refresh-one.png",
+      "bytes": 649,
+      "sha256": "50fe9925b53ed08c8884bf33fa6b8b142d50d3296690026a6d5c4e574e5f32db"
+    },
+    {
+      "path": "intelligence-battle/result-confirm.png",
+      "bytes": 5146,
+      "sha256": "d77a4f1c6891a84af9da909052a3650c87841ba349df4f46e3a7d098ece8abb2"
+    },
+    {
+      "path": "intelligence-battle/result-title.png",
+      "bytes": 14498,
+      "sha256": "a7ea41e7a723cdab1bca15c3001808b80106c01a47968a1b44588584749d4231"
+    },
+    {
+      "path": "intelligence-battle/round-1.png",
+      "bytes": 3241,
+      "sha256": "92485bcaf0475968c13e5e5390619e6e01f9040d513b62db444d444510b4f253"
+    },
+    {
+      "path": "intelligence-battle/round-2.png",
+      "bytes": 3685,
+      "sha256": "25432bbd2a2abeabd3b60b9762ce2f8227e2bd0e9f52951a0108d0fff79b309a"
+    },
+    {
+      "path": "intelligence-battle/round-3.png",
+      "bytes": 3522,
+      "sha256": "90f470282cb0e7f96c8b9f0f973f377f7024e252e34cec6704d7b6db19f9c730"
+    },
+    {
+      "path": "intelligence-battle/round-4.png",
+      "bytes": 3734,
+      "sha256": "130d30a71417fd12a28e54c473e88b694f3d31f2b100e2e433dbb355998f9efd"
+    },
+    {
+      "path": "intelligence-battle/round-5.png",
+      "bytes": 3615,
+      "sha256": "f6c3058f25ca6cf4863e36363d33226bbcabb1d8db6796c0cb60d2e0d325230d"
+    },
+    {
+      "path": "intelligence-battle/round-suffix.png",
+      "bytes": 13535,
+      "sha256": "600112e8d0a6242791448410ab71586f782fe99fe7ccbe854579112f4b7bfd10"
+    },
+    {
+      "path": "intelligence-battle/selected-board-0.png",
+      "bytes": 10738,
+      "sha256": "28def93c6a0539974a897b986747980d058a0e8884126770097daef4de48fdad"
+    },
+    {
+      "path": "intelligence-battle/selected-board-1.png",
+      "bytes": 10098,
+      "sha256": "11082b6a1e97d03ea737af0e31a6890aece644b646a7c9c2124c39edd9fb726b"
+    },
+    {
+      "path": "intelligence-battle/selected-board-2.png",
+      "bytes": 10746,
+      "sha256": "f2b04f8a04392f045c3ef760d7a940ccd3dd942e46a64156e05f2066aa6ff11f"
+    },
+    {
+      "path": "intelligence-battle/selected-board-3.png",
+      "bytes": 9445,
+      "sha256": "dc2d5d2102316102e32688d3c7c687727f86f2dfdc40f6f3fedcab5464d7bd0a"
+    },
+    {
+      "path": "intelligence-battle/selected-board-4.png",
+      "bytes": 9417,
+      "sha256": "ec31f094f44d636054b430ce86ee0e81d84cf46c2c983bebf2487b2bfcf1640a"
+    },
+    {
+      "path": "intelligence-battle/selected-board-5.png",
+      "bytes": 10559,
+      "sha256": "6c315d047d8b3eb6a7df7323854e0d0aa2748a893353835bd328332a681ef408"
+    },
+    {
+      "path": "intelligence-battle/selected-board-6.png",
+      "bytes": 9094,
+      "sha256": "96f246c5c31aaae3cec08224de32665d12a74e3a24d374f5e2e89232b2ef95ee"
+    },
+    {
+      "path": "intelligence-battle/selected-board-7.png",
+      "bytes": 9369,
+      "sha256": "5d65839327304a57c15822b3896ddadc6ba98c165df4ea2bf2df52d85a64465a"
+    },
+    {
+      "path": "intelligence-battle/selected-board-8.png",
+      "bytes": 10129,
+      "sha256": "4526cd00d5d89a95bdf235748b065c43e8d2c74b2a97a6f3f8bfff3dece2cbe8"
+    },
+    {
+      "path": "intelligence-battle/selected-board.png",
+      "bytes": 10738,
+      "sha256": "28def93c6a0539974a897b986747980d058a0e8884126770097daef4de48fdad"
+    },
+    {
+      "path": "intelligence-battle/shop-title.png",
+      "bytes": 10873,
+      "sha256": "660a75141ad13fa45d823e554931e2d0a0534e05bca72d2a6a181c0a6e05dca1"
+    },
+    {
+      "path": "intelligence-battle/sources.json",
+      "bytes": 7118,
+      "sha256": "f543b21564aba4668c859829c8bfe7ee0c46dc5145cc48fbe5f59019117e0f9a"
+    },
+    {
+      "path": "intelligence-cards/c001.png",
+      "bytes": 55854,
+      "sha256": "69b2a7c36f2cc9f4f97f2ae24d0a6a3b11538fa6e65de1fe4bb97f3059312cc8"
+    },
+    {
+      "path": "intelligence-cards/c002.png",
+      "bytes": 54097,
+      "sha256": "645e709a1ffe0f7872e2652a9cb2e060a6b476a2240c76100689d1726541f646"
+    },
+    {
+      "path": "intelligence-cards/c003.png",
+      "bytes": 55991,
+      "sha256": "7dd9834c8b27965cf77ba97064665df4d67daaffc2973297703ba1c71c55eb73"
+    },
+    {
+      "path": "intelligence-cards/c004.png",
+      "bytes": 58359,
+      "sha256": "6ac9c8ad59d71cc3f9e1620d64309d498fc8004b31c3f25896c7254cb816c901"
+    },
+    {
+      "path": "intelligence-cards/c005.png",
+      "bytes": 57694,
+      "sha256": "af1e55cadf16427d4ab83b6f71e824112b04e644bc2ef88258fba4661999c858"
+    },
+    {
+      "path": "intelligence-cards/c006.png",
+      "bytes": 59760,
+      "sha256": "e5f547ef8f03835311b5427dac7a3938e4fea9e55146cf8fd3e91b074d20b5ba"
+    },
+    {
+      "path": "intelligence-cards/c007.png",
+      "bytes": 56149,
+      "sha256": "f139f1eb1a0d9d3d44a6002a106704a3534789fe3038f353e2131324201710b2"
+    },
+    {
+      "path": "intelligence-cards/c008.png",
+      "bytes": 60022,
+      "sha256": "a8fdb4d99f16d4fd4b627099634cdcc369259b57154739a0b7531f534f6b6b67"
+    },
+    {
+      "path": "intelligence-cards/c009.png",
+      "bytes": 56218,
+      "sha256": "77c0c453f2533cec50e255758a4569e51a3a52b206cfed075229ee392de388fd"
+    },
+    {
+      "path": "intelligence-cards/c010.png",
+      "bytes": 58185,
+      "sha256": "ded413634a1ba183ff9d4b1f95df94090dac8aebd7a9ad5e5872ea1eb680ef06"
+    },
+    {
+      "path": "intelligence-cards/c011.png",
+      "bytes": 59081,
+      "sha256": "1bbe19501186f2e3ee18008a16d665e75874cb9b6b527f2506a0e786adae263c"
+    },
+    {
+      "path": "intelligence-cards/c012.png",
+      "bytes": 57508,
+      "sha256": "ed3373bc9697b751fb5aeaa118d859a08d6b723416b44a7c1c7c6a56e3d6a7f3"
+    },
+    {
+      "path": "intelligence-cards/c013.png",
+      "bytes": 62798,
+      "sha256": "3281fc130ecfa08dbac347a12b3828d3cbadda8f6624a7229918631ced3a4bad"
+    },
+    {
+      "path": "intelligence-cards/c014.png",
+      "bytes": 57771,
+      "sha256": "202b52a5301d2b01e96df59bbb33712f2dde9a14e381fb31fe329e1d23457c10"
+    },
+    {
+      "path": "intelligence-cards/c015.png",
+      "bytes": 55536,
+      "sha256": "e0ac4cd3af8f1bfa98bb586bbd1c05283f998f2916805c1ebbdf5cb64bcc7439"
+    },
+    {
+      "path": "intelligence-cards/c016.png",
+      "bytes": 59236,
+      "sha256": "f1bf67bf49b705576f86adace8cce72713ab56a5701c505be788bd0922ae57a2"
+    },
+    {
+      "path": "intelligence-cards/c017.png",
+      "bytes": 57829,
+      "sha256": "5e4a700556f17b794d58e3f4e500aa780d2f578d0f6017ae9d8cc3bf89348a74"
+    },
+    {
+      "path": "intelligence-cards/c018.png",
+      "bytes": 60406,
+      "sha256": "c417158d2967baad9f1e11e94c6d7698d88fea55bf068b5b2f1d5248ee0ce4ed"
+    },
+    {
+      "path": "intelligence-cards/c019.png",
+      "bytes": 60742,
+      "sha256": "b469af6f59d0d16723c151235858c03390fa0ab721a650531c07ad90b8e4cd1f"
+    },
+    {
+      "path": "intelligence-cards/c020.png",
+      "bytes": 60335,
+      "sha256": "fbb03178049b8f06aeb88c001bcee88bfed6daaa4c6e028245789b55183bdc7d"
+    },
+    {
+      "path": "intelligence-cards/c021.png",
+      "bytes": 57824,
+      "sha256": "8aa293556aa1bd573217badecef44a54568e92d1930d09768cdcb755d9587523"
+    },
+    {
+      "path": "intelligence-cards/c022.png",
+      "bytes": 59181,
+      "sha256": "dae329ebecc30f6493df61d83cedf5777fd954c57f9ad0c978d51cdca29078ab"
+    },
+    {
+      "path": "intelligence-cards/c023.png",
+      "bytes": 58291,
+      "sha256": "eae91443ebef95d902096442b70a3578bba457f5213674455af011f1e6f8a48f"
+    },
+    {
+      "path": "intelligence-cards/c024.png",
+      "bytes": 59199,
+      "sha256": "064c695c600b35a36bb4621ba01228e3b800b09adf4570206d7471d257135ae7"
+    },
+    {
+      "path": "intelligence-cards/c025.png",
+      "bytes": 55866,
+      "sha256": "a00217aeaa792edf6b132b52515e8348240ea5d47fb75b6fea9c85097baeee74"
+    },
+    {
+      "path": "intelligence-cards/c026.png",
+      "bytes": 57910,
+      "sha256": "b8c5a7fc9e41edeb7a2099017746977697013fac85026db4449c562eee008c7b"
+    },
+    {
+      "path": "intelligence-cards/c027.png",
+      "bytes": 60479,
+      "sha256": "63013e5735aa16ecbd9557a53dcede74ac93da962cab243380b7da7e0b0e5a2e"
+    },
+    {
+      "path": "intelligence-cards/c028.png",
+      "bytes": 55406,
+      "sha256": "d0c01dd8c9b36496627e2661d47081ad9471bc5622b694021abf10dc377701b4"
+    },
+    {
+      "path": "intelligence-cards/c029.png",
+      "bytes": 56097,
+      "sha256": "0e53abf9eca8868c3ac82b88548bb3028bab6503b29b244b3b438b33249f9a8d"
+    },
+    {
+      "path": "intelligence-cards/c030.png",
+      "bytes": 54134,
+      "sha256": "7500a306bc76db0d76b1503b9cdfe14f213e72f1829e0bc68e62a07ca1c9e03c"
+    },
+    {
+      "path": "intelligence-cards/c031.png",
+      "bytes": 51143,
+      "sha256": "bddb936d664a612b2f63548234d2d775b338fcf18eacedc25c27ade79b8c685b"
+    },
+    {
+      "path": "intelligence-cards/c032.png",
+      "bytes": 56276,
+      "sha256": "4b287ea81d4067010c1e5e30dc89afb08c923177f1d45a76d15947378fad0d2c"
+    },
+    {
+      "path": "intelligence-cards/c033.png",
+      "bytes": 55950,
+      "sha256": "0b3c420f0ca6c85da2502c1d0429f124e734d64d64d5fba270b9d1b07fa18afb"
+    },
+    {
+      "path": "intelligence-cards/c034.png",
+      "bytes": 53609,
+      "sha256": "a36653736162ce9c95c298b0fd0b9adac7ab6213a17e3eea32c78dc3d804b404"
+    },
+    {
+      "path": "intelligence-cards/c035.png",
+      "bytes": 54932,
+      "sha256": "9dc1438095e3987f7fbd61efc960ea1c96d05ffde36415d1f564da0326b11e2e"
+    },
+    {
+      "path": "intelligence-cards/c036.png",
+      "bytes": 58622,
+      "sha256": "db5f00ad21bb93c9d8c958f869234337064a9dd92d293b008e71090711612b77"
+    },
+    {
+      "path": "intelligence-cards/c037.png",
+      "bytes": 57331,
+      "sha256": "49a0fe49745a0ec0f07209aeb41035b735c89cb5cf7c5a693503f4ab3b31da81"
+    },
+    {
+      "path": "intelligence-cards/c038.png",
+      "bytes": 58108,
+      "sha256": "2745dbe48cb785cc39a67ec6d6d48bc089c6a3842b3333241f58cb725ef2bc94"
+    },
+    {
+      "path": "intelligence-cards/c039.png",
+      "bytes": 57557,
+      "sha256": "293fa755314b943b5d10c63be43ed18bb75435b2da7eea29e7998695d25543f3"
+    },
+    {
+      "path": "intelligence-cards/c040.png",
+      "bytes": 57882,
+      "sha256": "8a09a5cde4d3621ebb982e64ae16c210766ba3557974c27e5f104e61ba50e640"
+    },
+    {
+      "path": "intelligence-cards/c041.png",
+      "bytes": 55668,
+      "sha256": "15b8d985a6dd0cd16b6b84b9e5bf4a319f3f787bc4e07186d5052fba88c27561"
+    },
+    {
+      "path": "intelligence-cards/c042.png",
+      "bytes": 55527,
+      "sha256": "4f5786cef1307a121bfea601b1e958a14844fbee8c99851c5440dd5f98d6af31"
+    },
+    {
+      "path": "intelligence-cards/c043.png",
+      "bytes": 55743,
+      "sha256": "6207f8a89584921275ed6a28fa24060a4120891458d3868c6b1f4f31d1dc963a"
+    },
+    {
+      "path": "intelligence-cards/c044.png",
+      "bytes": 54596,
+      "sha256": "e8c0baf289d0c51c0c5285434ebd8968a3b39123a16d3bdf382fa314f5b5f221"
+    },
+    {
+      "path": "intelligence-cards/c045.png",
+      "bytes": 53747,
+      "sha256": "d0330d4969605209af07c1ae7b1af3fece1001a9dd3cee5f44a5fd952bcaf0cc"
+    },
+    {
+      "path": "intelligence-cards/c046.png",
+      "bytes": 57913,
+      "sha256": "614e3e0eb30f6f7e630fb71e3c856d4db8b442bb223e6e4bd15ed9e06a14375d"
+    },
+    {
+      "path": "intelligence-cards/c047.png",
+      "bytes": 47854,
+      "sha256": "934c01618566157b374a9b40a69d674ed4098e522c3c1457cb84cd7a7000508a"
+    },
+    {
+      "path": "intelligence-cards/c048.png",
+      "bytes": 46347,
+      "sha256": "cf926fe1725a4fb33f99129bd659b1579a36e5cfe9e99f7b8c076dfbaaf1da62"
+    },
+    {
+      "path": "intelligence-cards/c049.png",
+      "bytes": 53031,
+      "sha256": "50a3e545dc8dac9952bd55593a81e4e01c9473651a3512d93b9d29d564999180"
+    },
+    {
+      "path": "intelligence-cards/c050.png",
+      "bytes": 51063,
+      "sha256": "3042812aa47728455a8ca1793bb1ed1805c4324369312e143a7e30713cddcb45"
+    },
+    {
+      "path": "intelligence-cards/c051.png",
+      "bytes": 51893,
+      "sha256": "43d8d88aa119ce49a8c9d10c956e14ab7c89f0d4366a0d86d2b826a09ac211a4"
+    },
+    {
+      "path": "intelligence-cards/c052.png",
+      "bytes": 51634,
+      "sha256": "e2191996bfac1707d929290b4ca32ccac6ca0673e7974f7431f28f85bb4fc498"
+    },
+    {
+      "path": "intelligence-cards/c053.png",
+      "bytes": 54897,
+      "sha256": "8b9a118647b7cddd148d811609ad57d38b019781e65b235851062ff27eb0dbd8"
+    },
+    {
+      "path": "intelligence-cards.json",
+      "bytes": 25946,
+      "sha256": "4364bc2a1e040bcf7ebcb684d0e6a54b63875ee8f34ebb91a6b7343dd40e89d5"
+    },
+    {
+      "path": "intelligence-tasks/claim-label.png",
+      "bytes": 6504,
+      "sha256": "23a7a7b0aae964373b0465c4192707a243669c23468f6a5579790c5158b4e790"
+    },
+    {
+      "path": "intelligence-tasks/claimed-label.png",
+      "bytes": 4592,
+      "sha256": "e5dc45894c4712e4ccff986bbea40219931fcd63e25c73e6f3e547893ba091f4"
+    },
+    {
+      "path": "intelligence-tasks/reward-confirm.png",
+      "bytes": 3416,
+      "sha256": "e6b95682942e76ac05a0184d702ea976c6a665e05be4a2058908bd78712fde0e"
+    },
+    {
+      "path": "intelligence-tasks/reward-medal-daily.png",
+      "bytes": 19160,
+      "sha256": "2631ab4d040c9e396a0bec0901c46b055d1f17a154882050355a7a995a57b882"
+    },
+    {
+      "path": "intelligence-tasks/reward-medal.png",
+      "bytes": 19256,
+      "sha256": "1a5703be9b620e20daef30cfd5d086cb7dd4ab55223b493ebee51ba690035eaa"
+    },
+    {
+      "path": "intelligence-tasks/reward-title.png",
+      "bytes": 12270,
+      "sha256": "c7bc8c53f753bb93fa77db72d51d7ddfe52b433a387537115b0e2fca2ca4a302"
+    },
+    {
+      "path": "intelligence-tasks/sources.json",
+      "bytes": 2075,
+      "sha256": "bbfc63146046daffdb9839f32eb50ed67b2b3e9d45d6475601de987b747aa393"
+    },
+    {
+      "path": "invite-accept.png",
+      "bytes": 11395,
+      "sha256": "2ce580e534746e659f694a97d7016802e3d91258317ee4650492d8b673d7ec74"
+    },
+    {
+      "path": "invite-collapse-alt.png",
+      "bytes": 730,
+      "sha256": "1d992b373e698e7f630a8ab67f244343278fa2c3cb30e75b1d19f7ee2ed2b34c"
+    },
+    {
+      "path": "invite-collapse.png",
+      "bytes": 816,
+      "sha256": "954c87cdab43644524fb9b0c9c2d20a4fddbd4bdfc5e118cf898a5c33f7efc4f"
+    },
+    {
+      "path": "invite-decline.png",
+      "bytes": 12281,
+      "sha256": "0e9f30a40684bfd1463726289f3dfba6ed7e8644f1b97ec6edcd8288909c4f59"
+    },
+    {
+      "path": "invite-label.png",
+      "bytes": 3607,
+      "sha256": "ed4cdd9dc117af5964e55ac567b8bee0ebbf2ae78ffed3ac41a3f7b4cdaf1b9e"
+    },
+    {
+      "path": "join-bottom.png",
+      "bytes": 3449,
+      "sha256": "ae305720f400b7172dfe45e5d6e361d2e22873d133be966657b8e42ad7171576"
+    },
+    {
+      "path": "join-closed.png",
+      "bytes": 14140,
+      "sha256": "83892e998767a6200d39313996b28d289b3c3ede621c88c5f250f43ea4cd5d98"
+    },
+    {
+      "path": "join-disbanded.png",
+      "bytes": 16005,
+      "sha256": "d839664bfeaf5ea1adaae035594b673035942f55f3f08eef3be36f8f7978d39f"
+    },
+    {
+      "path": "join.png",
+      "bytes": 8087,
+      "sha256": "44cebdd11118ac93cfe2f3c4d50c8f9fc606b11782892d9929c47e59820f6f10"
+    },
+    {
+      "path": "menu-reverse.png",
+      "bytes": 32817,
+      "sha256": "b2964ed1a361232c1032d37fe139188080de87f43b29bab459b26b720df8bcd5"
+    },
+    {
+      "path": "menu-title.png",
+      "bytes": 17110,
+      "sha256": "2d7aeb085a0f7a0de23c7a2e8f331d33b917d4c5c2bf3a5bf2bf4e35f755a097"
+    },
+    {
+      "path": "ninjutsu-hand.png",
+      "bytes": 4802,
+      "sha256": "0c88220ee69b5c3b63cd7e31d949109548069c3a0f6b07f596e76b8399ccdda3"
+    },
+    {
+      "path": "ninjutsu-icon.png",
+      "bytes": 5463,
+      "sha256": "3fc040ba2fd177e7f110acb3faea8eb83081289f85501f8d8ddf79fcf782e5f7"
+    },
+    {
+      "path": "prepared.png",
+      "bytes": 10033,
+      "sha256": "69953f1e492c8bc1158d27188675dfaf2031f292a25703d2fb52870b82a07f22"
+    },
+    {
+      "path": "rank-s.onnx",
+      "bytes": 26966,
+      "sha256": "0789117f44c32dc113e46982afd41bc74d1019abac0e1a5902b636d821512ce8"
+    },
+    {
+      "path": "rank-s.png",
+      "bytes": 8664,
+      "sha256": "fe71a15321825487d9ea2cad6a8c67094c3292f198589e441934ca607f47b460"
+    },
+    {
+      "path": "ready.png",
+      "bytes": 9821,
+      "sha256": "18ec96d381c12da683e8688246ffec315156fec6b09831ef35bc546040fab87c"
+    },
+    {
+      "path": "refresh.png",
+      "bytes": 8412,
+      "sha256": "59f0d79a7be8cce8b80e294f55757cf5cfcea269492639283cd123813d58806d"
+    },
+    {
+      "path": "result-boss.png",
+      "bytes": 16476,
+      "sha256": "c7f68d25d059130a46b39c3aaa6ae1d885d3150864b7833403204b1575282a8a"
+    },
+    {
+      "path": "result-confirm.png",
+      "bytes": 9677,
+      "sha256": "b2aa4aa382d727c52ba650ccf850ab22309b62e0b0f598929a988600fd3deab3"
+    },
+    {
+      "path": "result-title.png",
+      "bytes": 10243,
+      "sha256": "dc34ab6c102ae7470595ee832291b8d6a47b5a973b7ab817e3423ba2d4bd2a07"
+    },
+    {
+      "path": "solo-boss-name.png",
+      "bytes": 4349,
+      "sha256": "de4a2f875643957ced3a9ac9ef5c3159392daac2ae9d52d1c175977134fb2548"
+    },
+    {
+      "path": "solo-start.png",
+      "bytes": 4198,
+      "sha256": "d32f8151bc22cc0266d4ee9c92047518f10f80c39b335106eb1fc008b7d0a23e"
+    },
+    {
+      "path": "solo-title.png",
+      "bytes": 7167,
+      "sha256": "aca5f153713b35e4cccc49d6af8902be7338ca46dbae9dd5f9739539c68363c6"
+    },
+    {
+      "path": "startup-hall-bounty.png",
+      "bytes": 26803,
+      "sha256": "0901101991d7a8853d82d3ee5d7cade849a2ce71f29e568a0a66ed0e6581b879"
+    },
+    {
+      "path": "startup-hall-title.png",
+      "bytes": 16573,
+      "sha256": "20b1482c9920b0880b81af96ca4e4ffe9b639e44ae31dcde72b6edc52f00f131"
+    },
+    {
+      "path": "startup-home.png",
+      "bytes": 12301,
+      "sha256": "3bc7831a368ed918cce2b46fda2af57a019adc0faeabbbc2eaa11bf4dff8d5c0"
+    },
+    {
+      "path": "startup-login.png",
+      "bytes": 5054,
+      "sha256": "6a8dbcf9881b15f0c9e49677f48f9497b7d2214a1ae1a55b1a6ac35dbd7bd8a0"
+    },
+    {
+      "path": "startup-network.png",
+      "bytes": 6759,
+      "sha256": "aeeb933f9c6536409446e4c6465e994dc99c1b907c782c7a31158ef400dffc1f"
+    },
+    {
+      "path": "startup-retry.png",
+      "bytes": 3156,
+      "sha256": "ab6191faab16d7f3496bc8d055cc49df6b0d50a8deb34f8b8181800d11f95f8d"
+    },
+    {
+      "path": "startup-server.png",
+      "bytes": 6311,
+      "sha256": "0c781e0b2a4899397c70edf70cfab69685077fe3fcf91a38d81596bed3755636"
+    },
+    {
+      "path": "training-loading.png",
+      "bytes": 1710,
+      "sha256": "a6c54f2d664f41a7bc059d080a420ead60923e1e8b410cfafc5c28cacc225a00"
+    },
+    {
+      "path": "training-parameters.png",
+      "bytes": 2210,
+      "sha256": "472844ea55261531eba1f125ece9f9508ae818fdd080d52d6d19d035bef327fc"
+    },
+    {
+      "path": "training-title.png",
+      "bytes": 4693,
+      "sha256": "5550fb3cd498e267444273e5a1dc6d30f67b1138b37cbddc804ca74a1a2dd27f"
+    },
+    {
+      "path": "weapon-ready.png",
+      "bytes": 9134,
+      "sha256": "c8b6bda258bb9280b49187ad40227413162ea1cf408303b3a3ec1b4d26bc7797"
+    },
+    {
+      "path": "weekend-obstacles/bomb.png",
+      "bytes": 10613,
+      "sha256": "50460b779ba68549eb8320934e611ddee00fd6905ff9bd79b037a3eef6a6ec14"
+    },
+    {
+      "path": "weekend-obstacles/gate.png",
+      "bytes": 14708,
+      "sha256": "6f51496e0bba405ab9d192976a34da853b845053e35ae875c5587dcaf3f8bd51"
+    },
+    {
+      "path": "weekend-obstacles/plant.png",
+      "bytes": 23420,
+      "sha256": "9a3447ff7a00d3c008a14e65c98292b9e31fa6753c5cc95aa97cd08fa22bc0b6"
+    },
+    {
+      "path": "weekend-obstacles/sources.json",
+      "bytes": 795,
+      "sha256": "bd0af2ec81abdbf85fb616c6765484528ec3cd8ffa9fbdf64d08c10402bb60cc"
+    },
+    {
+      "path": "weekend-obstacles/spike.png",
+      "bytes": 8678,
+      "sha256": "f13ce555c98689d06e61bde9dfd126131aa332cc23bcda34293daf9121105868"
+    },
+    {
+      "path": "weekend-race/claim.png",
+      "bytes": 2953,
+      "sha256": "922e684b0e6a196206da154d842eb56d46aa8d733dc51ebaae3dee7b51a2494e"
+    },
+    {
+      "path": "weekend-race/claimed.png",
+      "bytes": 3519,
+      "sha256": "d1e2edad62423ea998627c2d347ab02fe1c3307c6e1e2570630bdf0edd043467"
+    },
+    {
+      "path": "weekend-race/dash.png",
+      "bytes": 1516,
+      "sha256": "3fe89b2b1668cdedea7143c6557f5ab86223472769c2a1d849b623a5b398f7c2"
+    },
+    {
+      "path": "weekend-race/entry.png",
+      "bytes": 26660,
+      "sha256": "9b096e856459770595f4ef96d9045c932f03a358600d7fd1ac1540da9b75db03"
+    },
+    {
+      "path": "weekend-race/finish.png",
+      "bytes": 7130,
+      "sha256": "64c0b97c30b9f1a0844693fecfb4b3a06947fd43ec544758c1113a828bf1ddfb"
+    },
+    {
+      "path": "weekend-race/hall.png",
+      "bytes": 13836,
+      "sha256": "a10d3691baef6988453a2d3816c702259a10ed007c0a35e79d5d9c0b9d5424da"
+    },
+    {
+      "path": "weekend-race/home.png",
+      "bytes": 5915,
+      "sha256": "242b06d569cfba22b5d3a9b183187316193ff2eb7daff953906b0a8e208e27e0"
+    },
+    {
+      "path": "weekend-race/match.png",
+      "bytes": 2529,
+      "sha256": "19dcec818d6f7c98aefb25e621044460f9da9bd6244fb60b6b830dd749ec4557"
+    },
+    {
+      "path": "weekend-race/race-distance.png",
+      "bytes": 913,
+      "sha256": "f893e29565641f53323452211ea570e0bf039034b13051f045029a66f6bc8c35"
+    },
+    {
+      "path": "weekend-race/race-effect.png",
+      "bytes": 1394,
+      "sha256": "efcfafe384dcfe4b67e0eb0f33cba5e487d5669b0e0494c1075aabea76cbaa31"
+    },
+    {
+      "path": "weekend-race/ready.png",
+      "bytes": 3328,
+      "sha256": "3e6fee93c73935a739072c332a5a652b4e3156fac51837c2df2f207dcf76a2e0"
+    },
+    {
+      "path": "weekend-race/result.png",
+      "bytes": 3086,
+      "sha256": "264e9bc6fde22455f691864ad386f169f68b9978c2f2545d55575e9dcf2ba67a"
+    },
+    {
+      "path": "weekend-race/reward.png",
+      "bytes": 11038,
+      "sha256": "8b6ff6f8c4e30b12a62bde7228374a9be9a5523125afa955f5313d89523754e4"
+    },
+    {
+      "path": "weekend-race/rope-down.png",
+      "bytes": 8103,
+      "sha256": "78f74caf8aab504f3151a2af480219e075a6932465f4e54a18dfc3e6c09964ae"
+    },
+    {
+      "path": "weekend-race/sources.json",
+      "bytes": 841,
+      "sha256": "2d37a3dc794ce944a45941c5a17ca8013ef4f8f0aca00d22260a1628b31608e2"
+    },
+    {
+      "path": "weekend-race/standings.png",
+      "bytes": 3459,
+      "sha256": "0768ed558f2fa186ed5befd102148684ce1506becfda0b09f2daf5043e54da95"
+    },
+    {
+      "path": "weekend-race/tasks.png",
+      "bytes": 4892,
+      "sha256": "960e1905eaa419fea86d0c64a31faa28b5e2704b4f532af59ba2124f905160cf"
+    },
+    {
+      "path": "weekend-rope/platform-grass.png",
+      "bytes": 6475,
+      "sha256": "4126f81c8a417ffc9cd06cd7f3672de5a512e92e3aafc9ee018ffe8d98435d25"
+    },
+    {
+      "path": "weekend-rope/platform-snow.png",
+      "bytes": 5264,
+      "sha256": "d9e47893de36d16764fba7a7819d5cddedbf97b2916041e3ff315559f30afdc9"
+    },
+    {
+      "path": "weekend-rope/sources.json",
+      "bytes": 331,
+      "sha256": "51b1d211588aa000c6cdd587769fba246b6551ba1af067b3f8fa26653d493cd3"
+    }
+  ]
+}

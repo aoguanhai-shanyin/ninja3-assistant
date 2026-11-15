@@ -1,0 +1,13 @@
+"""Explicit checkpoints shared by activity runners and the task planner."""
+from enum import Enum
+
+
+class TaskOutcome(Enum):
+    DAILY_DONE = 'daily_done'
+    MATCH_DONE = 'match_done'
+    LIMIT_REACHED = 'limit_reached'
+    WAITING = 'waiting'
+    UNAVAILABLE = 'unavailable'
+    ERROR = 'error'
+    RECOVER_IN_PLACE = 'recover_in_place'
+    STOPPED = 'stopped'

@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Ninja3Assistant (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Ninja3Assistant (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

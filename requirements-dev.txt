@@ -1,0 +1,4 @@
+-r requirements.txt
+pyinstaller>=6,<7
+onnx>=1.17,<2
+pillow>=10,<14
