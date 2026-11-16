@@ -8,6 +8,15 @@ import ninja3_assistant.entrypoints.worker as worker
 
 
 class WorkerActivityTest(unittest.TestCase):
+    def test_daily_chores_share_the_same_task_planner(self):
+        with patch.object(sys,'argv',['worker.py','--mode','run','--folder','selected','--index','1',
+                         '--daily-tasks','monthly','house','village']),patch.object(sys,'stdout',io.StringIO()),\
+             patch('ninja3_assistant.entrypoints.worker.threading.Thread'),\
+             patch('ninja3_assistant.scheduling.task_scheduler.run_tasks') as run:
+            worker.main()
+        self.assertEqual([t.name for t in run.call_args.kwargs['tasks']],
+                         ['daily_monthly','daily_house','daily_village'])
+
     def test_window_flag_reaches_task_control_and_defaults_to_visible(self):
         for extra,expected in (([],False),(['--hide-game-window'],True)):
             with self.subTest(hidden=expected),patch.object(sys,'argv',[

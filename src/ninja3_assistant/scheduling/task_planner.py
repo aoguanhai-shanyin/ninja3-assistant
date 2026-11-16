@@ -20,10 +20,11 @@ class PlannedTask:
     priority: tuple = field(default=(0, 0, 0))
     retry_at: object = None
     in_progress: bool = False
+    recheck_at: object = None
 
 
 class TaskPlan:
-    description = '自动规划：先完成所选活动的全部日常，再打满场次或持续上分'
+    description = '自动规划：先完成每日清理和活动日常，再打满场次或持续上分'
 
     def __init__(self, tasks, now):
         self.tasks = []
@@ -49,6 +50,9 @@ class TaskPlan:
         owner = next((item for item in self.tasks if item.in_progress), None)
         for item in self.tasks:
             task = item.activity
+            if item.recheck_at is not None and now >= item.recheck_at:
+                item.daily_done = item.checked = False
+                item.recheck_at = None
             item.ready = False
             if owner is not None:
                 if item is owner:
@@ -61,7 +65,7 @@ class TaskPlan:
                 item.mode = 'daily'
                 item.phase = '日常优先'
                 item.ready = not item.checked or task.open(now)
-                item.priority = (0, not task.open(now), task.closes(now))
+                item.priority = (0, task.daily_priority, not task.open(now), task.closes(now))
             elif task.extra_mode:
                 item.mode = task.extra_mode
                 item.phase = '打满场次 / 上分'
@@ -70,7 +74,7 @@ class TaskPlan:
 
     def pending(self):
         return [item for item in self.tasks if not item.blocked and
-                (not item.daily_done or item.activity.extra_mode)]
+                (not item.daily_done or item.activity.extra_mode or item.recheck_at is not None)]
 
     def waiting(self, now):
         pending = self.pending()
@@ -82,6 +86,10 @@ class TaskPlan:
         if retries:
             delay = min(30, min((item.retry_at-now).total_seconds() for item in retries))
             return '等待重试：'+'、'.join(item.activity.label for item in retries), delay
+        scheduled = [item for item in pending if item.recheck_at is not None and item.recheck_at > now]
+        if scheduled:
+            due = min(item.recheck_at for item in scheduled)
+            return '等待倒计时：'+'、'.join(item.activity.label for item in scheduled), min(30,(due-now).total_seconds())
         return '等待活动开放：'+'、'.join(item.activity.label for item in pending), 30
 
     def complete(self, item, outcome, now):
@@ -99,6 +107,7 @@ class TaskPlan:
         item.in_progress = False
         if outcome == TaskOutcome.DAILY_DONE:
             item.daily_done = True
+            item.recheck_at = item.activity.next_check_at
             return 'status', label+'：已确认全部日常领取，进入后续计划'
         if outcome == TaskOutcome.MATCH_DONE:
             if not item.daily_done:

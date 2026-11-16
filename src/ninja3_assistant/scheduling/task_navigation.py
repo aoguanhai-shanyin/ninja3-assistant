@@ -9,10 +9,12 @@ def return_to_home(folder, index, control, *, target=None):
     from ninja3_assistant.activities.weekend.runner import RaceVision
     from ninja3_assistant.device.mumu import MuMu, prepare_game
     from ninja3_assistant.device.native_touch import create_native_touch
+    from ninja3_assistant.activities.daily.vision import DailyVision
 
     if prepare_game(folder, index, control, lambda s: None) is None:
         return False
     activity, race = ActivityVision(), RaceVision()
+    daily = DailyVision()
     native = None
     device = MuMu(folder, index)
     try:
@@ -26,6 +28,9 @@ def return_to_home(folder, index, control, *, target=None):
             captured = time.perf_counter()
             frame = device.capture()
             screen, kind = activity.detect(frame), race.detect(frame)
+            daily_page,daily_back = daily.navigation(frame)
+            if target and target.startswith('daily_') and daily_page is not None:
+                return True
             if target == 'intelligence' and screen.kind == 'battle':
                 return True
             if target == 'weekend' and (kind in ('ready','dash') or
@@ -48,6 +53,8 @@ def return_to_home(folder, index, control, *, target=None):
                 point = (65, 45)
             elif hall or kind == 'hall':
                 point = (50, 45)
+            elif daily_page:
+                point = daily_back
             else:
                 point = None
             if point:

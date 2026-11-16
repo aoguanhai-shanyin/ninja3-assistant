@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
     parser.add_argument('--weekend-enabled', action='store_true')
     parser.add_argument('--weekend-mode', choices=('daily', '25'), default='daily')
+    from ninja3_assistant.activities.daily import CHORES
+    parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
     args = parser.parse_args()
     if args.mode == 'hayabusa-video':
         if not args.video:
@@ -39,6 +41,8 @@ def main():
         parser.error('activity is available only in run mode')
     if args.weekend_enabled and args.mode != 'run':
         parser.error('weekend is available only in run mode')
+    if args.daily_tasks and args.mode != 'run':
+        parser.error('daily chores are available only in run mode')
 
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
@@ -79,11 +83,12 @@ def main():
         from ninja3_assistant.combat.hayabusa.trial import run_hayabusa
         run_hayabusa(args.folder, args.index, control, emit,
                      observe_only=args.mode == 'hayabusa-debug' or args.observe_only)
-    elif args.weekend_enabled or args.activity_enabled:
+    elif args.weekend_enabled or args.activity_enabled or args.daily_tasks:
         from ninja3_assistant.scheduling.activity_task import selected_tasks
         from ninja3_assistant.scheduling.task_scheduler import run_tasks
         tasks = selected_tasks(activity_mode=args.activity_mode if args.activity_enabled else None,
-                               weekend_mode=args.weekend_mode if args.weekend_enabled else None)
+                               weekend_mode=args.weekend_mode if args.weekend_enabled else None,
+                               daily_tasks=args.daily_tasks)
         run_tasks(args.folder, args.index, control, emit, tasks=tasks)
     else:
         run_flow(args.folder, args.index, control, emit, join_interval_ms=args.join_interval_ms)

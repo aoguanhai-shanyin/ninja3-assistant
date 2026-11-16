@@ -24,6 +24,7 @@ class ActivityDecision:
     point: tuple | None = None
     status: str = ''
     end_point: tuple | None = None
+    selection: dict | None = None
 
 
 def matching_open(now=None):
@@ -48,7 +49,9 @@ class ActivityFlow:
         self.pending = None
         self.purchase = None
         self.refreshed_round = None
+        self.last_refresh_count = None
         self.round_number = None
+        self.unknown_shop_since = None
         self.await_home = False
         self.completed_matches = 0
         self.claim_target = None
@@ -174,11 +177,15 @@ class ActivityFlow:
             return ActivityDecision(status='等待确认活动对局')
         if battle.kind == 'result' and battle.result_point:
             self.reset_inputs()
+            self.round_number = None
             if now-self.last_action_at < 1:
                 return ActivityDecision(status='等待活动结算更新')
             return ActivityDecision('result_confirm', battle.result_point, '确认活动结算并复查日常')
         if battle.kind in ('combat', 'prepared', 'matching'):
             if battle.kind == 'combat':
+                self.reset_inputs()
+            elif battle.kind == 'matching':
+                self.round_number = None
                 self.reset_inputs()
             return ActivityDecision(status={'combat': '活动战斗阶段，等待下一回合或结算',
                 'prepared': '活动已准备，等待对方', 'matching': '正在匹配活动对手'}[battle.kind])
@@ -186,7 +193,9 @@ class ActivityFlow:
             return ActivityDecision(status='活动对局暂未确认，停止输入')
         if battle.round_number != self.round_number:
             self.round_number = battle.round_number
+            self.unknown_shop_since = None
             self.refreshed_round = None
+            self.last_refresh_count = None
             self.reset_inputs()
         if len(battle.board) != 9 or len(battle.shop) != 5:
             return ActivityDecision(status='等待确认活动棋盘和商店布局')
@@ -211,7 +220,10 @@ class ActivityFlow:
         # to buy into another confirmed empty cell. Keep its slot occupied.
         policy_board = tuple(Card('unrecognized', 0, 0) if index in battle.unknown_board else card
                              for index, card in enumerate(battle.board))
-        choice = choose_purchase(policy_board, battle.shop, battle.coins, battle.round_number)
+        selection = {}
+        choice = choose_purchase(policy_board, battle.shop, battle.coins, battle.round_number,
+                                 explanation=selection)
+        selection.update(unknown_board=list(battle.unknown_board), unknown_shop=list(battle.unknown_shop))
         if choice:
             from ninja3_assistant.activities.intelligence.battle_vision import SHOP_POINTS
             shop, cell = choice
@@ -220,13 +232,35 @@ class ActivityFlow:
                 self.pending = (shop, cell, battle.shop[shop], battle.coins, now)
                 return ActivityDecision('place', battle.place_points[cell], '继续放置当前已确认选中的卡牌')
             self.purchase = (shop, cell, battle.shop[shop], battle.coins)
-            return ActivityDecision('select_card', SHOP_POINTS[shop], '按当前阵容选择可购买卡牌')
+            planned = ' → '.join(f"{item['name']}放{item['cell']//3+1}行{item['cell']%3+1}列"
+                                  for item in selection['plan'])
+            reason = (f"预算{battle.coins}，组合花费{selection['spent']}，预计增益{selection['estimated_gain']:g}，"
+                      f"组合联动增益{selection['synergy_gain']:g}：{planned}")
+            if selection['future_income'] or selection['granted_refreshes']:
+                reason += (f"；每回合收入{selection['income_per_turn']}，后续共{selection['future_income']}金币，"
+                           f"回合结束增加{selection['granted_refreshes']}次刷新（未来收益估算）")
+            if selection['special_victory']:
+                reason += '；组合可凑齐鬼斩角色和三种不同铠甲，优先特殊胜利'
+            if battle.unknown_board or battle.unknown_shop:
+                reason += '；存在未识别卡，仅按已确认信息规划'
+            return ActivityDecision('select_card', SHOP_POINTS[shop], reason, selection=selection)
         affordable = any(card and card.cost <= battle.coins for card in battle.shop)
-        if (not affordable and battle.coins > 0 and None in policy_board and
-                battle.refresh_point and self.refreshed_round != battle.round_number):
-            return ActivityDecision('refresh', battle.refresh_point, '使用本回合免费刷新寻找可购买卡牌')
+        if (not selection.get('special_victory') and battle.unknown_shop and
+                battle.coins > 0 and None in policy_board and not affordable):
+            if self.unknown_shop_since is None:
+                self.unknown_shop_since = now
+            if now-self.unknown_shop_since < 1:
+                return ActivityDecision(status='商店卡牌未识别，已留存样本，短暂重读后继续', selection=selection)
+        refresh_available = (self.refreshed_round != battle.round_number or
+            (battle.refreshes is not None and self.last_refresh_count is not None and
+             0 < battle.refreshes < self.last_refresh_count))
+        if (not selection.get('special_victory') and battle.coins > 0 and None in policy_board and
+                battle.refresh_point and refresh_available):
+            selection['refreshes_before'] = battle.refreshes
+            return ActivityDecision('refresh', battle.refresh_point, '使用本回合免费刷新寻找可购买卡牌', selection=selection)
         if battle.ready_point:
-            return ActivityDecision('prepare', battle.ready_point, '本回合购牌结束，准备战斗')
+            reason = '鬼斩特殊胜利条件已齐，保留阵容并准备' if selection.get('special_victory') else '本回合购牌结束，准备战斗'
+            return ActivityDecision('prepare', battle.ready_point, reason, selection=selection)
         return ActivityDecision(status='等待确认活动准备按钮')
 
     def completed(self, decision, now):
@@ -238,6 +272,7 @@ class ActivityFlow:
             self.pending = None
         elif decision.action == 'refresh':
             self.refreshed_round = self.round_number
+            self.last_refresh_count = (decision.selection or {}).get('refreshes_before')
         elif decision.action == 'result_confirm':
             self.await_home = True
         elif decision.action == 'claim':

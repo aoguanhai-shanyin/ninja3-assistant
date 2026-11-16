@@ -17,9 +17,9 @@ class ActivityPolicyTest(unittest.TestCase):
         self.assertIsNone(self.choose([known], board=[known]*9))
         self.assertIsNone(self.choose([None]))
 
-    def test_earlier_rounds_prefer_efficiency_and_last_round_immediate_attack(self):
+    def test_full_budget_values_total_damage_instead_of_single_card_efficiency(self):
         cards = [Card('efficient', 3, 1), Card('large', 5, 5)]
-        self.assertEqual(self.choose(cards, round_number=1), (0, 0))
+        self.assertEqual(self.choose(cards, round_number=1), (1, 0))
         self.assertEqual(self.choose(cards, round_number=5), (1, 0))
 
     def test_static_row_water_synergy_places_third_water_in_matching_row(self):
@@ -31,7 +31,8 @@ class ActivityPolicyTest(unittest.TestCase):
     def test_new_row_buff_uses_matching_row_and_excludes_itself(self):
         board = [Card('one', 1, 1), Card('two', 1, 1), None] + [None]*6
         buff = Card('buff', 1, 2, 'water', 'character', '同行其他卡攻击+2，持续2回合')
-        self.assertEqual(self.choose([Card('plain', 3, 2), buff], board=board), (1, 2))
+        self.assertEqual(self.choose([Card('plain', 3, 2), buff], board=board, coins=2,
+                                     round_number=4), (1, 2))
 
     def test_new_element_column_buff_chooses_column_with_matching_cards(self):
         board = [Card('fire', 1, 1, 'fire'), None, None,

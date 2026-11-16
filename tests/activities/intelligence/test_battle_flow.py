@@ -34,6 +34,43 @@ def step_after_scan(flow, screen, now, wall_time):
 
 
 class ActivityBattleFlowTest(unittest.TestCase):
+    def test_extra_refreshes_are_used_only_after_the_counter_decreases(self):
+        flow = ActivityFlow()
+        current = placement(shop=(None,)*5,refresh_point=(1115,535),refreshes=3)
+        for now,count in ((0,3),(1,2),(2,1)):
+            decision = step(flow,replace(current,refreshes=count),now)
+            self.assertEqual(decision.action,'refresh')
+            flow.completed(decision,now)
+            self.assertEqual(step(flow,replace(current,refreshes=count),now+.5).action,'prepare')
+        self.assertEqual(step(flow,replace(current,refreshes=0,refresh_point=None),3).action,'prepare')
+
+    def test_special_victory_early_finish_does_not_keep_refresh_state_in_the_next_match(self):
+        flow = ActivityFlow()
+        current = placement(shop=(None,)*5,refresh_point=(1115,535),refreshes=1)
+        decision = step(flow,current,0)
+        flow.completed(decision,0)
+        step(flow,BattleObservation('result',result_point=(640,541)),2)
+        self.assertEqual(step(flow,current,4).action,'refresh')
+
+    def test_selected_plan_explains_budget_and_preserves_unknown_occupancy(self):
+        flow = ActivityFlow()
+        result = step(flow, placement(unknown_board=(0,)),0)
+        self.assertIn('预算5',result.status)
+        self.assertIn('未识别卡',result.status)
+        self.assertEqual(result.selection['unknown_board'],[0])
+        self.assertEqual(result.selection['spent'],2)
+        self.assertNotEqual(result.selection['plan'][0]['cell'],0)
+
+    def test_unreadable_shop_retries_briefly_then_refreshes_once(self):
+        flow = ActivityFlow()
+        unknown = placement(shop=(None,)*5,unknown_shop=(0,1),refresh_point=(1115,535))
+        self.assertEqual(step(flow,unknown,0).action,'wait')
+        self.assertEqual(step(flow,unknown,.9).action,'wait')
+        refresh = step(flow,unknown,1)
+        self.assertEqual(refresh.action,'refresh')
+        flow.completed(refresh,1)
+        self.assertEqual(step(flow,unknown,2).action,'prepare')
+
     def selected(self):
         flow = ActivityFlow()
         decision = step(flow, placement(), 0)
@@ -121,7 +158,8 @@ class ActivityBattleFlowTest(unittest.TestCase):
         drop = step(flow, placement(selected_shop=0, place_points=((140, 232),)+(None,)*8), 1)
         flow.completed(drop, 1)
         confirmed = placement(board=(CARD,)+(None,)*8, shop=(None,)*5, coins=3, unknown_shop=(0,))
-        self.assertEqual(step(flow, confirmed, 2).action, 'prepare')
+        self.assertEqual(step(flow, confirmed, 2).action, 'wait')
+        self.assertEqual(step(flow, confirmed, 3).action, 'prepare')
         self.assertIsNone(flow.pending)
 
     def test_result_requires_completed_confirmation_and_return_home_to_count(self):

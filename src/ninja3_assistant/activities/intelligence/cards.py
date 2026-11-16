@@ -30,7 +30,7 @@ def load_catalog(path=CATALOG_PATH):
     """Load base values and visually transcribed effects as immutable Cards."""
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     return tuple(Card(**{key: entry[key] for key in
-                         ('id', 'attack', 'cost', 'element', 'profession', 'effect')})
+                         Card.__dataclass_fields__})
                  for entry in data['cards'])
 
 

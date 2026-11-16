@@ -9,6 +9,8 @@ class ActivityTask(ABC):
     label: str
     extra_mode: str | None
     windows: tuple
+    daily_priority: int = 100
+    next_check_at: object = None
 
     def open(self, now):
         return any(start <= now.hour < end for start, end in self.windows)
@@ -40,8 +42,29 @@ class WeekendTask(ActivityTask):
         return run_weekend(folder, index, control, emit, mode=mode, checkpoint=True)
 
 
-def selected_tasks(*, activity_mode=None, weekend_mode=None):
-    tasks = []
+class DailyTask(ActivityTask):
+    def __init__(self, kind):
+        from ninja3_assistant.activities.daily import CHORES
+        if kind not in CHORES:
+            raise ValueError('未知每日清理任务：'+kind)
+        super().__init__('daily_'+kind,CHORES[kind],None,((0,24),),daily_priority=list(CHORES).index(kind))
+        self.kind = kind
+
+    def run(self, folder, index, control, emit, *, mode):
+        from ninja3_assistant.activities.daily.runner import run_daily
+        from datetime import datetime
+        from ninja3_assistant.activities.intelligence.flow import CHINA
+        self.next_check_at = None
+        def forward(kind,value):
+            if kind == 'daily_next_check':
+                self.next_check_at = datetime.fromtimestamp(value,CHINA)
+            else:
+                emit(kind,value)
+        return run_daily(self.kind,folder,index,control,forward)
+
+
+def selected_tasks(*, activity_mode=None, weekend_mode=None, daily_tasks=()):
+    tasks = [DailyTask(kind) for kind in dict.fromkeys(daily_tasks)]
     if activity_mode is not None:
         tasks.append(IntelligenceTask(activity_mode))
     if weekend_mode is not None:

@@ -9,6 +9,7 @@ import subprocess
 import cv2
 
 from ninja3_assistant.activities.intelligence.flow import ActivityFlow
+from ninja3_assistant.activities.intelligence.evidence import UnknownCardRecorder
 from ninja3_assistant.activities.intelligence.vision import ActivityVision
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
@@ -67,6 +68,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
         output.mkdir(parents=True, exist_ok=False)
         log = (output/'events.jsonl').open('w', encoding='utf-8')
         flow = ActivityFlow(mode)
+        unknown_cards = UnknownCardRecorder(output)
         launched = prepare_game(folder, index, control, status)
         if launched is None:
             return TaskOutcome.STOPPED
@@ -93,6 +95,10 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
             capture_ms = (time.perf_counter()-captured)*1000
             vision_started = time.perf_counter()
             screen = vision.detect(frame)
+            evidence = unknown_cards.save(frame,screen.battle)
+            if evidence:
+                log.write(json.dumps(evidence,ensure_ascii=False)+'\n')
+                log.flush()
             if screen.kind == 'battle':
                 battle_active = True
             elif screen.kind in ('event_home', 'home', 'hall', 'hall_search', 'tasks', 'login'):
@@ -196,6 +202,8 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
             if page != last_page or decision.action != 'wait':
                 record = {'time': time.time(), 'page': screen.kind, 'daily': screen.daily,
                           'action': decision.action, 'point': decision.point, 'status': decision.status}
+                if decision.selection:
+                    record['selection'] = decision.selection
                 if screen.task and screen.task.rows:
                     record['daily_progress']=[row.progress for row in screen.task.rows]
                 if decision.end_point:

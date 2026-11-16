@@ -17,15 +17,17 @@ def image(name):
 
 
 class BattleVisionTest(unittest.TestCase):
-    def test_actual_highlight_obscures_c036_without_blocking_placement(self):
+    def test_actual_highlight_recovers_c036_without_blocking_placement(self):
         root = LIVE.parents[1]/'evidence/2026-11-15/intelligence-selection'
         frames = [cv2.cvtColor(cv2.imread(str(root/name)), cv2.COLOR_BGR2RGB)
                   for name in ('before.png', 'selected.png')]
         before, selected = [replace(self.vision.detect(frame), coins=4) for frame in frames]
         self.assertEqual(before.shop[2].id, 'c036')
         self.assertEqual(selected.selected_shop, 2)
-        self.assertIsNone(selected.shop[2])
-        self.assertIn(2, selected.unknown_shop)
+        self.assertEqual(selected.shop[2].id,'c036')
+        self.assertNotIn(2,selected.unknown_shop)
+        # Isolate the selection/occlusion protocol from the purchase policy.
+        before = replace(before, shop=tuple(card if i == 2 else None for i,card in enumerate(before.shop)))
         flow = ActivityFlow()
         choose = flow.battle_step(before, 0)
         self.assertEqual(choose.action, 'select_card')

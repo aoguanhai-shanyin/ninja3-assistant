@@ -24,7 +24,7 @@ class ActivityCardsTest(unittest.TestCase):
         self.assertTrue(all(isinstance(card, Card) for card in cards))
         self.assertEqual(len({card.id for card in cards}), 53)
         self.assertEqual(cards[0], Card('c001', 1, 1, 'fire', 'character',
-                                       '忍村5虎。上场2虎后自身攻击+2'))
+                                       '忍村5虎。上场2虎后自身攻击+2', '炎魂·小黑'))
 
     def test_all_53_source_cards_and_uniform_resize_replay(self):
         for entry, image in zip(self.entries, self.images):

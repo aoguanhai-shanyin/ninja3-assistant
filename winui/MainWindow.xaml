@@ -140,6 +140,28 @@
 
                     <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
                         <StackPanel Spacing="14">
+                            <ToggleSwitch x:Name="DailyEnabledSwitch" Header="每日清理" OffContent="关闭" OnContent="开启" Toggled="DailyEnabled_Toggled" />
+                            <ContentControl x:Name="DailyOptionsControl" IsEnabled="False" HorizontalContentAlignment="Stretch">
+                            <Grid x:Name="DailyOptionsPanel" ColumnSpacing="24" RowSpacing="4">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <CheckBox Content="每月日签到（最多25天）" Tag="monthly" IsChecked="True" />
+                                <CheckBox Grid.Row="1" Content="限时签到" Tag="limited" IsChecked="True" />
+                                <CheckBox Grid.Row="2" Content="家族免费祈福" Tag="blessing" IsChecked="True" />
+                                <CheckBox Grid.Row="3" Content="免费武器抽取" Tag="weapon" IsChecked="True" />
+                                <CheckBox Grid.Row="4" Content="免费咒印抽取" Tag="curse" IsChecked="True" />
+                                <CheckBox Grid.Column="1" Content="悬赏商店：D、C奖册" Tag="bounty_shop" IsChecked="True" />
+                                <CheckBox Grid.Column="1" Grid.Row="1" Content="每日商店：忍币商品" Tag="daily_shop" IsChecked="True" />
+                                <CheckBox Grid.Column="1" Grid.Row="2" Content="忍村试炼：从右往左扫荡" Tag="village" IsChecked="True" />
+                                <CheckBox Grid.Column="1" Grid.Row="3" Content="小屋：领取碎片并续练" Tag="house" IsChecked="True" />
+                            </Grid>
+                            </ContentControl>
+                            <TextBlock Text="先处理每日清理，再做活动日常和上分。仅免费抽取与祈福；商店只用忍币，不付费刷新或购买体力。" TextWrapping="Wrap" Foreground="#B9C5D9" />
+                            <TextBlock Text="小屋优先于试炼扫荡，续练消耗5饭团；按小屋倒计时和每30分钟恢复1饭团预留。" TextWrapping="Wrap" Foreground="#91A1BC" FontSize="12" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
+                        <StackPanel Spacing="14">
                             <ToggleSwitch x:Name="WeekendEnabledSwitch" Header="周末活动 · 同屏竞速" OffContent="关闭" OnContent="开启" Toggled="WeekendEnabled_Toggled" />
                             <ComboBox x:Name="WeekendModeBox" Header="任务结束方式" SelectedIndex="0" IsEnabled="False">
                                 <ComboBoxItem Content="完成每日任务后停止" />

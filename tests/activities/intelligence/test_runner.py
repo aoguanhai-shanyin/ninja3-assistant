@@ -109,6 +109,20 @@ class ActivityRig:
 
 
 class ActivityRunnerTest(unittest.TestCase):
+    def test_unknown_card_samples_and_selection_reason_are_written_to_run_log(self):
+        observation = BattleObservation('placement',board=(None,)*9,shop=(None,)*5,
+            round_number=1,coins=5,unknown_shop=(2,),
+            card_candidates={'shop:2':[{'card':'c036','score':.81}]})
+        rig = ActivityRig([ActivityScreen('battle',battle=observation)]*2)
+        rig.flow.step.return_value = ActivityDecision('prepare',(1118,654),'保留金币',
+            selection={'budget':5,'plan':[],'estimated_gain':0})
+        rig.run()
+        samples = [r for r in rig.records if r.get('event') == 'unknown_cards']
+        self.assertEqual(len(samples),1)
+        self.assertEqual(samples[0]['slots'][0]['candidates'][0]['card'],'c036')
+        actions = [r for r in rig.records if r.get('action') == 'prepare']
+        self.assertEqual(actions[0]['selection']['budget'],5)
+
     def test_exception_during_match_retains_task_ownership_through_unknown_or_invite(self):
         for screen in (ActivityScreen(), ActivityScreen('invite', (10,10))):
             rig = ActivityRig([ActivityScreen('battle', battle=BattleObservation('combat')), screen])

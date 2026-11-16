@@ -1,6 +1,6 @@
 """Live-sampled 1280x720 intelligence battle layout; no device access."""
 from ninja3_assistant.paths import resource_root
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import re
 
@@ -36,6 +36,7 @@ class BattleObservation:
     outcome: str | None = None
     score: int | None = None
     score_gain: int | None = None
+    card_candidates: dict = field(default_factory=dict)
 
 
 class BattleVision:
@@ -46,11 +47,54 @@ class BattleVision:
                            for entry in data['cards'])
         self.art = []
         self.names = []
+        self.patches = []
         for entry in data['cards']:
             image = cv2.cvtColor(cv2.imread(str(ROOT/entry['template'])), cv2.COLOR_BGR2RGB)
             # Lock/withdraw icons in live cards obscure the catalog's right edge.
             self.art.append(image[40:105, 10:120])
             self.names.append(image[154:175, 30:135])
+            gray = cv2.cvtColor(self.art[-1],cv2.COLOR_RGB2GRAY)
+            self.patches.append(tuple((gray[a:b,c:d],c,a) for a,b,c,d in
+                ((0,20,0,30),(0,20,80,110),(45,65,0,30),(45,65,80,110))))
+        self.empty_patterns = {area:tuple((t,cv2.Canny(t,15,50)) for name,t in self.templates.items()
+            if name.startswith('empty-'+area)) for area in ('board','shop')}
+
+    def _empty_pattern(self, gray, area, box):
+        """Positive card-back pattern, robust to glow; not 'unknown means empty'."""
+        x1,y1,x2,y2 = box
+        crop = gray[y1:y2,x1:x2]
+        edges = cv2.Canny(crop,15,50)
+        for template,pattern in self.empty_patterns[area]:
+            if any(a < b for a,b in zip(crop.shape,template.shape)):
+                continue
+            score = cv2.minMaxLoc(cv2.matchTemplate(crop,template,cv2.TM_CCOEFF_NORMED))[1]
+            if score >= .6 and cv2.minMaxLoc(cv2.matchTemplate(edges,pattern,cv2.TM_CCOEFF_NORMED))[1] >= .65:
+                return True
+        return False
+
+    def _named_card(self, face, scores, candidates):
+        """An unoccluded name AND two aligned portrait patches must agree."""
+        names = np.array([cv2.minMaxLoc(cv2.matchTemplate(face[138:181,:],t,
+                            cv2.TM_CCOEFF_NORMED))[1] for t in self.names])
+        order = np.argsort(names)
+        best = int(order[-1])
+        if names[best] < .75 or names[best]-names[order[-2]] < (.06 if names[best] >= .84 else .12):
+            return None
+        search = cv2.cvtColor(face[25:125,:135],cv2.COLOR_RGB2GRAY)
+        matches = []
+        for template,x,y in self.patches[best]:
+            _,score,_,at = cv2.minMaxLoc(cv2.matchTemplate(search,template,cv2.TM_CCOEFF_NORMED))
+            matches.append((score,at[0]-x,at[1]-y))
+        threshold = .82 if names[best] >= .84 else .9
+        agreed = any(a[0] >= threshold and b[0] >= threshold and
+                     abs(a[1]-b[1]) <= 4 and abs(a[2]-b[2]) <= 4
+                     for i,a in enumerate(matches) for b in matches[i+1:])
+        if candidates is not None:
+            candidates[:] = ([{'card':self.cards[best].id,'score':round(float(scores[best]),4),
+                'name_score':round(float(names[best]),4),
+                'patch_scores':[round(float(m[0]),4) for m in matches]}] +
+                [c for c in candidates if c['card'] != self.cards[best].id])[:3]
+        return self.cards[best] if agreed else None
 
     def _match(self, gray, name, box, threshold=.94, error=25):
         if name not in self.templates:
@@ -70,13 +114,16 @@ class BattleVision:
         patch = area[at[1]:at[1]+template.shape[0], at[0]:at[0]+template.shape[1]]
         return score >= threshold and np.abs(patch.astype(np.int16)-template).mean() <= error
 
-    def _card(self, frame, box, selected=False):
+    def _card(self, frame, box, selected=False, candidates=None):
         x1, y1, x2, y2 = box
         face = cv2.resize(frame[y1:y2, x1:x2], (150, 181), interpolation=cv2.INTER_AREA)
         search = face[30:115, 0:130]
         scores = np.array([cv2.minMaxLoc(cv2.matchTemplate(search, art, cv2.TM_CCOEFF_NORMED))[1]
                            for art in self.art])
         order = np.argsort(scores)
+        if candidates is not None:
+            candidates.extend({'card':self.cards[int(i)].id,'score':round(float(scores[i]),4)}
+                              for i in order[-3:][::-1])
         best, runner_up = order[-1], order[-2]
         # The confirmed green selection tint slightly changes the portrait's
         # color. Keep the candidate separation gate and only relax this state.
@@ -91,7 +138,7 @@ class BattleVision:
             selected_name = selected and scores[best] >= .85 and scores[best]-scores[runner_up] >= .15 and name >= .9
             if not selected_name and (ranked[-1] != best or upper[best] < .89 or
                     upper[best]-upper[ranked[-2]] < .25 or name < .86):
-                return None
+                return self._named_card(face,scores,candidates)
         return self.cards[best]
 
     def _round(self, gray):
@@ -161,10 +208,13 @@ class BattleVision:
         if not self._match(gray, 'shop-title', (637, 148, 795, 195)):
             return BattleObservation()
         board, unknown_board, place_points = [], [], []
+        card_candidates = {}
         for index, ((x, y), box) in enumerate(zip(BOARD_CENTERS, BOARD_BOXES)):
             region = (x-55, y-55, x+55, y+55)
             empty = any(self._match(gray, f'empty-board-{number}', region, .88, 32)
                         for number in range(9))
+            if not empty:
+                empty = self._empty_pattern(gray,'board',region)
             selected = any(self._match(gray, f'selected-board-{number}', region, .88, 32)
                            for number in range(9))
             if empty or selected:
@@ -172,11 +222,13 @@ class BattleVision:
                 plus = self._match(gray, 'plus', (x-23, y-24, x+24, y+25), .92, 30)
                 place_points.append((x, y) if selected and plus else None)
             else:
-                card = self._card(frame, box)
+                candidates = []
+                card = self._card(frame, box, candidates=candidates)
                 board.append(card)
                 place_points.append(None)
                 if card is None:
                     unknown_board.append(index)
+                    card_candidates[f'board:{index}'] = candidates
         shop, unknown_shop, green = [], [], []
         for index, box in enumerate(SHOP_BOXES):
             x1, y1, x2, y2 = box
@@ -186,13 +238,17 @@ class BattleVision:
                                   (strip[:, :, 1] > strip[:, :, 2]+15))
             green.append(green_score)
             empty = self._match(gray, 'empty-shop', (x1+25, y1+40, x2-20, y2-40), .92, 27)
+            if not empty:
+                empty = self._empty_pattern(gray,'shop',(x1+25,y1+40,x2-20,y2-40))
             if empty:
                 shop.append(None)
             else:
-                card = self._card(frame, box, selected=green_score > .18 and any(place_points))
+                candidates = []
+                card = self._card(frame, box, selected=green_score > .18 and any(place_points), candidates=candidates)
                 shop.append(card)
                 if card is None:
                     unknown_shop.append(index)
+                    card_candidates[f'shop:{index}'] = candidates
         selected = [index for index, score in enumerate(green) if score > .18]
         selected_shop = selected[0] if len(selected) == 1 and any(place_points) else None
         ready = self._match(gray, 'ready', (1048, 627, 1197, 682))
@@ -202,4 +258,5 @@ class BattleVision:
         return BattleObservation('placement' if ready else 'prepared', tuple(board), tuple(shop),
             tuple(unknown_board), tuple(unknown_shop), coins, round_number, refreshes,
             selected_shop, tuple(place_points), (1118, 654) if ready else None,
-            (1115, 535) if refreshes is not None and refreshes > 0 and ready else None)
+            (1115, 535) if refreshes is not None and refreshes > 0 and ready else None,
+            card_candidates=card_candidates)

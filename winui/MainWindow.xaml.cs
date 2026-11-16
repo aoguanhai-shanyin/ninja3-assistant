@@ -38,6 +38,8 @@ public sealed partial class MainWindow : Window
         public bool WeekendEnabled { get; set; }
         public string WeekendMode { get; set; } = "daily";
         public bool HideGameWindow { get; set; }
+        public bool DailyEnabled { get; set; }
+        public string[] DailyTasks { get; set; } = ["monthly", "limited", "blessing", "weapon", "curse", "bounty_shop", "daily_shop", "village", "house"];
     }
 
     private sealed class InstanceOption
@@ -91,6 +93,10 @@ public sealed partial class MainWindow : Window
         WeekendModeBox.SelectedIndex = settings.WeekendMode == "25" ? 1 : 0;
         WeekendModeBox.IsEnabled = settings.WeekendEnabled;
         HideGameWindowSwitch.IsOn = settings.HideGameWindow;
+        DailyEnabledSwitch.IsOn = settings.DailyEnabled;
+        foreach (var option in DailyOptionsPanel.Children.OfType<CheckBox>())
+            option.IsChecked = (settings.DailyTasks ?? []).Contains((string)option.Tag);
+        DailyOptionsControl.IsEnabled = settings.DailyEnabled;
         _savedIndex = settings.Index;
         _savedName = settings.InstanceName;
         _savedFolder = settings.Folder;
@@ -130,6 +136,9 @@ public sealed partial class MainWindow : Window
         settings.WeekendEnabled = WeekendEnabledSwitch.IsOn;
         settings.WeekendMode = WeekendModeBox.SelectedIndex == 1 ? "25" : "daily";
         settings.HideGameWindow = HideGameWindowSwitch.IsOn;
+        settings.DailyEnabled = DailyEnabledSwitch.IsOn;
+        settings.DailyTasks = DailyOptionsPanel.Children.OfType<CheckBox>()
+            .Where(option => option.IsChecked == true).Select(option => (string)option.Tag).ToArray();
         return true;
     }
 
@@ -273,6 +282,11 @@ public sealed partial class MainWindow : Window
         }
         if (!TrySettings(out var settings, requireRunning: mode != "run") || !PersistSettings(settings))
             return;
+        if (mode == "run" && settings.DailyEnabled && settings.DailyTasks.Length == 0)
+        {
+            ShowMessage("请至少选择一项每日清理任务。");
+            return;
+        }
         string executable = Path.Combine(AppContext.BaseDirectory, "Ninja3Worker.exe");
         if (!File.Exists(executable))
         {
@@ -313,6 +327,11 @@ public sealed partial class MainWindow : Window
                 info.ArgumentList.Add("--weekend-enabled");
                 info.ArgumentList.Add("--weekend-mode");
                 info.ArgumentList.Add(settings.WeekendMode);
+            }
+            if (mode == "run" && settings.DailyEnabled)
+            {
+                info.ArgumentList.Add("--daily-tasks");
+                foreach (string task in settings.DailyTasks) info.ArgumentList.Add(task);
             }
             var process = Process.Start(info) ?? throw new InvalidOperationException("无法启动运行组件");
             _worker = process;
@@ -503,7 +522,15 @@ public sealed partial class MainWindow : Window
         WeekendEnabledSwitch.IsEnabled = available;
         WeekendModeBox.IsEnabled = available && WeekendEnabledSwitch.IsOn;
         ActivityModeBox.IsEnabled = available && ActivityEnabledSwitch.IsOn;
+        DailyEnabledSwitch.IsEnabled = available;
+        DailyOptionsControl.IsEnabled = available && DailyEnabledSwitch.IsOn;
         UpdateVideoDebugAvailability(busy || _scanning);
+    }
+
+    private void DailyEnabled_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (DailyOptionsControl is not null)
+            DailyOptionsControl.IsEnabled = DailyEnabledSwitch.IsOn && _worker is null && !_scanning && !VideoDebugBusy;
     }
 
     private void ActivityEnabled_Toggled(object sender, RoutedEventArgs e)
