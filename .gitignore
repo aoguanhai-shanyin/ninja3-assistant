@@ -14,7 +14,7 @@ __pycache__/
 *.p12
 *.key
 *.pem
-build/
+/build/
 dist/
 winui/bin/
 winui/obj/

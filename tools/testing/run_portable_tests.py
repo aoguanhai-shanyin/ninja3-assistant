@@ -4,10 +4,12 @@ import unittest
 
 
 MODULES = (
-    'tests.activities.daily.test_flow','tests.activities.daily.test_resources',
+    'tests.activities.bounty.test_combat','tests.activities.bounty.test_daily_flow',
+    'tests.activities.bounty.test_daily_runner',
+    'tests.activities.daily.test_flow','tests.activities.daily.test_resources','tests.activities.daily.test_food_ocr',
     'tests.activities.intelligence.test_flow','tests.activities.intelligence.test_battle_flow',
     'tests.activities.intelligence.test_evidence','tests.activities.intelligence.test_purchase_planning',
-    'tests.scheduling.test_task_planner',
+    'tests.scheduling.test_task_planner','tests.scheduling.test_task_navigation',
     'tests.runtime.test_realtime_battle','tests.runtime.test_experimental_input_scheduler','tests.runtime.test_paths',
     'tests.device.test_mumu','tests.device.test_mumu_macro','tests.device.test_mumu_multitouch',
     'tests.combat.boss.test_policy','tests.combat.hayabusa.test_policy','tests.combat.hayabusa.test_async_pipeline',

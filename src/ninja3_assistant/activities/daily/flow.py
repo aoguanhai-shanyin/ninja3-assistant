@@ -5,7 +5,7 @@ import time
 
 import numpy as np
 
-from ninja3_assistant.activities.daily.resources import reserve_food
+from ninja3_assistant.activities.daily.resources import reserve_food, remaining_seconds
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,8 @@ class DailyFlow:
         self.bounty_at_start = False
         self.training_finishes_at = training_finishes_at
         self.clock = clock
+        self.rank_daily_checked = False
+        self.rank_weekly_checked = False
 
     def tap(self, point, status, **kwargs):
         return DailyDecision('tap',point,status,**kwargs)
@@ -42,6 +44,8 @@ class DailyFlow:
         page,text = screen.page,screen.text()
         if page == 'invite':
             return self.tap(screen.point,'拒绝队友或家族邀请',guard=(340,475,940,585))
+        if page == 'reward_continue':
+            return self.tap((1130,590),'关闭已领取奖励，继续每日清理')
         if page == 'reward':
             hits = screen.hits('确定',(200,560,750,715))
             if hits:
@@ -51,7 +55,8 @@ class DailyFlow:
         if page == 'home':
             point = {'monthly':(50,280),'limited':(230,195),'blessing':(1010,450),
                      'weapon':(580,650),'curse':(580,650),'bounty_shop':(480,650),
-                     'daily_shop':(480,650),'village':(865,600),'house':(143,195)}[self.kind]
+                     'daily_shop':(480,650),'village':(865,600),'house':(143,195),
+                     'rank':(65,50)}[self.kind]
             if self.kind == 'limited' and 'anniversary' in self.limited_checked:
                 point = (580,650)
             return self.tap(point,'进入每日清理项目')
@@ -140,7 +145,8 @@ class DailyFlow:
                 return DailyDecision('unavailable',status='续练费用未确认，不操作')
             if page == 'house':
                 region = screen.text((270,590,420,715))
-                if re.search(r'\d+小时|\d+分钟|\d+分\d+秒',region):
+                countdown = remaining_seconds(region)
+                if countdown is not None and countdown > 0:
                     return DailyDecision('done',status='小屋正在修炼，保留当前角色和倒计时')
                 if '修炼完成' in region or vision.match(screen.frame,'house-complete',(260,665,420,715)):
                     return self.tap((320,650),'领取小屋修炼碎片',guard=(270,590,420,715))
@@ -149,13 +155,56 @@ class DailyFlow:
             decision = self.village(screen,vision)
             if decision:
                 return decision
-        if page in ('curse','weapon','vault','prayer','trial','hall','family','shop','limited-shop','daily_shop','bounty_shop','no_family','summon','house','rank'):
+        if page == 'rank':
+            return self.rank(screen) if self.kind == 'rank' else self.back((75,50))
+        if page == 'rank-preview':
+            return self.back((75,50))
+        if page in ('curse','weapon','vault','prayer','trial','hall','family','shop','limited-shop','daily_shop','bounty_shop','no_family','summon','house'):
             return self.back((90,65) if page == 'family' else (65,50))
         if page == 'activities':
             return self.tap((135,180),'进入每日签到') if self.kind == 'monthly' else self.back((1238,48))
         if '登录' in text and '点击切换' in text:
             return self.tap((640,515),'登录当前已选账号')
         return DailyDecision(status='等待识别日常页面')
+
+    def rank(self, screen):
+        daily = screen.hits('每日任务',(600,210,1240,680))
+        main = screen.hits('主线任务',(600,210,1240,680))
+        if daily and main and daily[0].point[1] < main[0].point[1]:
+            top = daily[0].box[1]+daily[0].box[3]
+            bottom = main[0].box[1]
+            box = (1060,top,1235,bottom)
+            claims = screen.hits('点击[领颌倾]取',box)
+            if claims:
+                return self.tap(claims[0].point,'领取忍阶已完成每日任务')
+            states = screen.hits('已领取|点击前往',box)
+            # Claimed rows disappear. Green rows still need a readable claim label.
+            buttons = screen.frame[int(top):int(bottom),1060:1235]
+            green = ((buttons[:,:,1] > 140)&(buttons[:,:,0] > 80)&
+                     (buttons[:,:,2] < 100)).mean() if buttons.size else 0
+            if green < .1 and (states or bottom-top < 40 or
+                    screen.hits('每日任务(?:已)?全部完成',(600,top,1235,bottom))):
+                self.rank_daily_checked = True
+                if self.rank_weekly_checked:
+                    return DailyDecision('done',status='忍阶每日可领取奖励与每周道具已检查')
+                return self.tap((135,685),'检查当前忍阶每周随机道具')
+            return DailyDecision(status='等待确认忍阶每日任务领取状态')
+        if screen.hits('特殊[忍思]阶',(1080,0,1250,120)):
+            weekly = screen.hits('点击[领颌倾]取每周.{0,3}[道遒]具',(600,430,1050,515))
+            if weekly:
+                return self.tap(weekly[0].point,'领取忍阶每周随机道具')
+            if screen.hits(r'每周.{0,2}获得[道遒]具\d+个',(600,350,1100,460)):
+                self.rank_weekly_checked = True
+            if self.rank_daily_checked and self.rank_weekly_checked:
+                return DailyDecision('done',status='忍阶每日可领取奖励与每周道具已检查')
+            if not self.rank_weekly_checked:
+                return DailyDecision(status='等待确认忍阶每周道具领取状态')
+            next_rank = screen.hits('下一[忍思]?阶',(1030,660,1250,720))
+            return (self.tap(next_rank[0].point,'从忍阶预览进入下一忍阶任务') if next_rank else
+                    DailyDecision(status='等待忍阶预览的任务入口'))
+        if self.scans < 2:
+            return DailyDecision('swipe',(930,330),'回到忍阶每日任务列表顶部',(930,630))
+        return DailyDecision('unavailable',status='未确认完整忍阶每日任务区域，保留截图')
 
     def shop(self, s, v):
         if s.page == 'limited-shop':

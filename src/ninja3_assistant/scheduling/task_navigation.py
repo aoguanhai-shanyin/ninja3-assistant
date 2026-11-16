@@ -10,11 +10,13 @@ def return_to_home(folder, index, control, *, target=None):
     from ninja3_assistant.device.mumu import MuMu, prepare_game
     from ninja3_assistant.device.native_touch import create_native_touch
     from ninja3_assistant.activities.daily.vision import DailyVision
+    from ninja3_assistant.activities.bounty.daily_vision import DailyBountyVision
 
     if prepare_game(folder, index, control, lambda s: None) is None:
         return False
     activity, race = ActivityVision(), RaceVision()
     daily = DailyVision()
+    bounty = DailyBountyVision()
     native = None
     device = MuMu(folder, index)
     try:
@@ -29,6 +31,10 @@ def return_to_home(folder, index, control, *, target=None):
             frame = device.capture()
             screen, kind = activity.detect(frame), race.detect(frame)
             daily_page,daily_back = daily.navigation(frame)
+            bounty_page,bounty_back = bounty.navigation(frame)
+            if (target in ('daily_bounty','daily_bounty_s') and bounty_page and
+                    bounty_page.startswith('bounty_')):
+                return True
             if target and target.startswith('daily_') and daily_page is not None:
                 return True
             if target == 'intelligence' and screen.kind == 'battle':
@@ -36,7 +42,7 @@ def return_to_home(folder, index, control, *, target=None):
             if target == 'weekend' and (kind in ('ready','dash') or
                     (kind in ('race','respawn') and race.confirmed_race)):
                 return True
-            if screen.kind in ('home', 'login'):
+            if daily_page == 'home' or screen.kind in ('home', 'login'):
                 return True
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             hall = activity.navigation.match(gray, 'startup-hall-title', 80, 0, 300, 110,
@@ -55,6 +61,8 @@ def return_to_home(folder, index, control, *, target=None):
                 point = (50, 45)
             elif daily_page:
                 point = daily_back
+            elif bounty_page:
+                point = bounty_back
             else:
                 point = None
             if point:

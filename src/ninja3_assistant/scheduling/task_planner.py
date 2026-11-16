@@ -115,6 +115,10 @@ class TaskPlan:
             return None
         if outcome == TaskOutcome.WAITING and not item.activity.open(now):
             return None
+        if outcome == TaskOutcome.WAITING:
+            item.retry_at = now+timedelta(seconds=15)
+            item.checked = False
+            return 'status', label+'：暂未就绪，15秒后重试，期间继续其他任务'
         if outcome == TaskOutcome.LIMIT_REACHED:
             item.blocked = True
             return 'status', label+'：今日积分场次已用完，不再匹配；未领取的日常不会记为完成'

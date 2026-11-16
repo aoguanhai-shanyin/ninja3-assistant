@@ -9,17 +9,23 @@ from ninja3_assistant.scheduling.task_navigation import return_to_home
 
 
 class TaskNavigationTest(unittest.TestCase):
-    def navigate(self, screens, kinds, control=None, target=None):
+    def navigate(self, screens, kinds, control=None, target=None, daily_pages=None):
         control = control or RunControl(clock=Mock(side_effect=range(100)))
         activity, race, device, native = Mock(), Mock(), Mock(), Mock()
+        daily, bounty = Mock(), Mock()
         activity.detect.side_effect = screens
         activity.navigation.match.return_value = None
         race.detect.side_effect = kinds
+        daily.navigation.return_value = (None, None)
+        daily.navigation.side_effect = daily_pages
+        bounty.navigation.return_value = (None, None)
         device.capture.return_value = np.zeros((720, 1280, 3), np.uint8)
         with patch('ninja3_assistant.device.mumu.prepare_game', return_value=False), \
                 patch('ninja3_assistant.device.mumu.MuMu', return_value=device), \
                 patch('ninja3_assistant.activities.intelligence.vision.ActivityVision', return_value=activity), \
                 patch('ninja3_assistant.activities.weekend.runner.RaceVision', return_value=race), \
+                patch('ninja3_assistant.activities.daily.vision.DailyVision', return_value=daily), \
+                patch('ninja3_assistant.activities.bounty.daily_vision.DailyBountyVision', return_value=bounty), \
                 patch('ninja3_assistant.device.native_touch.create_native_touch', return_value=native), \
                 patch.object(control.stop, 'wait', return_value=False):
             result = return_to_home('f', 1, control, target=target)
@@ -55,6 +61,37 @@ class TaskNavigationTest(unittest.TestCase):
         result, native = self.navigate([ActivityScreen()], ['race'], target='weekend')
         self.assertTrue(result)
         native.priority_tap.assert_not_called()
+
+    def test_rank_page_returns_home_before_an_activity_handoff(self):
+        result, native = self.navigate(
+            [ActivityScreen(), ActivityScreen('home')], ['unknown']*2,
+            target='intelligence', daily_pages=[('rank', (75, 50)), ('home', None)])
+        self.assertTrue(result)
+        self.assertEqual([c.args[0] for c in native.priority_tap.call_args_list], [(75, 50)])
+
+    def test_rank_daily_task_resumes_on_the_rank_page(self):
+        result, native = self.navigate(
+            [ActivityScreen()], ['unknown'], target='daily_rank',
+            daily_pages=[('rank', (75, 50))])
+        self.assertTrue(result)
+        native.priority_tap.assert_not_called()
+
+    def test_home_from_daily_detector_finishes_handoff_when_activity_detector_misses_it(self):
+        result, native = self.navigate(
+            [ActivityScreen(), ActivityScreen()], ['unknown']*2,
+            target='intelligence', daily_pages=[('rank', (75, 50)), ('home', None)])
+        self.assertTrue(result)
+        native.priority_tap.assert_called_once()
+        self.assertEqual(native.priority_tap.call_args.args[0],(75,50))
+
+    def test_rank_reward_is_closed_before_returning_home(self):
+        result, native = self.navigate(
+            [ActivityScreen(), ActivityScreen(), ActivityScreen('home')], ['unknown']*3,
+            target='weekend', daily_pages=[('reward_continue', (1130, 590)),
+                                          ('rank', (75, 50)), ('home', None)])
+        self.assertTrue(result)
+        self.assertEqual([c.args[0] for c in native.priority_tap.call_args_list],
+                         [(1130, 590), (75, 50)])
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ namespace Ninja3Assistant;
 
 public sealed partial class MainWindow : Window
 {
+    private static readonly string[] BountyGrades = ["D", "C", "B", "A"];
     private readonly string _settingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Ninja3Assistant", "settings.json");
@@ -39,7 +40,10 @@ public sealed partial class MainWindow : Window
         public string WeekendMode { get; set; } = "daily";
         public bool HideGameWindow { get; set; }
         public bool DailyEnabled { get; set; }
-        public string[] DailyTasks { get; set; } = ["monthly", "limited", "blessing", "weapon", "curse", "bounty_shop", "daily_shop", "village", "house"];
+        public string[] DailyTasks { get; set; } = ["monthly", "limited", "blessing", "weapon", "curse", "bounty_shop", "daily_shop", "village", "house", "bounty", "bounty_s", "rank"];
+        public string BountyGrade { get; set; } = "D";
+        public bool CloseToTray { get; set; } = true;
+        public bool RememberCloseAction { get; set; }
     }
 
     private sealed class InstanceOption
@@ -57,6 +61,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new SizeInt32(1080, 760));
         Closed += Window_Closed;
         LoadSettings();
+        InitializeTrayIntegration();
         AddLog("准备就绪。");
         RestoreSessionCount();
     }
@@ -97,6 +102,9 @@ public sealed partial class MainWindow : Window
         foreach (var option in DailyOptionsPanel.Children.OfType<CheckBox>())
             option.IsChecked = (settings.DailyTasks ?? []).Contains((string)option.Tag);
         DailyOptionsControl.IsEnabled = settings.DailyEnabled;
+        BountyGradeSlider.Value = Math.Max(0, Array.IndexOf(BountyGrades, settings.BountyGrade));
+        BountyGradeSlider.IsEnabled = BountyTaskOption.IsChecked == true;
+        LoadCloseBehaviorSettings(settings);
         _savedIndex = settings.Index;
         _savedName = settings.InstanceName;
         _savedFolder = settings.Folder;
@@ -139,6 +147,9 @@ public sealed partial class MainWindow : Window
         settings.DailyEnabled = DailyEnabledSwitch.IsOn;
         settings.DailyTasks = DailyOptionsPanel.Children.OfType<CheckBox>()
             .Where(option => option.IsChecked == true).Select(option => (string)option.Tag).ToArray();
+        settings.BountyGrade = BountyGrades[(int)Math.Round(BountyGradeSlider.Value)];
+        settings.CloseToTray = _closeToTray;
+        settings.RememberCloseAction = _rememberCloseAction;
         return true;
     }
 
@@ -190,7 +201,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ScanInstancesAsync()
     {
-        if (_scanning || _worker is not null || VideoDebugBusy) return;
+        if (_exiting || _scanning || _worker is not null || VideoDebugBusy) return;
         string folder = FolderBox.Text.Trim();
         string manager = Path.Combine(folder, "nx_main", "MuMuManager.exe");
         var previous = InstanceBox.SelectedItem as InstanceOption;
@@ -274,11 +285,11 @@ public sealed partial class MainWindow : Window
 
     private async Task StartWorkerAsync(string mode)
     {
-        if (_worker is not null || _scanning || VideoDebugBusy) return;
+        if (_exiting || _worker is not null || _scanning || VideoDebugBusy) return;
         if (!string.Equals(FolderBox.Text.Trim(), _scannedFolder, StringComparison.OrdinalIgnoreCase))
         {
             await ScanInstancesAsync();
-            if (!string.Equals(FolderBox.Text.Trim(), _scannedFolder, StringComparison.OrdinalIgnoreCase)) return;
+            if (_exiting || !string.Equals(FolderBox.Text.Trim(), _scannedFolder, StringComparison.OrdinalIgnoreCase)) return;
         }
         if (!TrySettings(out var settings, requireRunning: mode != "run") || !PersistSettings(settings))
             return;
@@ -332,6 +343,11 @@ public sealed partial class MainWindow : Window
             {
                 info.ArgumentList.Add("--daily-tasks");
                 foreach (string task in settings.DailyTasks) info.ArgumentList.Add(task);
+                if (settings.DailyTasks.Contains("bounty"))
+                {
+                    info.ArgumentList.Add("--bounty-grade");
+                    info.ArgumentList.Add(settings.BountyGrade);
+                }
             }
             var process = Process.Start(info) ?? throw new InvalidOperationException("无法启动运行组件");
             _worker = process;
@@ -503,7 +519,7 @@ public sealed partial class MainWindow : Window
 
     private void SetBusy(bool busy)
     {
-        bool available = !busy && !_scanning && !VideoDebugBusy;
+        bool available = !_exiting && !busy && !_scanning && !VideoDebugBusy;
         StartButton.IsEnabled = available;
         PauseButton.IsEnabled = busy && _mode == "run";
         StopButton.IsEnabled = busy && _mode == "run";
@@ -531,6 +547,18 @@ public sealed partial class MainWindow : Window
     {
         if (DailyOptionsControl is not null)
             DailyOptionsControl.IsEnabled = DailyEnabledSwitch.IsOn && _worker is null && !_scanning && !VideoDebugBusy;
+    }
+
+    private void BountyTask_Changed(object sender, RoutedEventArgs e)
+    {
+        if (BountyGradeSlider is not null)
+            BountyGradeSlider.IsEnabled = BountyTaskOption.IsChecked == true;
+    }
+
+    private void BountyGrade_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (BountyGradeText is not null)
+            BountyGradeText.Text = BountyGrades[(int)Math.Round(e.NewValue)];
     }
 
     private void ActivityEnabled_Toggled(object sender, RoutedEventArgs e)
@@ -599,6 +627,7 @@ public sealed partial class MainWindow : Window
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
+        DisposeTrayIntegration();
         CloseVideoDebug(updateControls: false);
         var process = _worker;
         if (process is null) return;

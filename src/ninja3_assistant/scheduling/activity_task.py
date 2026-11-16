@@ -43,14 +43,23 @@ class WeekendTask(ActivityTask):
 
 
 class DailyTask(ActivityTask):
-    def __init__(self, kind):
+    def __init__(self, kind, *, bounty_grade='D'):
         from ninja3_assistant.activities.daily import CHORES
         if kind not in CHORES:
             raise ValueError('未知每日清理任务：'+kind)
         super().__init__('daily_'+kind,CHORES[kind],None,((0,24),),daily_priority=list(CHORES).index(kind))
         self.kind = kind
+        self.bounty_grade = bounty_grade
+        if kind == 'bounty':
+            if bounty_grade not in ('D','C','B','A'):
+                raise ValueError('每日悬赏等级应为D、C、B或A')
+            self.label = CHORES[kind]+'（'+bounty_grade+'级）'
 
     def run(self, folder, index, control, emit, *, mode):
+        if self.kind in ('bounty','bounty_s'):
+            from ninja3_assistant.activities.bounty.daily_runner import run_daily_bounty
+            return run_daily_bounty(folder,index,control,emit,
+                                    grade='S' if self.kind == 'bounty_s' else self.bounty_grade)
         from ninja3_assistant.activities.daily.runner import run_daily
         from datetime import datetime
         from ninja3_assistant.activities.intelligence.flow import CHINA
@@ -63,8 +72,8 @@ class DailyTask(ActivityTask):
         return run_daily(self.kind,folder,index,control,forward)
 
 
-def selected_tasks(*, activity_mode=None, weekend_mode=None, daily_tasks=()):
-    tasks = [DailyTask(kind) for kind in dict.fromkeys(daily_tasks)]
+def selected_tasks(*, activity_mode=None, weekend_mode=None, daily_tasks=(), bounty_grade='D'):
+    tasks = [DailyTask(kind,bounty_grade=bounty_grade) for kind in dict.fromkeys(daily_tasks)]
     if activity_mode is not None:
         tasks.append(IntelligenceTask(activity_mode))
     if weekend_mode is not None:

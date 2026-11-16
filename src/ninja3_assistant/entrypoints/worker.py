@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--weekend-mode', choices=('daily', '25'), default='daily')
     from ninja3_assistant.activities.daily import CHORES
     parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
+    parser.add_argument('--bounty-grade',choices=('D','C','B','A'),default=None)
     args = parser.parse_args()
     if args.mode == 'hayabusa-video':
         if not args.video:
@@ -43,6 +44,8 @@ def main():
         parser.error('weekend is available only in run mode')
     if args.daily_tasks and args.mode != 'run':
         parser.error('daily chores are available only in run mode')
+    if args.bounty_grade is not None and (args.mode != 'run' or 'bounty' not in args.daily_tasks):
+        parser.error('bounty-grade requires the bounty daily task in run mode')
 
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
@@ -88,7 +91,7 @@ def main():
         from ninja3_assistant.scheduling.task_scheduler import run_tasks
         tasks = selected_tasks(activity_mode=args.activity_mode if args.activity_enabled else None,
                                weekend_mode=args.weekend_mode if args.weekend_enabled else None,
-                               daily_tasks=args.daily_tasks)
+                               daily_tasks=args.daily_tasks,bounty_grade=args.bounty_grade or 'D')
         run_tasks(args.folder, args.index, control, emit, tasks=tasks)
     else:
         run_flow(args.folder, args.index, control, emit, join_interval_ms=args.join_interval_ms)

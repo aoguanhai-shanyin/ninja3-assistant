@@ -6,6 +6,7 @@ import cv2
 from ninja3_assistant.paths import project_root
 from ninja3_assistant.activities.daily.flow import DailyFlow
 from ninja3_assistant.activities.daily.vision import DailyVision
+from ninja3_assistant.activities.daily.resources import remaining_seconds
 
 
 DATA=project_root()/'data/evidence/2026-11-16/daily-exploration'
@@ -72,6 +73,49 @@ class DailyMenuReplayTest(unittest.TestCase):
         back=DailyFlow('monthly').step(house,self.vision)
         self.assertFalse(self.vision.current_action(house,back,s.frame))
 
+    def test_rank_daily_and_preview_pages_are_both_recognized_for_handoff(self):
+        for stem in ('104338-hidden-state','104526-blocked-state'):
+            with self.subTest(stem=stem):
+                s=self.read(stem)
+                self.assertEqual(s.page,'rank')
+                self.assertEqual(self.vision.navigation(s.frame),('rank',(75,50)))
+                self.assertEqual(DailyFlow('monthly').step(s,self.vision).point,(75,50))
+        self.assertEqual(self.vision.navigation(self.read('104405-rank-back').frame),('home',None))
+
+    def test_rank_claim_ignores_highlight_animation_and_excludes_mainline_rewards(self):
+        before=self.read('104338-hidden-state')
+        animated=self.read('144911-rank-before')
+        claim=DailyFlow('rank').step(before,self.vision)
+        self.assertEqual(claim.point,(1145,340))
+        self.assertTrue(self.vision.current_action(before,claim,animated.frame))
+        self.assertFalse(self.vision.current_action(before,claim,self.read('104405-rank-back').frame))
+        after=self.read('145556-rank-next-tier')
+        flow=DailyFlow('rank')
+        self.assertEqual(flow.step(after,self.vision).point,(135,685))
+        self.assertEqual(flow.step(self.read('152918-rank-weekly-done'),self.vision).action,'done')
+
+    def test_full_rank_preview_list_can_return_to_daily_and_use_current_tier(self):
+        s=self.runtime_screen('20261116-154043-795700-rank','0005-unknown-wait.png')
+        self.assertEqual(s.page,'rank-preview')
+        self.assertEqual(self.vision.navigation(s.frame),('rank-preview',(75,50)))
+        self.assertEqual(DailyFlow('rank').step(s,self.vision).point,(75,50))
+
+    def test_rank_chest_reward_has_a_navigation_exit_and_preview_leads_to_tasks(self):
+        reward=self.read('145142-rank-after-claim')
+        self.assertEqual(reward.page,'reward_continue')
+        self.assertEqual(self.vision.observe(reward.frame,{'words':[]}).page,'reward_continue')
+        self.assertEqual(self.vision.navigation(reward.frame),('reward_continue',(1130,590)))
+        self.assertEqual(DailyFlow('rank').step(reward,self.vision).point,(1130,590))
+        preview=self.read('145537-rank-preview-settled')
+        flow=DailyFlow('rank')
+        claim=flow.step(preview,self.vision)
+        self.assertIn('每周随机道具',claim.status)
+        self.assertTrue(self.vision.current_action(preview,claim,preview.frame))
+        self.assertFalse(self.vision.current_action(preview,claim,self.read('104405-rank-back').frame))
+        point=flow.step(self.read('152918-rank-weekly-done'),self.vision).point
+        self.assertGreater(point[0],1030)
+        self.assertGreater(point[1],660)
+
     def runtime_screen(self,run,image):
         root=project_root()/'data/runtime/daily-cleanup/runs'/run
         record=next(json.loads(line) for line in (root/'events.jsonl').read_text(encoding='utf-8').splitlines()
@@ -121,6 +165,11 @@ class DailyMenuReplayTest(unittest.TestCase):
                             ('100048-house-resumed','done')):
             with self.subTest(stem=stem):
                 self.assertEqual(DailyFlow('house').step(self.read(stem),self.vision).action,action)
+
+    def test_house_bad_hour_ocr_does_not_stall_or_shorten_the_training_deadline(self):
+        s=self.runtime_screen('20261116-150734-344900-house','0003-house-wait.png')
+        self.assertEqual(remaining_seconds(s.text((245,590,460,715))),17*3600+53*60)
+        self.assertEqual(DailyFlow('house').step(s,self.vision).action,'done')
 
     def test_trial_chooses_the_rightmost_cleared_stage_and_never_launches_battle(self):
         flow=DailyFlow('village')

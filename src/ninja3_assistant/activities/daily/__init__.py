@@ -9,5 +9,8 @@ CHORES = {
     'bounty_shop': '悬赏商店忍币购买',
     'daily_shop': '每日商店忍币购买',
     'house': '小屋领取碎片并续练',
+    'bounty': '每日悬赏清理',
+    'bounty_s': 'S级悬赏清理（累计最多7次）',
     'village': '忍村试炼扫荡',
+    'rank': '忍阶每日任务与每周道具',
 }

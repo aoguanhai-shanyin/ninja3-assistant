@@ -17,10 +17,8 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="10">
-                    <Border Width="40" Height="40" CornerRadius="12" Background="#6876F5">
-                        <TextBlock Text="忍" FontSize="22" FontWeight="Bold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
+                    <Image Width="40" Height="40" Source="Assets/Ninja3Icon.png" Stretch="Uniform"
+                           AutomationProperties.Name="忍3助手图标" />
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="忍3助手" FontSize="18" FontWeight="SemiBold" />
                         <TextBlock Text="MUMU · WINDOWS" FontSize="9" Foreground="#98A6C3" />
@@ -144,7 +142,7 @@
                             <ContentControl x:Name="DailyOptionsControl" IsEnabled="False" HorizontalContentAlignment="Stretch">
                             <Grid x:Name="DailyOptionsPanel" ColumnSpacing="24" RowSpacing="4">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                 <CheckBox Content="每月日签到（最多25天）" Tag="monthly" IsChecked="True" />
                                 <CheckBox Grid.Row="1" Content="限时签到" Tag="limited" IsChecked="True" />
                                 <CheckBox Grid.Row="2" Content="家族免费祈福" Tag="blessing" IsChecked="True" />
@@ -154,6 +152,28 @@
                                 <CheckBox Grid.Column="1" Grid.Row="1" Content="每日商店：忍币商品" Tag="daily_shop" IsChecked="True" />
                                 <CheckBox Grid.Column="1" Grid.Row="2" Content="忍村试炼：从右往左扫荡" Tag="village" IsChecked="True" />
                                 <CheckBox Grid.Column="1" Grid.Row="3" Content="小屋：领取碎片并续练" Tag="house" IsChecked="True" />
+                                <CheckBox x:Name="BountyTaskOption" Grid.Column="1" Grid.Row="4" Content="每日悬赏清理" Tag="bounty" IsChecked="True"
+                                          Checked="BountyTask_Changed" Unchecked="BountyTask_Changed" />
+                                <CheckBox Grid.Row="5" Grid.ColumnSpan="2" Content="S级悬赏：清理累计次数（最多7次）" Tag="bounty_s" IsChecked="True" />
+                                <CheckBox Grid.Row="6" Grid.ColumnSpan="2" Content="忍阶：每日任务与每周道具" Tag="rank" IsChecked="True" />
+                                <StackPanel Grid.Row="7" Grid.ColumnSpan="2" Spacing="6" Margin="0,12,0,0">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <TextBlock Text="悬赏等级" Foreground="#B9C5D9" />
+                                        <TextBlock x:Name="BountyGradeText" Text="D" Foreground="#A5B3FF" FontWeight="SemiBold" />
+                                    </StackPanel>
+                                    <Slider x:Name="BountyGradeSlider" Minimum="0" Maximum="3" Value="0" StepFrequency="1" SmallChange="1"
+                                            SnapsTo="StepValues" IsThumbToolTipEnabled="False" ValueChanged="BountyGrade_ValueChanged"
+                                            AutomationProperties.Name="悬赏等级 D C B A" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="D" Foreground="#91A1BC" />
+                                        <TextBlock Grid.Column="1" Text="C" Foreground="#91A1BC" />
+                                        <TextBlock Grid.Column="2" Text="B" Foreground="#91A1BC" />
+                                        <TextBlock Grid.Column="2" Text="A" HorizontalAlignment="Right" Foreground="#91A1BC" />
+                                    </Grid>
+                                    <TextBlock Text="普通悬赏只清理所选等级，S级单独勾选。地面滑步，绳索保持不动；Boss血条出现后释放忍术并持续攻击。"
+                                               TextWrapping="Wrap" Foreground="#91A1BC" FontSize="12" />
+                                </StackPanel>
                             </Grid>
                             </ContentControl>
                             <TextBlock Text="先处理每日清理，再做活动日常和上分。仅免费抽取与祈福；商店只用忍币，不付费刷新或购买体力。" TextWrapping="Wrap" Foreground="#B9C5D9" />
@@ -290,6 +310,18 @@
                                 <Button x:Name="ProbeButton" Content="测试连接" Click="Probe_Click" />
                                 <Button x:Name="SaveButton" Content="保存设置" Click="Save_Click" />
                             </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="窗口与托盘" FontSize="19" FontWeight="SemiBold" />
+                            <TextBlock Text="最小化后留在托盘，正在运行的任务会继续。双击托盘图标可恢复窗口，右键可退出助手。"
+                                       TextWrapping="Wrap" Foreground="#B9C5D9" />
+                            <ToggleSwitch x:Name="CloseToTraySwitch" Header="关闭窗口时的默认操作"
+                                          OffContent="退出助手" OnContent="最小化到托盘" IsOn="True" Toggled="CloseBehavior_Changed" />
+                            <ToggleSwitch x:Name="RememberCloseActionSwitch" Header="记住关闭选择"
+                                          OffContent="每次询问" OnContent="不再询问" IsOn="False" Toggled="CloseBehavior_Changed" />
+                            <Button Content="恢复每次询问" Click="ResetCloseBehavior_Click" HorizontalAlignment="Left" />
                         </StackPanel>
                     </Border>
                     <TextBlock Text="测试连接只读取当前画面。请避免让多个助手同时控制同一个模拟器实例。"

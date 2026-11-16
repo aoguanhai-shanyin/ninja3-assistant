@@ -83,6 +83,116 @@
       "sha256": "0f574b320793bdc475d4a3d7eb328470afc3160acc58100e608e2c70c66e0bad"
     },
     {
+      "path": "bounty-daily/daily-result-title.png",
+      "bytes": 11739,
+      "sha256": "618ce92261f4d63abb6462416c679fee71ce9dc00b5bd637f573560637269741"
+    },
+    {
+      "path": "bounty-daily/daily-title.png",
+      "bytes": 23227,
+      "sha256": "e596bfbe55b769bcae4647daeb96bbe1c8d969b1fb3ee02c28ecb4e853e18a5d"
+    },
+    {
+      "path": "bounty-daily/free-claim.png",
+      "bytes": 8165,
+      "sha256": "b4b3876a6238530e007dd3b5bc06d8628e1de56fc6cc85d9522cd78c7af8b754"
+    },
+    {
+      "path": "bounty-daily/free-title.png",
+      "bytes": 8528,
+      "sha256": "9c4b903628a59723fc855fdc9fd84af0d6331831fcf4e4af27410b8f95e25195"
+    },
+    {
+      "path": "bounty-daily/grade-A.png",
+      "bytes": 3555,
+      "sha256": "abf69d3aaa44d5f34e6a10bb64cf8f18ee02f962c21686d658f0742ee92bb9fb"
+    },
+    {
+      "path": "bounty-daily/grade-D.png",
+      "bytes": 3480,
+      "sha256": "39b82c84d19d4a5294954553b5430004859402aad49bcfec0bdf110fbedc9407"
+    },
+    {
+      "path": "bounty-daily/grade-title.png",
+      "bytes": 16639,
+      "sha256": "b3f03562f8f4f0f8828bdf90f035a584c62e6e7c69ebe9235e10aca8921a2007"
+    },
+    {
+      "path": "bounty-daily/hub-title.png",
+      "bytes": 18337,
+      "sha256": "39dd6beca268f38a7714f297140fcc1e7005190f168313a8f81ba6028314c563"
+    },
+    {
+      "path": "bounty-daily/join-daily.png",
+      "bytes": 942,
+      "sha256": "bededbe88a3a3bf026a4267969b571a47e80e0225ffdf8b0ca176397f231798a"
+    },
+    {
+      "path": "bounty-daily/leave-room-context.png",
+      "bytes": 4039,
+      "sha256": "23790b84e91d9c9070606ccb2386938cc347d1f4efbe00d1782ca27429b505ed"
+    },
+    {
+      "path": "bounty-daily/leave-title.png",
+      "bytes": 7878,
+      "sha256": "cbcec703f0b439689695d63e9af191ee6a00ff9a8e4810e3338038d59e758219"
+    },
+    {
+      "path": "bounty-daily/minimum-players.png",
+      "bytes": 9869,
+      "sha256": "1ac239a30e8ec3e1a5a01c32a343135b6f0699af4a84c61527f88c173928a678"
+    },
+    {
+      "path": "bounty-daily/order-locked-title.png",
+      "bytes": 25263,
+      "sha256": "a3c3ed351872d9b41e6bb80a27c53893b4353e1af5f0f204d9751f76bc5d3234"
+    },
+    {
+      "path": "bounty-daily/order-locked.png",
+      "bytes": 37959,
+      "sha256": "7d45be90e7bcec8a9f8138543448c9c990f5e7f1b171da2e00ba2504441e9b21"
+    },
+    {
+      "path": "bounty-daily/order-title.png",
+      "bytes": 24760,
+      "sha256": "efe295c8daf9204715b0aa1b9a6e76e05b769c18516bdb492dd6d2fbd1b542a8"
+    },
+    {
+      "path": "bounty-daily/own-empty.png",
+      "bytes": 25751,
+      "sha256": "f09fbdf521906f237c86002490969211b96426a20e7bc00e4ccc4698cdb6c52c"
+    },
+    {
+      "path": "bounty-daily/rank-A.png",
+      "bytes": 6855,
+      "sha256": "a563ac7e14d504f0d38a65158a35d1c1622edf6cc34e76222d7eec77a7c6aff2"
+    },
+    {
+      "path": "bounty-daily/result-grade-D.png",
+      "bytes": 12983,
+      "sha256": "a41e98410cfdc262655375ba96b4343dd3e9bcca1b26c8a3825ef87bce73bcee"
+    },
+    {
+      "path": "bounty-daily/reward-blank-close.png",
+      "bytes": 10223,
+      "sha256": "ffdab8da791325b7da601b1342236be2a1bdcbaca58532a08fc44dd0ac91dd0e"
+    },
+    {
+      "path": "bounty-daily/reward-blank-title.png",
+      "bytes": 9304,
+      "sha256": "38cdbe71ae79569bdc4a41e6149a9e3b41a3d35a33f52fa273ec6fcba4bb0477"
+    },
+    {
+      "path": "bounty-daily/room-footer.png",
+      "bytes": 5337,
+      "sha256": "63e239abab8f8d391e1942dd4fb8a18cbf4ec1fed0bb9ee08af30f8db9c15de7"
+    },
+    {
+      "path": "bounty-daily/room-grade-D.png",
+      "bytes": 3293,
+      "sha256": "f15d398aee71414d9ce7820ff6821d90a1d822ff1f5a497d61644dd45ef8775c"
+    },
+    {
       "path": "card-header.png",
       "bytes": 2042,
       "sha256": "dc41d638de11c6a8db1bd19391a22485038e61072095b8ce606cf9d5dcbf17ad"
@@ -223,9 +333,19 @@
       "sha256": "cc3975d754a718791b59bb35b98b1bed2feac56d4ea78ccf3d62701917cf487c"
     },
     {
+      "path": "daily-cleanup/rank-preview.png",
+      "bytes": 24070,
+      "sha256": "cdf29bb2de1ed4280a33f73bea7bcf7c7a38336aee75c60cd2ab1039f770dd7c"
+    },
+    {
       "path": "daily-cleanup/rank.png",
       "bytes": 12495,
       "sha256": "3fe74fab0071bcfc8835a6e233b0a48d342281795511419f726ad7d1f3ab3ce3"
+    },
+    {
+      "path": "daily-cleanup/reward-continue.png",
+      "bytes": 9022,
+      "sha256": "3aef077e84ec151ca532365b4bb8b95bf227cac9155281be52eca067750faae1"
     },
     {
       "path": "daily-cleanup/reward.png",

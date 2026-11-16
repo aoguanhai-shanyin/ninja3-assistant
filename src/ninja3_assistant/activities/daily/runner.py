@@ -9,7 +9,7 @@ import cv2
 
 from ninja3_assistant.paths import project_root
 from ninja3_assistant.activities.daily.flow import DailyFlow
-from ninja3_assistant.activities.daily.vision import DailyVision
+from ninja3_assistant.activities.daily.vision import DailyScreen, DailyVision
 from ninja3_assistant.activities.daily.resources import resource_path, load_deadline, save_deadline, remaining_seconds
 from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
 from ninja3_assistant.device.mumu import MuMu, prepare_game
@@ -68,16 +68,26 @@ def run_daily(kind, folder, index, control, emit):
                         x,y,w,h = word['bbox']
                         result['words'].append({**word,'bbox':[(x-100)/3+1100,(y-60)/3,w/3,h/3]})
                     result['food_counter'] = counter
+                    if vision.food(DailyScreen(frame,result)) is None:
+                        digits = cv2.resize(frame[38:60,1160:1210],None,fx=4,fy=4)
+                        repeated = cv2.copyMakeBorder(cv2.hconcat([digits]*3),40,40,40,40,
+                                                     cv2.BORDER_CONSTANT,value=(255,255,255))
+                        counter = ocr.read(repeated,stop=control.stop)
+                        if counter is None:
+                            continue
+                        result['food_counter_repeat'] = counter
                 if vision.match(frame,'house',(950,0,1280,135)):
-                    clock_result = ocr.read(cv2.resize(frame[580:715,230:460],None,fx=3,fy=3),
-                                            stop=control.stop)
+                    clock_image = cv2.copyMakeBorder(cv2.resize(frame[675:710,250:410],None,fx=4,fy=4),
+                                                     30,30,30,30,cv2.BORDER_CONSTANT,value=(0,0,0))
+                    clock_result = ocr.read(clock_image,stop=control.stop)
                     if clock_result is None:
                         continue
                     result['words'] = [w for w in result['words'] if not
-                                       (230 <= w['bbox'][0] < 460 and 580 <= w['bbox'][1] < 715)]
+                                       (250 <= w['bbox'][0]+w['bbox'][2]/2 < 410 and
+                                        675 <= w['bbox'][1]+w['bbox'][3]/2 < 710)]
                     for word in clock_result['words']:
                         x,y,w,h = word['bbox']
-                        result['words'].append({**word,'bbox':[x/3+230,y/3+580,w/3,h/3]})
+                        result['words'].append({**word,'bbox':[(x-30)/4+250,(y-30)/4+675,w/4,h/4]})
                     result['house_clock'] = clock_result
                 screen = vision.observe(frame,result)
                 if kind == 'house' and screen.page == 'house':

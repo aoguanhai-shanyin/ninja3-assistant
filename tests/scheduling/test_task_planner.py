@@ -188,6 +188,21 @@ class PlannerTest(unittest.TestCase):
         self.assertTrue(weekend.ready)
         self.assertFalse(evening.ready)
 
+    def test_waiting_for_a_bounty_team_yields_without_marking_done_or_error(self):
+        now = datetime(2026,11,16,12,tzinfo=CHINA)
+        plan = TaskPlan([FakeTask('bounty',[],[]),FakeTask('other',[],[])],now)
+        bounty,other = plan.tasks
+        kind,message=plan.complete(bounty,O.WAITING,now)
+        self.assertEqual(kind,'status')
+        self.assertIn('15秒后重试',message)
+        self.assertFalse(bounty.daily_done)
+        self.assertFalse(bounty.blocked)
+        plan.refresh(now)
+        self.assertFalse(bounty.ready)
+        self.assertTrue(other.ready)
+        plan.refresh(now+timedelta(seconds=15))
+        self.assertTrue(bounty.ready)
+
     def test_repeated_runner_errors_do_not_finish_the_schedule(self):
         calls = []
         control = RunControl()

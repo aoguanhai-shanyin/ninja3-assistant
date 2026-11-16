@@ -86,12 +86,16 @@ class DailyVision:
             return 'home',None
         if self.match(frame,'monthly-sidebar',(20,130,250,220)):
             return 'monthly',(1238,48)
+        if self.match(frame,'reward-continue',(500,640,800,715)):
+            return 'reward_continue',(1130,590)
         if self.match(frame,'reward',(300,0,900,180)):
             return 'reward',self.match(frame,'confirm',(200,560,750,715))
         for page,box,point in (
             ('anniversary',(0,0,650,220),(1195,98)),
             ('ten-signin',(100,0,850,220),(1220,705)),
             ('monthly',(130,20,1100,225),(1238,48)),
+            ('rank-preview',(120,0,420,110),(75,50)),
+            ('rank',(120,0,320,110),(75,50)),
             ('trial',(0,0,470,120),(58,53)),('prayer',(0,0,470,120),(50,55)),
             ('curse',(0,0,500,120),(78,52)),('hall',(0,0,400,120),(78,53)),
             ('weapon',(800,70,1280,260),(40,48)),('vault',(800,70,1280,260),(40,48)),
@@ -109,7 +113,9 @@ class DailyVision:
             screen.page,screen.point = 'invite',invite
             return screen
         text = screen.text()
-        if (('恭喜' in text and ('确定' in text or self.match(frame,'confirm',(200,550,750,710)))) or
+        if ('获得奖励' in text and '点击任意位置继续' in text) or self.match(frame,'reward-continue',(500,640,800,715)):
+            screen.page = 'reward_continue'
+        elif (('恭喜' in text and ('确定' in text or self.match(frame,'confirm',(200,550,750,710)))) or
                 ('再抽一次' in text and '确定' in text)):
             screen.page = 'reward'
         elif '本月累计签到' in text:
@@ -128,7 +134,9 @@ class DailyVision:
             screen.page = 'house_continue'
         elif self.match(frame,'home',(500,600,670,720)):
             screen.page = 'home'
-        elif '忍阶宝箱' in text and '忍阶预览' in text:
+        elif screen.hits('忍阶预览',(120,0,500,110)) or self.match(frame,'rank-preview',(120,0,420,110)):
+            screen.page = 'rank-preview'
+        elif ('忍阶宝箱' in text and '忍阶预览' in text) or self.match(frame,'rank',(120,0,320,110)):
             screen.page = 'rank'
         elif screen.hits('小屋',(120,0,600,110)) and ('管理' in text or '好友' in text or '修炼' in text):
             screen.page = 'house'
@@ -142,7 +150,7 @@ class DailyVision:
                 ('hall',(0,0,400,120)),('weapon',(800,70,1280,260)),
                 ('vault',(800,70,1280,260)),('family',(250,250,650,650)),
                 ('limited-shop',(80,0,450,110)),
-                ('house',(950,0,1280,135)),('rank',(120,0,320,110)),('home',(500,600,670,720))):
+                ('house',(950,0,1280,135)),('home',(500,600,670,720))):
                 if self.match(frame,page,box):
                     screen.page = page
                     break
@@ -165,8 +173,10 @@ class DailyVision:
         return self.match(screen.frame,name,box,threshold=.95) is not None
 
     def current_action(self, screen, decision, fresh):
-        if decision.status == '返回主页，继续每日清理' and self.match(fresh,'home',(500,600,670,720)):
+        if decision.status.startswith('返回主页，') and self.match(fresh,'home',(500,600,670,720)):
             return False
+        if decision.status in ('领取忍阶已完成每日任务','领取忍阶每周随机道具'):
+            return self.match(fresh,'rank',(120,0,320,110)) is not None
         if decision.free_kind:
             if not self.free(DailyScreen(fresh,screen.ocr,screen.page),decision.free_kind):
                 return False
@@ -186,6 +196,10 @@ class DailyVision:
         hits = screen.hits(r'\d+',(1160,15,1225,75))
         if hits:
             return int(hits[0].text)
+        repeated = screen.ocr.get('food_counter_repeat',{}).get('text','').replace('》',' ')
+        count = re.fullmatch(r'\s*(\d+)\s+\1\s+\1\s*',repeated)
+        if count:
+            return int(count[1])
         for name in self.templates:
             if name.startswith('food-') and self.match(screen.frame,name,(1175,27,1222,67),.98):
                 return int(name[5:])

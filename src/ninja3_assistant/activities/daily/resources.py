@@ -15,6 +15,11 @@ def resource_path(folder, index):
 
 
 def remaining_seconds(text):
+    text = re.sub(r'\s+','',text).replace('時','时')
+    text = re.sub(r'[小卜刁][;；:：]?时','小时',text)
+    # Do not turn an unreadable hour field into a minutes-only deadline.
+    if '时' in text and not re.search(r'\d+小时',text):
+        return None
     total = 0
     matched = False
     for unit,multiplier in ((r'小时',3600),(r'分钟|分',60),(r'秒',1)):

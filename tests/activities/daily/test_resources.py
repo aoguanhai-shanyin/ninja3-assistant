@@ -27,6 +27,12 @@ class DailyResourceTest(unittest.TestCase):
         self.assertEqual(remaining_seconds('59秒'),59)
         self.assertIsNone(remaining_seconds('修炼完成'))
 
+    def test_house_hour_ocr_variants_preserve_the_whole_countdown(self):
+        for text in ('问17刁；时53分','17卜时53分','17小時53分','，17小时53分'):
+            with self.subTest(text=text):
+                self.assertEqual(remaining_seconds(text),17*3600+53*60)
+        self.assertIsNone(remaining_seconds('17?时53分'))
+
     def test_house_deadline_survives_restart_and_crosses_daily_reset(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'state.json'

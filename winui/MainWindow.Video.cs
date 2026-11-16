@@ -61,7 +61,7 @@ public sealed partial class MainWindow
 
     private async void VideoImport_Click(object sender, RoutedEventArgs e)
     {
-        if (_worker is not null || _scanning || _openingVideo) return;
+        if (_exiting || _worker is not null || _scanning || _openingVideo) return;
         PauseVideo();
         var picker = new FileOpenPicker();
         foreach (string extension in new[] { ".mp4", ".m4s", ".mkv", ".avi", ".mov", ".webm" })
@@ -70,7 +70,7 @@ public sealed partial class MainWindow
         try
         {
             var file = await picker.PickSingleFileAsync();
-            if (file is not null) await LoadVideoDebugAsync(file.Path);
+            if (file is not null && !_exiting) await LoadVideoDebugAsync(file.Path);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
         {
@@ -80,7 +80,7 @@ public sealed partial class MainWindow
 
     private async Task LoadVideoDebugAsync(string path)
     {
-        if (_worker is not null || _scanning || _openingVideo) return;
+        if (_exiting || _worker is not null || _scanning || _openingVideo) return;
         CloseVideoDebug();
         VideoNav_Click(this, new RoutedEventArgs());
         if (!File.Exists(path)) { VideoStatusText.Text = "视频文件不存在：" + path; return; }
