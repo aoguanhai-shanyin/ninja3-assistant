@@ -13,6 +13,7 @@ from ninja3_assistant.activities.intelligence.evidence import UnknownCardRecorde
 from ninja3_assistant.activities.intelligence.vision import ActivityVision
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
+from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 
 
 def _coin_digit_changes(before, after):
@@ -34,6 +35,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
 
     device = None
     battle_active = False
+    safe_invite = False
     last_status = None
     root = Path(sys.executable).parent if getattr(sys, 'frozen', False) else project_root()/'data'/'runtime'
     output = root/'intelligence-simulation'/'runs'/(time.strftime('%Y%m%d-%H%M%S')+f'-{time.time_ns()%1000000:06d}')
@@ -95,14 +97,17 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
             capture_ms = (time.perf_counter()-captured)*1000
             vision_started = time.perf_counter()
             screen = vision.detect(frame)
-            evidence = unknown_cards.save(frame,screen.battle)
-            if evidence:
-                log.write(json.dumps(evidence,ensure_ascii=False)+'\n')
-                log.flush()
             if screen.kind == 'battle':
                 battle_active = True
+                safe_invite = False
             elif screen.kind in ('event_home', 'home', 'hall', 'hall_search', 'tasks', 'login'):
                 battle_active = False
+                safe_invite = True
+                clear_handled_invitation(control)
+            elif screen.kind == 'invite' and safe_invite and not battle_active:
+                handoff = bounty_handoff(frame,vision.navigation.invitations,ocr,control,safe=True)
+                if handoff:
+                    return handoff
             vision_ms = (time.perf_counter()-vision_started)*1000
             if screen.kind == 'battle' and screen.battle.kind == 'result':
                 result = ocr.read(vision.battle.result_numbers_image(frame), stop=control.stop)
@@ -123,6 +128,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                     continue
                 verify_started = time.perf_counter()
                 screen = vision.detect(frame, result)
+                captured = time.perf_counter()
                 refreshed = device.capture()
                 check = vision.detect(refreshed)
                 def signature(value):
@@ -132,7 +138,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                     return (observation.round_number, observation.selected_shop,
                             tuple(card.id if card else None for card in observation.board),
                             tuple(card.id if card else None for card in observation.shop),
-                            observation.unknown_board, observation.place_points)
+                             observation.unknown_board, observation.unknown_shop, observation.place_points)
                 verify_ms = (time.perf_counter()-verify_started)*1000
                 timing = {'capture_ms': round(capture_ms, 2), 'vision_ms': round(vision_ms, 2),
                           'ocr_ms': round(ocr_ms, 2), 'verify_ms': round(verify_ms, 2)}
@@ -145,7 +151,6 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                 if digit_changes is None or digit_changes > 9:
                     discard('coin_digits_changed', frame, refreshed, digit_changes=digit_changes, **timing)
                     continue
-                captured = time.perf_counter()
             if screen.kind == 'tasks':
                 task = vision.tasks.read(frame, ocr, stop=control.stop)
                 screen = vision.task_screen(task)
@@ -240,6 +245,11 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                         if decision.action == 'match':
                             battle_active = True
                 control.run_if_active(act)
+            if battle and battle.kind == 'placement':
+                evidence = unknown_cards.save(frame,battle)
+                if evidence:
+                    log.write(json.dumps(evidence,ensure_ascii=False)+'\n')
+                    log.flush()
             frames += 1
             if now-metrics_at >= 1:
                 emit('metrics', {'fps': frames/(now-metrics_at), 'clicks': clicks})

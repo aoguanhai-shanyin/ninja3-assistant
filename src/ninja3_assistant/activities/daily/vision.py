@@ -29,6 +29,8 @@ class TextHit:
 class DailyScreen:
     def __init__(self, frame, ocr, page='unknown'):
         self.frame,self.ocr,self.page = frame,ocr,page
+        self.home_summon = None
+        self.home_points = {}
 
     def hits(self, pattern, box=(0,0,1280,720)):
         x1,y1,x2,y2 = box
@@ -61,6 +63,9 @@ class DailyVision:
     def __init__(self):
         self.templates = {p.stem:cv2.imread(str(p),0)
                           for p in (resource_root()/'assets/daily-cleanup').glob('*.png')}
+        for name,source in (('home-hall','navigation-home'),('home-summon','navigation-home-summon')):
+            path = resource_root()/'assets/intelligence'/(source+'.png')
+            self.templates[name] = cv2.imread(str(path),0) if path.is_file() else None
         self.invitations = InvitationVision()
 
     def match(self, frame, name, box=(0,0,1280,720), threshold=.92):
@@ -77,19 +82,92 @@ class DailyVision:
             return None
         return (round(x1+at[0]+template.shape[1]/2),round(y1+at[1]+template.shape[0]/2))
 
+    def home(self, frame):
+        """Identify fixed home controls while allowing unlocked bottom slots to move."""
+        if not self.match(frame,'home-hall',(730,570,1000,705),threshold=.94):
+            return None
+        box = (180,600,770,720)
+        return (self.match(frame,'home-summon',box,threshold=.94) or
+                self.match(frame,'home',box,threshold=.90))
+
+    def login(self, frame):
+        point = self.match(frame,'login-button',(500,470,800,560),threshold=.95)
+        if point and self.match(frame,'login-server',(680,395,840,465),threshold=.95):
+            return point
+        return None
+
+    def family_welcome(self, frame):
+        if not self.match(frame,'family-welcome-members',(1000,0,1140,90)):
+            return False
+        if (frame[260:480,150:1130].max(axis=2)<25).mean() < .9:
+            return False
+        for top,bottom in ((210,230),(505,525)):
+            band=frame[top:bottom,100:1180].astype(np.int16)
+            if ((band[:,:,0]>140)&(band[:,:,1]>90)&(band[:,:,0]>band[:,:,2]+30)).mean() < .25:
+                return False
+        return True
+
+    def family_entry(self, frame):
+        point = self.match(frame,'family',(250,250,650,650))
+        if point:
+            return point
+        template = self.templates.get('family')
+        if template is None or template.shape[0] < 36 or template.shape[1] < 46:
+            return None
+        # The drum's centre keeps its shape when courtyard lighting changes.
+        core = template[8:36,18:46]
+        gray = cv2.cvtColor(frame[250:650,250:650],cv2.COLOR_RGB2GRAY)
+        _,score,_,at = cv2.minMaxLoc(cv2.matchTemplate(gray,core,cv2.TM_CCOEFF_NORMED))
+        if score < .96:
+            return None
+        return (250+at[0]+core.shape[1]//2,250+at[1]+core.shape[0]//2)
+
+    @staticmethod
+    def guide_chrome(frame):
+        for top,bottom in ((122,128),(590,600)):
+            band=frame[top:bottom].astype(np.int16)
+            orange=(band[:,:,0]>200)&(band[:,:,1]>110)&(band[:,:,0]>band[:,:,2]+70)
+            if orange.mean(axis=1).max() < .7:
+                return False
+        return True
+
+    def guide_point(self, frame):
+        if self.guide_chrome(frame):
+            point = self.match(frame,'guide-next',(900,540,1260,645),threshold=.94)
+            if point:
+                return point
+            if self.match(frame,'guide-prev',(600,540,940,645),threshold=.94):
+                return (640,100)
+        return None
+
     def navigation(self, frame):
         """Fast recognized handoff; never uses a game-wide back key."""
         invite = self.invitations.detect(cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY))
         if invite:
             return 'invite',invite
-        if self.match(frame,'home',(500,600,670,720)):
-            return 'home',None
+        login = self.login(frame)
+        if login:
+            return 'login',login
+        if self.family_welcome(frame):
+            return 'family-welcome',(640,650)
+        next_guide = self.guide_point(frame)
+        if next_guide:
+            return 'paged-guide',next_guide
+        if self.match(frame,'summon-guide',(620,220,820,300),threshold=.94):
+            return 'summon-guide',(640,100)
+        if any(self.match(frame,name,(250,280,1020,380),threshold=.94)
+               for name in ('shop-guide','shop-stone-guide')):
+            return 'menu-guide',(640,100)
         if self.match(frame,'monthly-sidebar',(20,130,250,220)):
             return 'monthly',(1238,48)
         if self.match(frame,'reward-continue',(500,640,800,715)):
             return 'reward_continue',(1130,590)
         if self.match(frame,'reward',(300,0,900,180)):
             return 'reward',self.match(frame,'confirm',(200,560,750,715))
+        if self.match(frame,'reward-banner',(500,50,790,175),threshold=.94):
+            confirm = self.match(frame,'confirm',(200,560,750,715))
+            if confirm:
+                return 'reward',confirm
         for page,box,point in (
             ('anniversary',(0,0,650,220),(1195,98)),
             ('ten-signin',(100,0,850,220),(1220,705)),
@@ -102,8 +180,10 @@ class DailyVision:
             ('family',(250,250,650,650),(90,65)),('house',(950,0,1280,135),(65,50)),
             ('shop',(80,0,400,110),(75,45)),('limited-shop',(80,0,450,110),(75,45)),
             ('daily-shop',(80,0,450,110),(75,45)),('summon',(0,0,220,110),(40,48))):
-            if self.match(frame,page,box):
+            if (self.family_entry(frame) if page == 'family' else self.match(frame,page,box)):
                 return page,point
+        if self.home(frame):
+            return 'home',None
         return None,None
 
     def observe(self, frame, ocr):
@@ -112,8 +192,28 @@ class DailyVision:
         if invite:
             screen.page,screen.point = 'invite',invite
             return screen
+        login = self.login(frame)
+        if login:
+            screen.page,screen.point = 'login',login
+            return screen
         text = screen.text()
-        if ('获得奖励' in text and '点击任意位置继续' in text) or self.match(frame,'reward-continue',(500,640,800,715)):
+        next_guide = self.guide_point(frame)
+        if not next_guide and self.guide_chrome(frame):
+            buttons = screen.hits('下一页|我知道了|知道了|明白了|关闭说明',(850,540,1260,645))
+            next_guide = buttons[0].point if buttons else None
+        if self.family_welcome(frame):
+            screen.page = 'family-welcome'
+        elif next_guide:
+            screen.page,screen.point = 'paged-guide',next_guide
+        elif (('这里是限购商店' in text and '优惠的商品' in text) or
+                ('获得的原石可在' in text and '兑换元素石' in text) or
+                any(self.match(frame,name,(250,280,1020,380),threshold=.94)
+                    for name in ('shop-guide','shop-stone-guide'))):
+            screen.page = 'menu-guide'
+        elif (('召唤池存在两种UP模式' in text and '规则界面' in text) or
+                self.match(frame,'summon-guide',(620,220,820,300),threshold=.94)):
+            screen.page = 'summon-guide'
+        elif ('获得奖励' in text and '点击任意位置继续' in text) or self.match(frame,'reward-continue',(500,640,800,715)):
             screen.page = 'reward_continue'
         elif (('恭喜' in text and ('确定' in text or self.match(frame,'confirm',(200,550,750,710)))) or
                 ('再抽一次' in text and '确定' in text)):
@@ -132,8 +232,6 @@ class DailyVision:
             screen.page = 'prayer'
         elif '是否消耗5饭团继续进行修炼' in text:
             screen.page = 'house_continue'
-        elif self.match(frame,'home',(500,600,670,720)):
-            screen.page = 'home'
         elif screen.hits('忍阶预览',(120,0,500,110)) or self.match(frame,'rank-preview',(120,0,420,110)):
             screen.page = 'rank-preview'
         elif ('忍阶宝箱' in text and '忍阶预览' in text) or self.match(frame,'rank',(120,0,320,110)):
@@ -150,12 +248,28 @@ class DailyVision:
                 ('hall',(0,0,400,120)),('weapon',(800,70,1280,260)),
                 ('vault',(800,70,1280,260)),('family',(250,250,650,650)),
                 ('limited-shop',(80,0,450,110)),
-                ('house',(950,0,1280,135)),('home',(500,600,670,720))):
-                if self.match(frame,page,box):
+                ('house',(950,0,1280,135))):
+                if (self.family_entry(frame) if page == 'family' else self.match(frame,page,box)):
                     screen.page = page
                     break
         if screen.page == 'unknown':
-            if '悬赏商店' in text and '奖册' in text:
+            home = self.home(frame)
+            if home:
+                screen.page,screen.home_summon = 'home',home
+                screen.home_points = {'summon':home,'shop':(home[0]-104,home[1])}
+                for name,pattern,box in (
+                    ('limited',r'答[谢榭]礼',(80,130,330,600)),
+                    ('house',r'[小卜]屋',(80,130,330,600)),
+                    ('monthly',r'活动',(0,150,100,360)),
+                    ('shop',r'商.?店',(180,620,770,715))):
+                    hits = screen.hits(pattern,box)
+                    if hits:
+                        screen.home_points[name] = hits[0].point
+                if 'limited' not in screen.home_points:
+                    thanks = self.match(frame,'home-thanks',(80,130,330,600),threshold=.94)
+                    if thanks:
+                        screen.home_points['limited'] = thanks
+            elif '悬赏商店' in text and '奖册' in text:
                 screen.page = 'bounty_shop'
             elif '超值特惠' in text and ('限购商店' in text or '神秘商店' in text):
                 screen.page = 'shop'
@@ -173,7 +287,12 @@ class DailyVision:
         return self.match(screen.frame,name,box,threshold=.95) is not None
 
     def current_action(self, screen, decision, fresh):
-        if decision.status.startswith('返回主页，') and self.match(fresh,'home',(500,600,670,720)):
+        fresh_page,_ = self.navigation(fresh)
+        if screen.page == 'login':
+            return fresh_page == 'login'
+        if fresh_page in ('invite','login','paged-guide','summon-guide','menu-guide','family-welcome','reward','reward_continue') and fresh_page != screen.page:
+            return False
+        if decision.status.startswith('返回主页，') and self.home(fresh):
             return False
         if decision.status in ('领取忍阶已完成每日任务','领取忍阶每周随机道具'):
             return self.match(fresh,'rank',(120,0,320,110)) is not None

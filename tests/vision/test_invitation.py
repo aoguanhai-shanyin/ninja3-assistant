@@ -1,4 +1,5 @@
 from ninja3_assistant.paths import project_root
+import json
 import unittest
 
 import cv2
@@ -14,6 +15,34 @@ EVIDENCE = ROOT.parent/'android-icon-clicker/build/evidence/bounty'
 
 
 class InvitationTest(unittest.TestCase):
+    def test_real_bounty_invitation_with_ocr_omission(self):
+        evidence = ROOT/'data/evidence/2026-11-16/daily-exploration/175313-trial-guide-next-1'
+        gray = cv2.imread(str(evidence.with_suffix('.png')),cv2.IMREAD_GRAYSCALE)
+        ocr = json.loads(evidence.with_suffix('.json').read_text(encoding='utf-8'))['ocr']
+        invitation = InvitationVision().bounty_invitation(gray,ocr)
+        self.assertIsNotNone(invitation)
+        self.assertEqual((invitation.source,invitation.grade),('friend','S'))
+        self.assertTrue(700 <= invitation.accept[0] <= 920 and 490 <= invitation.accept[1] <= 565)
+
+    def test_bounty_invitation_requires_sender_and_unambiguous_title(self):
+        evidence = ROOT/'data/evidence/2026-11-16/daily-exploration/175313-trial-guide-next-1.png'
+        gray = cv2.imread(str(evidence),cv2.IMREAD_GRAYSCALE)
+        vision = InvitationVision()
+        def read(sender, title):
+            return vision.bounty_invitation(gray,{'words':[
+                {'text':sender,'bbox':[140,210,100,25]},
+                {'text':title,'bbox':[560,195,160,25]},
+            ]})
+        for source,sender in (('friend','来自好友'),('family','来自族员')):
+            for grade in 'DCBAS':
+                invite = read(sender,grade+'级每日悬赏')
+                self.assertEqual((invite.source,invite.grade),(source,grade))
+        for sender,title in (('来自族员','家族BOSS组队邀请'),('来自好友','SS级召令悬赏'),
+                             ('来自好友','A级竞技场'),('来自玩家','A级每日悬赏'),
+                             ('来自好友','每日悬赏')):
+            self.assertIsNone(read(sender,title))
+        self.assertIsNone(vision.bounty_invitation(np.zeros((720,1280),np.uint8),{'words':[]}))
+
     def test_family_invitation_uses_same_reject_action(self):
         path=ROOT/'data/evidence/2026-11-15/invitations/family.png'
         image=cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB)

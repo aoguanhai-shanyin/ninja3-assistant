@@ -22,6 +22,108 @@ class DailyMenuReplayTest(unittest.TestCase):
         image=cv2.cvtColor(cv2.imread(str(DATA/(stem+'.png'))),cv2.COLOR_BGR2RGB)
         return self.vision.observe(image,record['ocr'])
 
+    def test_login_recovers_missing_switch_caption_without_guessing_other_pages(self):
+        s=self.runtime_screen('20261117-094029-108500-limited','0001-unknown-wait.png')
+        self.assertNotIn('点击切换',s.text())
+        self.assertEqual(s.page,'login')
+        self.assertEqual(self.vision.navigation(s.frame),('login',(640,515)))
+        decision=DailyFlow('limited').step(s,self.vision)
+        self.assertEqual(decision.point,(640,515))
+        self.assertTrue(self.vision.current_action(s,decision,s.frame))
+        for box in ((500,470,800,560),(680,395,840,465)):
+            changed=s.frame.copy();x1,y1,x2,y2=box;changed[y1:y2,x1:x2]=0
+            self.assertIsNone(self.vision.login(changed))
+        for stem in ('165731-daily-interference-current','173943-shop-guide-dismiss',
+                     '095937-house-loaded','090157-curse-free'):
+            with self.subTest(other=stem):
+                frame=self.read(stem).frame
+                self.assertIsNone(self.vision.login(frame))
+                self.assertFalse(self.vision.current_action(s,decision,frame))
+
+    def test_thanks_icon_locates_old_shortcut_when_ocr_omits_its_label(self):
+        s=self.read('104405-rank-back')
+        self.assertFalse(s.hits(r'答[谢榭]礼',(80,130,330,600)))
+        point=DailyFlow('limited').step(s,self.vision).point
+        self.assertIsNotNone(point)
+        self.assertLess(abs(point[0]-230),10)
+        self.assertLess(abs(point[1]-200),10)
+
+    def test_family_entry_banner_is_dismissed_before_the_courtyard(self):
+        s=self.runtime_screen('20261116-172753-527900-blessing','0006-unknown-wait.png')
+        normal=self.read('173014-family-welcome-dismiss')
+        self.assertEqual(s.page,'family-welcome')
+        self.assertEqual(self.vision.navigation(s.frame),('family-welcome',(640,650)))
+        decision=DailyFlow('blessing').step(s,self.vision)
+        self.assertEqual(decision.point,(640,650))
+        self.assertTrue(self.vision.current_action(s,decision,s.frame))
+        self.assertFalse(self.vision.current_action(s,decision,normal.frame))
+
+    def test_shop_guide_is_closed_before_selecting_a_coin_item(self):
+        s=self.runtime_screen('20261116-173657-493700-bounty_shop','0008-unknown-wait.png')
+        normal=self.read('173943-shop-guide-dismiss')
+        self.assertEqual(s.page,'menu-guide')
+        self.assertEqual(self.vision.navigation(s.frame),('menu-guide',(640,100)))
+        decision=DailyFlow('bounty_shop').step(s,self.vision)
+        self.assertEqual(decision.point,(640,100))
+        self.assertTrue(self.vision.current_action(s,decision,s.frame))
+        self.assertFalse(self.vision.current_action(s,decision,normal.frame))
+
+    def test_second_shop_stone_guide_is_dismissed_before_any_product(self):
+        s=self.runtime_screen('20261117-095019-052000-bounty_shop','0005-unknown-wait.png')
+        normal=self.read('173943-shop-guide-dismiss')
+        self.assertEqual(s.page,'menu-guide')
+        self.assertEqual(self.vision.navigation(s.frame),('menu-guide',(640,100)))
+        # The fixed text template also works when OCR omits the explanation.
+        self.assertEqual(self.vision.observe(s.frame,{'words':[]}).page,'menu-guide')
+        self.assertNotEqual(self.vision.navigation(normal.frame)[0],'menu-guide')
+        for kind in ('bounty_shop','daily_shop'):
+            with self.subTest(kind=kind):
+                decision=DailyFlow(kind).step(s,self.vision)
+                self.assertEqual(decision.point,(640,100))
+                self.assertTrue(self.vision.current_action(s,decision,s.frame))
+                self.assertFalse(self.vision.current_action(s,decision,normal.frame))
+        from ninja3_assistant.activities.daily.flow import DailyDecision
+        old=DailyDecision('tap',(1200,375),'进入悬赏商店')
+        self.assertFalse(self.vision.current_action(normal,old,s.frame))
+
+    def test_paged_trial_guide_and_interrupting_invitation_have_clear_priority(self):
+        guide=self.runtime_screen('20261116-174621-239500-village','0007-unknown-wait.png')
+        self.assertEqual(guide.page,'paged-guide')
+        self.assertEqual(self.vision.navigation(guide.frame)[0],'paged-guide')
+        decision=DailyFlow('village').step(guide,self.vision)
+        self.assertGreater(decision.point[0],950)
+        invite=self.read('175313-trial-guide-next-1')
+        self.assertEqual(invite.page,'invite')
+        self.assertFalse(self.vision.current_action(guide,decision,invite.frame))
+        self.assertEqual(DailyFlow('village').step(invite,self.vision).point,(471,526))
+        last=self.runtime_screen('20261116-175643-206300-village','0003-unknown-wait.png')
+        self.assertEqual(last.page,'paged-guide')
+        self.assertEqual(DailyFlow('village').step(last,self.vision).point,(640,100))
+
+    def test_new_trial_reward_blocks_an_old_click_from_its_background(self):
+        background=self.read('165731-daily-interference-current')
+        from ninja3_assistant.activities.daily.flow import DailyDecision
+        decision=DailyDecision('tap',(678,687),'进入每日清理项目')
+        for name in ('0002-reward-tap.png','0003-reward-tap.png'):
+            with self.subTest(name=name):
+                s=self.runtime_screen('20261116-154029-909600-village',name)
+                self.assertEqual(self.vision.navigation(s.frame)[0],'reward')
+                self.assertFalse(self.vision.current_action(background,decision,s.frame))
+
+    def test_family_drum_recognition_tolerates_courtyard_lighting(self):
+        for stem in ('085955-family-loaded','173014-family-welcome-dismiss'):
+            with self.subTest(stem=stem):
+                s=self.read(stem)
+                self.assertEqual(s.page,'family')
+                self.assertEqual(self.vision.navigation(s.frame)[0],'family')
+                point=DailyFlow('blessing').step(s,self.vision).point
+                self.assertLess(abs(point[0]-405),20)
+                self.assertLess(abs(point[1]-465),20)
+        for stem in ('104405-rank-back','165731-daily-interference-current',
+                     '172320-summon-guide-dismiss','085932-trial-first-done'):
+            with self.subTest(other=stem):
+                self.assertIsNone(self.vision.family_entry(self.read(stem).frame))
+
     def test_free_and_paid_screens_are_distinct_for_all_three_free_operations(self):
         for kind,before,after in (
             ('curse','090157-curse-free','090243-curse-done'),
@@ -53,6 +155,46 @@ class DailyMenuReplayTest(unittest.TestCase):
         s=self.read('084451-promotion')
         self.assertEqual(DailyFlow('limited').step(s,self.vision).point,(402,410))
 
+    def test_summon_up_mode_guide_is_dismissed_before_any_draw_or_shop_entry(self):
+        guide=self.runtime_screen('20261116-172041-810200-limited','0005-unknown-wait.png')
+        self.assertEqual(guide.page,'summon-guide')
+        normal=self.read('172320-summon-guide-dismiss')
+        self.assertEqual(normal.page,'summon')
+        for kind in ('limited','weapon','curse'):
+            with self.subTest(kind=kind):
+                decision=DailyFlow(kind).step(guide,self.vision)
+                self.assertEqual(decision.point,(640,100))
+                self.assertIsNotNone(decision.guard)
+                self.assertTrue(self.vision.current_action(guide,decision,guide.frame))
+                self.assertFalse(self.vision.current_action(guide,decision,normal.frame))
+
+    def test_ten_day_signin_entry_tracks_unlocked_bottom_options(self):
+        points=[]
+        for stem in ('084625-summon','172320-summon-guide-dismiss'):
+            with self.subTest(stem=stem):
+                s=self.read(stem)
+                self.assertEqual(s.page,'summon')
+                flow=DailyFlow('limited');flow.limited_checked.add('anniversary')
+                decision=flow.step(s,self.vision)
+                self.assertEqual(decision.action,'tap')
+                self.assertGreater(decision.point[1],615)
+                self.assertLess(decision.point[1],695)
+                points.append(decision.point)
+        self.assertGreater(points[1][0]-points[0][0],85)
+        self.assertGreater(points[1][0],235)
+
+    def test_ten_day_signin_icon_recovers_when_caption_ocr_is_missing(self):
+        for stem,x in (('084625-summon',168),('172320-summon-guide-dismiss',267)):
+            with self.subTest(stem=stem):
+                s=self.read(stem)
+                s.ocr={'words':[]}
+                flow=DailyFlow('limited');flow.limited_checked.add('anniversary')
+                decision=flow.step(s,self.vision)
+                self.assertEqual(decision.action,'tap')
+                self.assertLessEqual(abs(decision.point[0]-x),3)
+                self.assertGreater(decision.point[1],615)
+                self.assertLess(decision.point[1],695)
+
     def test_store_ninja_coin_icons_do_not_match_jade_or_food_prices(self):
         s=self.read('085216-mystery-shop')
         self.assertFalse(self.vision.coin(s,(55,310,235,360)))
@@ -72,6 +214,36 @@ class DailyMenuReplayTest(unittest.TestCase):
         house=self.read('100048-house-resumed')
         back=DailyFlow('monthly').step(house,self.vision)
         self.assertFalse(self.vision.current_action(house,back,s.frame))
+
+    def test_unlocked_home_and_toast_do_not_block_navigation_or_allow_stale_back(self):
+        bad=self.runtime_screen('20261116-165546-388500-monthly','0001-unknown-wait.png')
+        current=self.read('165731-daily-interference-current')
+        old=self.read('104405-rank-back')
+        back=DailyFlow('monthly').step(self.read('104526-blocked-state'),self.vision)
+        for s,point in ((bad,(678,687)),(current,(678,687)),(old,(582,676))):
+            with self.subTest(summon=point):
+                self.assertEqual(s.page,'home')
+                self.assertEqual(self.vision.navigation(s.frame),('home',None))
+                self.assertEqual(s.home_points['summon'],point)
+                self.assertFalse(self.vision.current_action(s,back,s.frame))
+
+    def test_unlocked_home_uses_shifted_summon_shop_and_limited_entry_points(self):
+        for s in (self.runtime_screen('20261116-165546-388500-monthly','0001-unknown-wait.png'),
+                  self.read('165731-daily-interference-current')):
+            for kind,point in (('weapon',(678,687)),('curse',(678,687)),
+                               ('bounty_shop',(596,682)),('daily_shop',(596,682)),
+                               ('limited',(141,474))):
+                with self.subTest(kind=kind):
+                    self.assertEqual(DailyFlow(kind).step(s,self.vision).point,point)
+            limited=DailyFlow('limited');limited.limited_checked.add('anniversary')
+            self.assertEqual(limited.step(s,self.vision).point,(678,687))
+
+    def test_original_home_still_uses_its_actual_bottom_button_positions(self):
+        s=self.read('104405-rank-back')
+        for kind,point in (('weapon',(582,676)),('curse',(582,676)),
+                           ('bounty_shop',(478,676)),('daily_shop',(478,676))):
+            with self.subTest(kind=kind):
+                self.assertEqual(DailyFlow(kind).step(s,self.vision).point,point)
 
     def test_rank_daily_and_preview_pages_are_both_recognized_for_handoff(self):
         for stem in ('104338-hidden-state','104526-blocked-state'):
@@ -176,3 +348,15 @@ class DailyMenuReplayTest(unittest.TestCase):
         decision=flow.step(self.read('085820-trial-guide'),self.vision)
         self.assertIn('第28关',decision.status)
         self.assertEqual(decision.point,(697,360))
+
+    def test_trial_ocr_missing_count_label_character_scans_left_instead_of_waiting(self):
+        for name in ('0001-trial-wait.png','0002-trial-wait.png','0003-trial-wait.png'):
+            with self.subTest(frame=name):
+                s=self.runtime_screen('20261116-175919-475000-village',name)
+                flow=DailyFlow('village')
+                decision=flow.step(s,self.vision)
+                self.assertEqual(s.page,'trial')
+                self.assertEqual(decision.action,'swipe')
+                self.assertGreater(decision.end[0],decision.point[0])
+                self.assertIn(50,flow.visited_stages)
+                self.assertNotIn(45,flow.visited_stages)

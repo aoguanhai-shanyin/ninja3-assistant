@@ -15,6 +15,7 @@ from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.device.native_touch import create_native_touch, executable_path
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
+from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 
 
 def run_daily(kind, folder, index, control, emit):
@@ -45,6 +46,8 @@ def run_daily(kind, folder, index, control, emit):
             started = control.now()
             sequence = 0
             previous = None
+            safe_invite = False
+            waiting_state = waiting_since = waiting_snapshot_at = None
             while control.wait_active() and control.now()-started < 240:
                 generation = control.generation()
                 frame = device.capture()
@@ -53,6 +56,10 @@ def run_daily(kind, folder, index, control, emit):
                 result = ocr.read(cv2.resize(frame,None,fx=scale,fy=scale) if scale != 1 else frame,
                                   stop=control.stop)
                 if result is None:
+                    continue
+                if not control.wait_active():
+                    return TaskOutcome.STOPPED
+                if generation != control.generation():
                     continue
                 if scale != 1:
                     for word in result['words']:
@@ -89,7 +96,20 @@ def run_daily(kind, folder, index, control, emit):
                         x,y,w,h = word['bbox']
                         result['words'].append({**word,'bbox':[(x-30)/4+250,(y-30)/4+675,w/4,h/4]})
                     result['house_clock'] = clock_result
+                if not control.wait_active():
+                    return TaskOutcome.STOPPED
+                if generation != control.generation():
+                    continue
                 screen = vision.observe(frame,result)
+                if screen.page == 'invite':
+                    handoff = bounty_handoff(frame,vision.invitations,ocr,control,
+                                             safe=safe_invite,result=result)
+                    if handoff:
+                        return handoff
+                else:
+                    safe_invite = screen.page not in ('unknown','trial')
+                    if safe_invite:
+                        clear_handled_invitation(control)
                 if kind == 'house' and screen.page == 'house':
                     countdown = remaining_seconds(screen.text((245,590,460,715)))
                     if countdown is not None and countdown > 0:
@@ -97,8 +117,19 @@ def run_daily(kind, folder, index, control, emit):
                         flow.training_finishes_at = observed_at+countdown
                         save_deadline(resources,flow.training_finishes_at,observed_at)
                 decision = flow.step(screen,vision)
+                now = control.now()
+                if decision.action == 'wait':
+                    current_wait = (screen.page,decision.status)
+                    if current_wait != waiting_state:
+                        waiting_state,waiting_since,waiting_snapshot_at = current_wait,now,None
+                    waiting_timeout = now-waiting_since >= 12
+                    waiting_snapshot = (waiting_timeout or waiting_snapshot_at is None or
+                                        now-waiting_snapshot_at >= 5)
+                else:
+                    waiting_state = waiting_since = waiting_snapshot_at = None
+                    waiting_timeout = waiting_snapshot = False
                 state = (screen.page,decision.action,decision.status)
-                if state != previous or decision.action == 'tap' or decision.action == 'swipe':
+                if state != previous or decision.action == 'tap' or decision.action == 'swipe' or waiting_snapshot:
                     image = f'{sequence:04d}-{screen.page}-{decision.action}.png'
                     cv2.imwrite(str(output/image),cv2.cvtColor(frame,cv2.COLOR_RGB2BGR))
                     record({'event':'decision','page':screen.page,'action':decision.action,
@@ -107,6 +138,11 @@ def run_daily(kind, folder, index, control, emit):
                     sequence += 1
                     emit('status',decision.status)
                     previous = state
+                    if decision.action == 'wait':
+                        waiting_snapshot_at = now
+                if waiting_timeout:
+                    emit('status','日常页面持续无进展，已保留最新画面，稍后重试并继续其他任务')
+                    return TaskOutcome.WAITING
                 if decision.action == 'done':
                     if kind == 'house' and flow.training_finishes_at is not None:
                         emit('daily_next_check',flow.training_finishes_at)

@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from tools.diagnostics.assistant_control import AssistantController, ControlServer, main
+from ninja3_assistant.activities.daily import CHORES
 
 
 class AssistantControlTest(unittest.TestCase):
@@ -116,6 +117,70 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
             prepare.assert_not_called()
         self.assertEqual(self.controller.status()['state'], 'idle')
 
+    def test_daily_only_run_forwards_all_chores_and_exact_bounty_grade(self):
+        self.controller.worker = self.root/'Ninja3Worker.EXE'
+        process = SimpleNamespace(pid=123,poll=lambda:0,wait=lambda **kwargs:0,
+                                  stdin=StringIO(),stdout=StringIO(),stderr=StringIO())
+        with patch.object(self.controller,'_prepare'), \
+                patch('tools.diagnostics.assistant_control.subprocess.Popen',return_value=process) as launch:
+            self.controller.command({'command':'start','mode':'run',
+                                     'daily_tasks':list(CHORES),'bounty_grade':'A'})
+            self.wait_state('stopped')
+            self.controller.thread.join(timeout=3)
+        command=launch.call_args.args[0]
+        self.assertEqual(command,[str(self.controller.worker),'--mode','run',
+            '--folder',str(self.root.resolve()),'--index','1','--daily-tasks',*CHORES,
+            '--bounty-grade','A'])
+        state=self.controller.status()
+        self.assertEqual(state['daily_tasks'],list(CHORES))
+        self.assertEqual(state['bounty_grade'],'A')
+        self.assertFalse(state['activity_enabled'])
+        self.assertFalse(state['weekend_enabled'])
+        state['daily_tasks'].clear()
+        self.assertEqual(self.controller.status()['daily_tasks'],list(CHORES))
+
+    def test_mixed_task_options_are_cleared_on_the_next_start(self):
+        self.controller.worker = self.root/'Ninja3Worker.EXE'
+        for enabled in (True,False):
+            process = SimpleNamespace(pid=123,poll=lambda:0,wait=lambda **kwargs:0,
+                                      stdin=StringIO(),stdout=StringIO(),stderr=StringIO())
+            options=(dict(activity_enabled=True,activity_mode='continuous',weekend_enabled=True,
+                          weekend_mode='25',daily_tasks=['rank','bounty','rank']) if enabled else {})
+            with self.subTest(enabled=enabled),patch.object(self.controller,'_prepare'), \
+                    patch('tools.diagnostics.assistant_control.subprocess.Popen',return_value=process) as launch:
+                self.controller.start('run',**options)
+                self.wait_state('stopped')
+                self.controller.thread.join(timeout=3)
+            state=self.controller.status()
+            command=launch.call_args.args[0]
+            self.assertEqual(state['weekend_enabled'],enabled)
+            self.assertEqual(state['daily_tasks'],['rank','bounty'] if enabled else [])
+            self.assertEqual(state['bounty_grade'],'D' if enabled else None)
+            if enabled:
+                self.assertEqual(command[-8:],['--weekend-enabled','--weekend-mode','25',
+                                             '--daily-tasks','rank','bounty','--bounty-grade','D'])
+            else:
+                self.assertNotIn('--daily-tasks',command)
+                self.assertNotIn('--weekend-enabled',command)
+                self.assertNotIn('--bounty-grade',command)
+
+    def test_invalid_daily_or_weekend_requests_never_prepare_or_start(self):
+        invalid=[dict(mode='run',daily_tasks='monthly'),dict(mode='run',daily_tasks=['unknown']),
+                 dict(mode='run',daily_tasks=[[]]),dict(mode='run',daily_tasks=None),
+                 dict(mode='observe',daily_tasks=['rank']),dict(mode='hayabusa',weekend_enabled=True),
+                 dict(mode='run',weekend_enabled='false'),dict(mode='run',weekend_mode='continuous'),
+                 dict(mode='run',bounty_grade='A'),dict(mode='run',daily_tasks=['rank'],bounty_grade='A'),
+                 dict(mode='run',daily_tasks=['bounty'],bounty_grade='S')]
+        with patch.object(self.controller,'_prepare') as prepare, \
+                patch('tools.diagnostics.assistant_control.subprocess.Popen') as launch:
+            for options in invalid:
+                with self.subTest(options=options),self.assertRaises(ValueError):
+                    self.controller.start(**options)
+            prepare.assert_not_called()
+            launch.assert_not_called()
+        self.assertIsNone(self.controller.thread)
+        self.assertEqual(self.controller.status()['state'],'idle')
+
     def test_exit_stops_only_the_owned_worker_and_can_restart_after_stop(self):
         with patch.object(self.controller, '_prepare'):
             self.controller.start()
@@ -206,6 +271,30 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
         message = json.loads(request.call_args.args[0].data)
         self.assertEqual(message, {'command': 'start', 'mode': 'run',
                                   'activity_enabled': True, 'activity_mode': 'continuous'})
+
+    def test_start_cli_serializes_daily_and_weekend_selection(self):
+        with patch.object(sys,'argv',['assistant_control.py','--command','start','--mode','run',
+                     '--daily-tasks','monthly','bounty','rank','--bounty-grade','B',
+                     '--weekend-enabled','--weekend-mode','25']), \
+                patch('tools.diagnostics.assistant_control.urlopen',return_value=BytesIO(b'{"ok":true}')) as request, \
+                redirect_stdout(StringIO()):
+            self.assertEqual(main(),0)
+        self.assertEqual(json.loads(request.call_args.args[0].data),{
+            'command':'start','mode':'run','activity_enabled':False,'activity_mode':'daily',
+            'daily_tasks':['monthly','bounty','rank'],'bounty_grade':'B',
+            'weekend_enabled':True,'weekend_mode':'25'})
+
+    def test_daily_cli_validation_does_not_issue_a_request(self):
+        for arguments in (['--command','start','--mode','observe','--daily-tasks','rank'],
+                          ['--command','status','--daily-tasks','rank'],
+                          ['--command','start','--mode','run','--bounty-grade','A'],
+                          ['--command','start','--mode','run','--daily-tasks','unknown']):
+            with self.subTest(arguments=arguments),patch.object(sys,'argv',['assistant_control.py',*arguments]), \
+                    patch('tools.diagnostics.assistant_control.urlopen') as request, \
+                    patch('sys.stderr',StringIO()),self.assertRaises(SystemExit) as error:
+                main()
+            self.assertEqual(error.exception.code,2)
+            request.assert_not_called()
 
     def test_preparation_failure_is_visible_and_never_spawns_a_worker(self):
         with patch.object(self.controller, '_prepare', side_effect=RuntimeError('network unavailable')):

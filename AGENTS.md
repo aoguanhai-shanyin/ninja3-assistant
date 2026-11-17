@@ -49,9 +49,22 @@
 3. 移动动作先在训练所隔离验证，再按用户已有授权接入活动。不要用正式积分局反复猜参数。
 4. SDK 返回成功、单元测试通过、输入日志存在，都不等于游戏动作成功。必须检查连续画面中的角色动作、场景和实际进度。
 5. 分别报告采集频率、识别频率、输入时序与游戏效果；不能混成一个 FPS，也不能将底层时序验证称为稳定避障/上分。
-6. 界面默认显示游戏窗口；隐藏仅由用户选项控制。拒绝队友/族员邀请，不能只收起遮挡。
+6. 界面默认显示游戏窗口；隐藏仅由用户选项控制。启用悬赏时，在安全间隙接受好友或族员的所选等级悬赏邀请；其他邀请应拒绝，不能只收起遮挡。
 7. 目录整理不夹带玩法重构；移文件前查引用，更新后检查链接、入口、资源与包内容。保留原始实测记录和模型来源。
 8. Windows 使用 PowerShell，不使用 bash。检索优先 `rg`；路径有空格时使用可靠的参数传递方式。
+9. 自动化与实测优先使用 `tools/diagnostics/assistant_control.py`，通过 JSON 行或本机 HTTP 接口启动、暂停、继续、停止、读取状态和截图；游戏输入仍由 C++ NinjaTouch 执行。控制程序已覆盖的操作应优先调用接口。接口无法覆盖的必要界面检查可以使用 Computer Use，这是一项优先级约定，并非禁用；游戏采集和输入仍遵守第2条。一次实测只能有一个输入控制者，启动控制程序前先确认旧 Worker 已退出。
+
+控制程序在项目根目录运行。启动本机服务后，可从另一条命令查询或控制；`start` 只传本轮需要的任务，不自动启用额外活动：
+
+```powershell
+python -m tools.diagnostics.assistant_control --folder '<MuMu安装目录>' --index 1 --worker dist/Ninja3Assistant/Ninja3Worker.exe --serve
+python -m tools.diagnostics.assistant_control --command start --mode run --daily-tasks monthly limited blessing weapon curse bounty_shop daily_shop house bounty bounty_s village rank --bounty-grade A --hide-game-window
+python -m tools.diagnostics.assistant_control --command status
+python -m tools.diagnostics.assistant_control --command stop
+python -m tools.diagnostics.assistant_control --command exit
+```
+
+`--hide-game-window` 依用户选项决定，悬赏等级沿用本轮所选等级；服务只监听 `127.0.0.1`，实测结束后停止 Worker 并退出控制服务。
 
 ## 构建与验证
 

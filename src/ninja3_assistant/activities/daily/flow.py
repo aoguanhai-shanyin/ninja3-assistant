@@ -44,6 +44,16 @@ class DailyFlow:
         page,text = screen.page,screen.text()
         if page == 'invite':
             return self.tap(screen.point,'拒绝队友或家族邀请',guard=(340,475,940,585))
+        if page == 'login':
+            return self.tap(screen.point,'登录当前已选账号')
+        if page == 'summon-guide':
+            return self.tap((640,100),'关闭召唤说明，继续每日清理',guard=(650,230,785,280))
+        if page == 'menu-guide':
+            return self.tap((640,100),'关闭商店说明，继续每日清理',guard=(280,300,1000,370))
+        if page == 'family-welcome':
+            return self.tap((640,650),'关闭家族入场展示，继续每日清理',guard=(200,240,1100,490))
+        if page == 'paged-guide':
+            return self.tap(screen.point,'继续功能说明',guard=(650,225,1220,480))
         if page == 'reward_continue':
             return self.tap((1130,590),'关闭已领取奖励，继续每日清理')
         if page == 'reward':
@@ -53,12 +63,14 @@ class DailyFlow:
             point = vision.match(screen.frame,'confirm',(200,560,750,715))
             return self.tap(point,'确认领取奖励') if point else DailyDecision(status='等待奖励确定按钮')
         if page == 'home':
-            point = {'monthly':(50,280),'limited':(230,195),'blessing':(1010,450),
-                     'weapon':(580,650),'curse':(580,650),'bounty_shop':(480,650),
-                     'daily_shop':(480,650),'village':(865,600),'house':(143,195),
-                     'rank':(65,50)}[self.kind]
-            if self.kind == 'limited' and 'anniversary' in self.limited_checked:
-                point = (580,650)
+            target = ('summon' if self.kind in ('weapon','curse') or
+                      (self.kind == 'limited' and 'anniversary' in self.limited_checked) else
+                      'shop' if self.kind in ('bounty_shop','daily_shop') else self.kind)
+            point = getattr(screen,'home_points',{}).get(target) or {
+                'monthly':(50,280),'blessing':(1010,450),'village':(865,600),
+                'house':(143,195),'rank':(65,50)}.get(target)
+            if point is None:
+                return DailyDecision(status='寻找主页每日清理入口：'+target)
             return self.tap(point,'进入每日清理项目')
         if page == 'monthly':
             if self.kind != 'monthly':
@@ -104,7 +116,7 @@ class DailyFlow:
         if self.kind == 'blessing' and page == 'no_family':
             return DailyDecision('unavailable',status='账号未加入家族，暂不能免费祈福')
         if self.kind == 'blessing' and page == 'family':
-            point = vision.match(screen.frame,'family',(250,250,650,650))
+            point = vision.family_entry(screen.frame)
             return self.tap(point,'进入家族祈福') if point else DailyDecision(status='寻找家族祈福入口')
         expected = {'blessing':'prayer','weapon':'weapon','curse':'curse'}.get(self.kind)
         if page == expected:
@@ -133,7 +145,9 @@ class DailyFlow:
                 return self.back((40,48))
             if page != 'summon':
                 return self.tap((140,155),'选择当前限时召唤页')
-            return self.tap((168,650),'打开十日签到')
+            entries = screen.hits(r'十日签[到角]?',(0,600,580,715))
+            point = entries[0].point if entries else vision.match(screen.frame,'ten-signin-entry',(0,600,580,715),threshold=.94)
+            return self.tap(point,'打开十日签到') if point else DailyDecision(status='寻找召唤页十日签到入口')
         if self.kind in ('bounty_shop','daily_shop'):
             decision = self.shop(screen,vision)
             if decision:
@@ -163,8 +177,6 @@ class DailyFlow:
             return self.back((90,65) if page == 'family' else (65,50))
         if page == 'activities':
             return self.tap((135,180),'进入每日签到') if self.kind == 'monthly' else self.back((1238,48))
-        if '登录' in text and '点击切换' in text:
-            return self.tap((640,515),'登录当前已选账号')
         return DailyDecision(status='等待识别日常页面')
 
     def rank(self, screen):
@@ -290,9 +302,9 @@ class DailyFlow:
             panel = s.text((max(0,x-105),270,min(1280,x+110),570))
             if '首次通关' in panel or number in self.visited_stages:
                 continue
-            count = re.search(r'挑战次数\D{0,3}(\d+)',panel)
+            count = re.search(r'挑战次数?\D{0,3}(\d+)',panel)
             if count is None and self.stage == number:
-                count = re.search(r'挑战次数\D{0,3}(\d+)',s.text((1010,570,1270,625)))
+                count = re.search(r'挑战次数?\D{0,3}(\d+)',s.text((1010,570,1270,625)))
             if count and int(count[1]) == 0:
                 self.visited_stages.add(number)
                 continue

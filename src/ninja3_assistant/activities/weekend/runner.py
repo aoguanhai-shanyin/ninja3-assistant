@@ -17,6 +17,7 @@ from ninja3_assistant.device.native_touch import create_native_touch, executable
 from ninja3_assistant.combat.opening_actions import OpeningActions
 from ninja3_assistant.runtime.realtime_battle import RealtimeBattleKernel, FrameDiagnostics
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
+from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 from ninja3_assistant.vision.invitation import InvitationVision
 from ninja3_assistant.activities.weekend.obstacles import RaceObstacleVision
 from ninja3_assistant.activities.weekend.rope import RaceRopeTraversal
@@ -297,6 +298,7 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
     frames = 0
     measured_at = control.now()
     result_confirmed = False
+    safe_invite = False
     unknown_since = None
     rope = RaceRopeTraversal()
     try:
@@ -326,6 +328,14 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                         continue
                 gray = cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY)
                 kind = vision.detect(frame,gray)
+                if kind == 'invite' and safe_invite and not armed:
+                    handoff = bounty_handoff(frame,vision.invitations,ocr,control,safe=True)
+                    if handoff:
+                        return handoff
+                elif kind != 'invite':
+                    safe_invite = not armed and kind in ('home','hall','tasks')
+                    if safe_invite:
+                        clear_handled_invitation(control)
                 now = control.now()
                 if not armed and (kind in ('ready','dash') or
                                   (kind in ('race','respawn') and vision.confirmed_race)):

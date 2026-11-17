@@ -39,6 +39,34 @@ class BattleVisionTest(unittest.TestCase):
         flow.completed(place, 1)
         self.assertIsNone(flow.pending)
 
+    def test_current_dark_empty_backs_preserve_the_three_occupied_cards(self):
+        path = project_root()/'data/runtime/intelligence-simulation/runs/20261116-180405-083200/'
+        frame = cv2.cvtColor(cv2.imread(str(path/'unknown-cards/frame-0006.png')),cv2.COLOR_BGR2RGB)
+        observation = self.vision.detect(frame)
+        self.assertEqual(observation.unknown_board,())
+        self.assertEqual(tuple(c.id if c else None for c in observation.board),
+                         ('c003','c006','c035',None,None,None,None,None,None))
+        self.assertFalse(any(observation.place_points))
+
+    def test_current_green_backs_still_require_a_visible_plus_and_selected_shop(self):
+        path = project_root()/'data/runtime/intelligence-simulation/runs/20261116-184005-135300/'
+        frame = cv2.cvtColor(cv2.imread(str(path/'unknown-cards/frame-0009.png')),cv2.COLOR_BGR2RGB)
+        observation = self.vision.detect(frame)
+        self.assertEqual(observation.selected_shop,3)
+        self.assertEqual(observation.shop[3].id,'c052')
+        self.assertEqual(observation.place_points[2],(480,232))
+        self.assertEqual(observation.unknown_board,(8,))  # Obscured edge remains unknown.
+        obscured = frame.copy()
+        obscured[211:253,459:501] = 0
+        self.assertIsNone(self.vision.detect(obscured).place_points[2])
+        # A plus pasted onto a real card is insufficient to make that cell empty.
+        occupied = frame.copy()
+        occupied[138:310,407:552] = frame[138:310,67:212]
+        occupied[217:248,465:496] = frame[217:248,295:326]
+        check = self.vision.detect(occupied)
+        self.assertIsNone(check.place_points[2])
+        self.assertTrue(check.board[2] is not None or 2 in check.unknown_board)
+
     @classmethod
     def setUpClass(cls):
         cls.vision = BattleVision()

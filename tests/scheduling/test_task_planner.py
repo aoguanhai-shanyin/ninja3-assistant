@@ -8,6 +8,7 @@ from ninja3_assistant.runtime.runner import RunControl
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome as O
 from ninja3_assistant.scheduling.task_scheduler import run_tasks
 from ninja3_assistant.scheduling.task_planner import TaskPlan
+from ninja3_assistant.scheduling.invitation_handoff import InvitationHandoff
 
 
 class FakeTask(ActivityTask):
@@ -24,6 +25,46 @@ class FakeTask(ActivityTask):
 
 
 class PlannerTest(unittest.TestCase):
+    def test_invite_interrupt_uses_enabled_bounty_and_resumes_without_changing_quota(self):
+        calls = []
+        control = RunControl()
+        bounty = FakeTask('daily_bounty', [O.RECOVER_IN_PLACE,O.MATCH_DONE], calls)
+        bounty.bounty_grade = 'A'
+        activity = FakeTask('activity', [InvitationHandoff('daily_bounty'),O.DAILY_DONE], calls)
+        now = datetime(2026,11,17,12,tzinfo=CHINA)
+        plan = TaskPlan([activity,bounty],now)
+        plan.tasks[1].daily_done = True
+        navigate = Mock(return_value=True)
+        with patch.object(control.stop,'wait',return_value=False):
+            run_tasks('f',1,control,Mock(),plan=plan,clock=lambda:now,navigate=navigate)
+        self.assertEqual(calls,[('activity','daily'),('daily_bounty','invite'),
+                                ('daily_bounty','invite_resume'),('activity','daily')])
+        self.assertTrue(plan.tasks[1].daily_done)
+        self.assertFalse(hasattr(control,'bounty_invite_targets'))
+        self.assertEqual([call.kwargs['target'] for call in navigate.call_args_list],['activity','activity'])
+
+    def test_navigation_handoff_runs_before_the_next_task(self):
+        calls = []
+        bounty = FakeTask('daily_bounty',[O.MATCH_DONE],calls)
+        bounty.bounty_grade = 'A'
+        activity = FakeTask('activity',[O.DAILY_DONE],calls)
+        now = datetime(2026,11,17,12,tzinfo=CHINA)
+        plan = TaskPlan([activity,bounty],now)
+        plan.tasks[1].daily_done = True
+        navigate = Mock(side_effect=[InvitationHandoff('daily_bounty'),True])
+        run_tasks('f',1,RunControl(),Mock(),plan=plan,clock=lambda:now,navigate=navigate)
+        self.assertEqual(calls,[('daily_bounty','invite'),('activity','daily')])
+
+    def test_bounty_recovery_runs_with_battle_ownership(self):
+        calls = []
+        control = RunControl()
+        bounty = FakeTask('daily_bounty',[O.RECOVER_IN_PLACE,O.MATCH_DONE,O.DAILY_DONE],calls)
+        bounty.bounty_grade = 'A'
+        wall = [datetime(2026,11,17,12,tzinfo=CHINA)]
+        with patch.object(control.stop,'wait',side_effect=lambda delay:wall.__setitem__(0,wall[0]+timedelta(seconds=delay))):
+            self.run_plan([bounty],control=control,clock=lambda:wall[0])
+        self.assertEqual(calls,[('daily_bounty','daily'),('daily_bounty','recover'),('daily_bounty','daily')])
+
     def test_in_match_recovery_keeps_ownership_until_safe_checkpoint(self):
         calls = []
         control = RunControl()
@@ -214,6 +255,33 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(wait.call_count,2)
         self.assertEqual(events[-1],('finished',''))
         self.assertEqual(sum(k=='error' and '15秒后重试' in v for k,v in events),2)
+
+    def test_slow_failing_dailies_do_not_starve_later_tasks_or_retries(self):
+        for outcome in (O.WAITING,O.ERROR):
+            with self.subTest(outcome=outcome):
+                calls = []
+                control = RunControl()
+                wall = [datetime(2026,11,17,9,40,tzinfo=CHINA)]
+                names = ('monthly','limited','blessing','weapon')
+                def finish_attempt(current):
+                    wall[0] += timedelta(seconds=20)
+                    if len(calls) == 8:
+                        current.request_stop()
+                tasks = [FakeTask(name,[outcome]*8,calls,hook=finish_attempt) for name in names]
+                for priority,task in enumerate(tasks):
+                    task.daily_priority = priority
+                self.run_plan(tasks,control=control,clock=lambda:wall[0])
+                self.assertEqual([name for name,_ in calls],list(names)*2)
+
+    def test_due_daily_retry_still_preempts_extra_matches(self):
+        now = datetime(2026,11,17,12,tzinfo=CHINA)
+        plan = TaskPlan([FakeTask('failed',[],[]),FakeTask('extra',[],[],'continuous')],now)
+        daily,extra = plan.tasks
+        plan.complete(extra,O.DAILY_DONE,now)
+        plan.complete(daily,O.ERROR,now)
+        plan.refresh(now+timedelta(seconds=15))
+        ready = sorted((item for item in plan.tasks if item.ready),key=lambda item:item.priority)
+        self.assertEqual([item.activity.name for item in ready],['failed','extra'])
 
     def test_paused_scheduler_does_not_navigate_or_start_next_task(self):
         calls = []

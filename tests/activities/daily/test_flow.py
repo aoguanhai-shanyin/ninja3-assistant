@@ -12,6 +12,42 @@ def screen(page, words):
 
 
 class DailyFlowTest(unittest.TestCase):
+    def test_login_uses_the_recognized_button_not_unlocated_ocr_words(self):
+        current=screen('login',[]);current.point=(640,515)
+        decision=DailyFlow('monthly').step(current,self.vision())
+        self.assertEqual(decision.point,(640,515))
+        self.assertEqual(decision.status,'登录当前已选账号')
+        words=[('登录',[600,490,80,50]),('点击切换',[700,418,102,29])]
+        self.assertEqual(DailyFlow('monthly').step(screen('unknown',words),self.vision()).action,'wait')
+
+    def test_home_routes_follow_unlocked_shortcuts_and_shifted_bottom_buttons(self):
+        s=screen('home',[])
+        s.home_points={'summon':(690,676),'shop':(586,676),'limited':(145,475)}
+        for kind,target in (('weapon','summon'),('curse','summon'),
+                            ('bounty_shop','shop'),('daily_shop','shop'),('limited','limited')):
+            with self.subTest(kind=kind):
+                self.assertEqual(DailyFlow(kind).step(s,self.vision()).point,s.home_points[target])
+        flow=DailyFlow('limited');flow.limited_checked.add('anniversary')
+        self.assertEqual(flow.step(s,self.vision()).point,s.home_points['summon'])
+
+    def test_missing_movable_home_entry_does_not_tap_its_old_position(self):
+        for kind in ('weapon','curse','bounty_shop','daily_shop','limited'):
+            with self.subTest(kind=kind):
+                decision=DailyFlow(kind).step(screen('home',[]),self.vision())
+                self.assertEqual(decision.action,'wait')
+                self.assertIsNone(decision.point)
+
+    def test_summon_signup_entry_follows_its_label_after_unlocking_recycle(self):
+        flow=DailyFlow('limited');flow.limited_checked.add('anniversary')
+        s=screen('summon',[('十日签',[240,670,60,22])])
+        self.assertEqual(flow.step(s,self.vision()).point,(270,681))
+        self.assertEqual(flow.step(screen('summon',[]),self.vision()).action,'wait')
+
+    def test_known_summon_guide_is_closed_outside_all_draw_buttons(self):
+        decision=DailyFlow('weapon').step(screen('summon-guide',[]),self.vision())
+        self.assertEqual(decision.point,(640,100))
+        self.assertIsNone(decision.free_kind)
+
     def vision(self, *, free=False, coin=True):
         v=Mock();v.free.return_value=free;v.coin.return_value=coin;v.match.return_value=None
         v.food.side_effect=lambda s:int(s.hits(r'\d+',(1160,15,1225,75))[0].text) if s.hits(r'\d+',(1160,15,1225,75)) else None
@@ -97,6 +133,25 @@ class DailyFlowTest(unittest.TestCase):
         choose=flow.step(s,self.vision());flow.completed(choose,s)
         self.assertIn('第28关',choose.status)
         self.assertEqual(flow.step(s,self.vision()).action,'wait')
+
+    def test_trial_counter_missing_the_last_label_character_keeps_right_to_left_order(self):
+        s=screen('trial',[('20',[1180,30,30,30]),('第50关',[1100,220,75,25]),
+                          ('通关奖励剩余挑战次00',[1080,350,180,190]),
+                          ('第49关',[860,220,75,25]),
+                          ('通关奖励剩余挑战次数:2',[820,350,180,190])])
+        flow=DailyFlow('village')
+        decision=flow.step(s,self.vision())
+        self.assertIn('第49关',decision.status)
+        self.assertEqual(flow.visited_stages,{50})
+
+    def test_selected_trial_counter_accepts_a_missing_label_character_but_requires_a_value(self):
+        flow=DailyFlow('village');flow.stage=50
+        base=[('20',[1180,30,30,30]),('第50关',[1100,220,75,25]),
+              ('通关奖励x4',[1080,350,180,190])]
+        unreadable=screen('trial',base+[('剩余挑战次:',[1080,585,180,25])])
+        self.assertEqual(flow.step(unreadable,self.vision()).action,'wait')
+        readable=screen('trial',base+[('剩余挑战次:2',[1080,585,180,25])])
+        self.assertEqual(flow.step(readable,self.vision()).point,(895,649))
 
     def rank_screen(self, buttons):
         return screen('rank',[('每日任务',[625,240,90,25]),

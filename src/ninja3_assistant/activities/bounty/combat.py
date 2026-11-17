@@ -7,6 +7,7 @@ import numpy as np
 
 from ninja3_assistant.combat.opening_actions import OpeningActions
 from ninja3_assistant.device.native_touch import TimedTap
+from ninja3_assistant.paths import resource_root
 from ninja3_assistant.vision.vision import ASSETS
 
 
@@ -21,7 +22,7 @@ class BountyBattleState:
 
 
 class BountyCombatVision:
-    """Reuse observed running controls and require a visible Boss health bar."""
+    """Recognize control silhouettes and the Boss portrait before its bar fills."""
     # The same left/right weapon slots are used by the existing race runner.
     weapon_points = ((380,630),(900,630))
 
@@ -32,7 +33,30 @@ class BountyCombatVision:
             raise RuntimeError('缺少悬赏绳索控制识别模板')
         self.down = cv2.inRange(down,200,255)
         self.up = cv2.flip(self.down,0)
+        self.ground_controls = tuple(cv2.inRange(self.opening.images[name],200,255)
+                                     for name in ('battle-slide','battle-jump'))
+        assets = resource_root()/'assets/bounty-combat'
+        self.boss_frame = cv2.imread(str(assets/'boss-portrait-frame.png'),0) if (assets/'boss-portrait-frame.png').is_file() else None
+        self.boss_level = cv2.imread(str(assets/'boss-level-label.png'),0) if (assets/'boss-level-label.png').is_file() else None
+        if self.boss_frame is not None:
+            y,x = np.indices(self.boss_frame.shape)
+            radius = np.sqrt((x-36)**2+(y-35)**2)
+            self.boss_mask = np.where((radius>=28)&(radius<=37)&~((x>40)&(y>40)),255,0).astype(np.uint8)
         self.boss_seen = False
+
+    def boss_portrait(self, gray):
+        if self.boss_frame is None or self.boss_level is None:
+            return False
+        label = gray[32:70,444:490]
+        if np.count_nonzero(label > 205) < 20:
+            return False
+        level = cv2.minMaxLoc(cv2.matchTemplate(label,self.boss_level,
+                                               cv2.TM_CCOEFF_NORMED))[1]
+        if level < .94:
+            return False
+        score = cv2.minMaxLoc(cv2.matchTemplate(gray[15:105,365:460],self.boss_frame,
+            cv2.TM_CCORR_NORMED,mask=self.boss_mask))[1]
+        return math.isfinite(score) and score >= .96
 
     @staticmethod
     def boss_bar(frame):
@@ -70,14 +94,21 @@ class BountyCombatVision:
                       for image in (self.down,self.up)) >= .88
         ground = False
         if not on_rope:
-            slide = self.opening._match(gray,'battle-slide',(80,550,230,165))
-            jump = self.opening._match(gray,'battle-jump',(1010,550,180,165))
-            ground = slide[0] >= .85 and slide[1] < 30 and jump[0] >= .85 and jump[1] < 30
-        active = on_rope or ground
+            # Bright glyphs retain their shape while translucent button
+            # backgrounds change with the scenery and pressed animation.
+            ground = all(cv2.minMaxLoc(cv2.matchTemplate(
+                cv2.inRange(gray[y1:y2,x1:x2],200,255),template,cv2.TM_CCOEFF_NORMED))[1] >= .92
+                for template,(x1,y1,x2,y2) in zip(self.ground_controls,
+                    ((80,550,310,715),(1010,550,1190,715))))
+        boss_signal = self.boss_portrait(gray) or self.boss_bar(frame)
+        point = self.opening._ninjutsu_point(gray) if self.boss_seen or boss_signal else None
+        # The Boss portrait can arrive while a control is still obscured.
+        # Its fixed border+Lv layout and a visible skill HUD suffice; do not
+        # wait for both movement controls or for the coloured health fill.
+        active = on_rope or ground or (boss_signal and point is not None)
         if not active:
             return BountyBattleState()
-        self.boss_seen = self.boss_seen or self.boss_bar(frame)
-        point = self.opening._ninjutsu_point(gray) if self.boss_seen else None
+        self.boss_seen = self.boss_seen or boss_signal
         return BountyBattleState(True,ground,on_rope,self.boss_seen,point,
                                  self.weapon_points if self.boss_seen else ())
 
@@ -134,7 +165,7 @@ class BountyCombat:
                 if self.kernel.plan(4,actions) is not None:
                     self.skills.add(4)
                     self.last_weapon = now
-            return 'Boss血条已出现，释放忍术并持续攻击'
+            return 'Boss头像或血条已出现，释放忍术并持续攻击'
         self._stop_skills()
         if state.on_rope:
             self._stop_movement()

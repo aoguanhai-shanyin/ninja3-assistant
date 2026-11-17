@@ -16,6 +16,8 @@ import threading
 import time
 from urllib.request import Request, urlopen
 
+from ninja3_assistant.activities.daily import CHORES
+
 
 ROOT = project_root()
 
@@ -34,6 +36,8 @@ class AssistantController:
         self.paused = False
         self.state, self.mode = 'idle', None
         self.activity_enabled, self.activity_mode = False, 'daily'
+        self.weekend_enabled, self.weekend_mode = False, 'daily'
+        self.daily_tasks, self.bounty_grade = [], None
         self.hide_game_window = False
         self.last_status = self.backend = self.error = None
         self.metrics, self.events = {}, deque(maxlen=30)
@@ -42,6 +46,8 @@ class AssistantController:
         with self.lock:
             return {'state': self.state, 'mode': self.mode, 'folder': str(self.folder), 'index': self.index,
                     'activity_enabled': self.activity_enabled, 'activity_mode': self.activity_mode,
+                    'weekend_enabled': self.weekend_enabled, 'weekend_mode': self.weekend_mode,
+                    'daily_tasks':list(self.daily_tasks), 'bounty_grade':self.bounty_grade,
                     'hide_game_window':self.hide_game_window,
                     'worker_pid': self.process.pid if self.process is not None and self.process.poll() is None else None,
                     'status': self.last_status, 'backend': self.backend, 'metrics': dict(self.metrics),
@@ -105,7 +111,8 @@ class AssistantController:
         call('control', '--vmindex', str(self.index), 'hide_window' if hide_game_window else 'show_window')
         return info
 
-    def start(self, mode='hayabusa', *, activity_enabled=False, activity_mode='daily',hide_game_window=False):
+    def start(self, mode='hayabusa', *, activity_enabled=False, activity_mode='daily',hide_game_window=False,
+              weekend_enabled=False, weekend_mode='daily', daily_tasks=(), bounty_grade=None):
         if mode not in ('hayabusa', 'observe', 'run'):
             raise ValueError('mode must be hayabusa, observe, or run')
         if not isinstance(activity_enabled, bool):
@@ -116,6 +123,20 @@ class AssistantController:
             raise ValueError('activity_mode must be daily or continuous')
         if activity_enabled and mode != 'run':
             raise ValueError('activity is available only in run mode')
+        if not isinstance(weekend_enabled,bool):
+            raise ValueError('weekend_enabled must be a boolean')
+        if weekend_mode not in ('daily','25'):
+            raise ValueError('weekend_mode must be daily or 25')
+        if weekend_enabled and mode != 'run':
+            raise ValueError('weekend is available only in run mode')
+        if not isinstance(daily_tasks,(list,tuple)) or any(
+                not isinstance(kind,str) or kind not in CHORES for kind in daily_tasks):
+            raise ValueError('daily_tasks must be a list of known daily chores')
+        if daily_tasks and mode != 'run':
+            raise ValueError('daily chores are available only in run mode')
+        if bounty_grade is not None and (bounty_grade not in ('D','C','B','A') or
+                                        mode != 'run' or 'bounty' not in daily_tasks):
+            raise ValueError('bounty_grade must be D, C, B, or A and requires the bounty daily task')
         with self.lock:
             if self.thread is not None and self.thread.is_alive():
                 raise RuntimeError('an assistant worker is already active')
@@ -124,6 +145,9 @@ class AssistantController:
             self.paused = False
             self.state, self.mode = 'starting', mode
             self.activity_enabled, self.activity_mode = activity_enabled, activity_mode
+            self.weekend_enabled, self.weekend_mode = weekend_enabled, weekend_mode
+            self.daily_tasks = list(dict.fromkeys(daily_tasks))
+            self.bounty_grade = bounty_grade or ('D' if 'bounty' in self.daily_tasks else None)
             self.hide_game_window = hide_game_window
             self.last_status = self.backend = self.error = None
             self.metrics, self.events = {}, deque(maxlen=30)
@@ -160,6 +184,12 @@ class AssistantController:
                     command.append('--observe-only')
                 if self.activity_enabled:
                     command += ['--activity-enabled', '--activity-mode', self.activity_mode]
+                if self.weekend_enabled:
+                    command += ['--weekend-enabled', '--weekend-mode', self.weekend_mode]
+                if self.daily_tasks:
+                    command += ['--daily-tasks',*self.daily_tasks]
+                if self.bounty_grade is not None:
+                    command += ['--bounty-grade',self.bounty_grade]
                 if self.hide_game_window:
                     command.append('--hide-game-window')
                 process = self.process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.PIPE,
@@ -292,7 +322,11 @@ class AssistantController:
             return self.start(message.get('mode', 'hayabusa'),
                               activity_enabled=message.get('activity_enabled', False),
                               activity_mode=message.get('activity_mode', 'daily'),
-                              hide_game_window=message.get('hide_game_window',False))
+                              hide_game_window=message.get('hide_game_window',False),
+                              weekend_enabled=message.get('weekend_enabled',False),
+                              weekend_mode=message.get('weekend_mode','daily'),
+                              daily_tasks=message.get('daily_tasks',()),
+                              bounty_grade=message.get('bounty_grade'))
         if command == 'launch':
             return self.launch(hide_game_window=message.get('hide_game_window',False))
         if command == 'screenshot':
@@ -359,6 +393,10 @@ def main():
     parser.add_argument('--mode', choices=('hayabusa', 'observe', 'run'), default='hayabusa')
     parser.add_argument('--activity-enabled', action='store_true')
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
+    parser.add_argument('--weekend-enabled',action='store_true')
+    parser.add_argument('--weekend-mode',choices=('daily','25'),default='daily')
+    parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
+    parser.add_argument('--bounty-grade',choices=('D','C','B','A'))
     parser.add_argument('--hide-game-window',action='store_true')
     parser.add_argument('--output')
     args = parser.parse_args()
@@ -370,6 +408,13 @@ def main():
         parser.error('--folder and --index are required for the controller')
     if args.activity_enabled and (args.command != 'start' or args.mode != 'run'):
         parser.error('activity requires --command start --mode run')
+    if args.weekend_enabled and (args.command != 'start' or args.mode != 'run'):
+        parser.error('weekend requires --command start --mode run')
+    if args.daily_tasks and (args.command != 'start' or args.mode != 'run'):
+        parser.error('daily chores require --command start --mode run')
+    if args.bounty_grade is not None and (args.command != 'start' or args.mode != 'run' or
+                                         'bounty' not in args.daily_tasks):
+        parser.error('bounty-grade requires the bounty daily task in run mode')
     if args.hide_game_window and args.command not in ('start','launch'):
         parser.error('hide-game-window requires --command start or launch')
     if hasattr(sys.stdout, 'reconfigure'):
@@ -384,6 +429,12 @@ def main():
         message = {'command': args.command, 'mode': args.mode}
         if args.command == 'start':
             message.update(activity_enabled=args.activity_enabled, activity_mode=args.activity_mode)
+            if args.weekend_enabled:
+                message.update(weekend_enabled=True,weekend_mode=args.weekend_mode)
+            if args.daily_tasks:
+                message['daily_tasks'] = args.daily_tasks
+            if args.bounty_grade is not None:
+                message['bounty_grade'] = args.bounty_grade
         if args.command in ('start','launch') and args.hide_game_window:
             message['hide_game_window'] = True
         if args.output:

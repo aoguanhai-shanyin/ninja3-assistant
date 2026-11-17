@@ -6,6 +6,7 @@ import numpy as np
 from ninja3_assistant.activities.intelligence.flow import ActivityScreen
 from ninja3_assistant.runtime.runner import RunControl
 from ninja3_assistant.scheduling.task_navigation import return_to_home
+from ninja3_assistant.scheduling.invitation_handoff import InvitationHandoff
 
 
 class TaskNavigationTest(unittest.TestCase):
@@ -52,6 +53,27 @@ class TaskNavigationTest(unittest.TestCase):
         self.assertFalse(result)
         native.priority_tap.assert_not_called()
 
+    def test_invitation_during_safe_navigation_returns_handoff_without_touch(self):
+        control = RunControl(clock=Mock(side_effect=range(100)))
+        control.bounty_invite_targets = {'A':'daily_bounty'}
+        control.bounty_navigation_safe = True
+        with patch('ninja3_assistant.activities.intelligence.ocr.WindowsOcr'), \
+             patch('ninja3_assistant.scheduling.task_navigation.bounty_handoff',
+                   return_value=InvitationHandoff('daily_bounty')):
+            result,native = self.navigate([ActivityScreen('invite',(470,510))],['unknown'],control=control)
+        self.assertEqual(result,InvitationHandoff('daily_bounty'))
+        native.priority_tap.assert_not_called()
+
+    def test_invitation_with_unknown_initial_context_is_not_handed_off(self):
+        control = RunControl(clock=Mock(side_effect=range(100)))
+        control.bounty_invite_targets = {'A':'daily_bounty'}
+        with patch('ninja3_assistant.scheduling.task_navigation.bounty_handoff') as handoff:
+            result,native = self.navigate([ActivityScreen('invite',(470,510)),ActivityScreen('home')],
+                                         ['unknown','unknown'],control=control)
+        self.assertTrue(result)
+        handoff.assert_not_called()
+        native.priority_tap.assert_called_once()
+
     def test_intelligence_battle_can_resume_without_leaving_it(self):
         result, native = self.navigate([ActivityScreen('battle')], ['unknown'], target='intelligence')
         self.assertTrue(result)
@@ -75,6 +97,24 @@ class TaskNavigationTest(unittest.TestCase):
             daily_pages=[('rank', (75, 50))])
         self.assertTrue(result)
         native.priority_tap.assert_not_called()
+
+    def test_login_is_completed_before_handing_off_any_daily_runner(self):
+        for target in ('daily_monthly','daily_bounty','daily_bounty_s'):
+            with self.subTest(target=target):
+                result,native=self.navigate(
+                    [ActivityScreen(),ActivityScreen('home')],['unknown']*2,target=target,
+                    daily_pages=[('login',(640,515)),('home',None)])
+                self.assertTrue(result)
+                self.assertEqual([call.args[0] for call in native.priority_tap.call_args_list],
+                                 [(640,515)])
+
+    def test_activity_login_anchor_also_waits_for_home_before_handoff(self):
+        result,native=self.navigate(
+            [ActivityScreen('login',(640,515)),ActivityScreen('home')],['unknown']*2,
+            target='intelligence')
+        self.assertTrue(result)
+        native.priority_tap.assert_called_once()
+        self.assertEqual(native.priority_tap.call_args.args[0],(640,515))
 
     def test_home_from_daily_detector_finishes_handoff_when_activity_detector_misses_it(self):
         result, native = self.navigate(

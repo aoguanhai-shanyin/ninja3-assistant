@@ -36,6 +36,45 @@ class BudgetPlanningTest(unittest.TestCase):
         self.assertEqual(details['future_income'],2)
         self.assertEqual(details['income_per_turn'],1)
 
+    def test_last_space_can_save_current_coins_for_later_purchases(self):
+        income = Card('income',1,1,effect='每回合结束金币+1')
+        board = [income]+[Card('occupied',3,1)]*7+[None]
+        cards = [Card('weak',1,1),Card('reference',3,2)]
+        choice,details = self.plan(cards,board=board,coins=1,round_number=4)
+        self.assertIsNone(choice)
+        self.assertEqual(details['remaining_coins'],1)
+        self.assertEqual(details['empty_cells'],1)
+        self.assertEqual(details['held_coin_value'],1.5)
+        self.assertEqual(details['future_income'],1)
+
+        # Plentiful room does not incur the same cost for this weak purchase.
+        choice,roomy = self.plan(cards,board=[income]+[None]*8,coins=1,round_number=4)
+        self.assertEqual(choice[0],0)
+        self.assertEqual(roomy['held_coin_value_before'],0)
+
+    def test_last_space_is_not_reserved_against_a_strong_immediate_purchase(self):
+        board = [Card('income',1,1,effect='每回合结束金币+1')]+[Card('occupied',3,1)]*7+[None]
+        choice,details = self.plan([Card('strong',6,1),Card('reference',3,2)],
+                                   board=board,coins=1,round_number=4)
+        self.assertEqual(choice,(0,8))
+        self.assertEqual(details['empty_cells'],0)
+
+    def test_final_round_never_reserves_space_for_future_purchases(self):
+        board = [Card('income',1,1,effect='每回合结束金币+1')]+[Card('occupied',3,1)]*7+[None]
+        choice,details = self.plan([Card('weak',1,1),Card('reference',3,2)],
+                                   board=board,coins=1,round_number=5)
+        self.assertEqual(choice,(0,8))
+        self.assertEqual(details['held_coin_value_before'],0)
+        self.assertEqual(details['future_income'],0)
+
+    def test_saved_coins_are_not_also_invested_when_counting_cat_damage(self):
+        board = [Card('cat',1,2,effect='第5回合造成剩余金币数×4的伤害')]+[Card('occupied',3,1)]*7+[None]
+        choice,details = self.plan([Card('strong',2,1)],board=board,coins=2,round_number=3)
+        self.assertEqual(choice,(0,8))
+        self.assertEqual(details['held_coin_value_before'],0)
+        self.assertEqual(details['economic_gain'],-4)
+        self.assertEqual(details['estimated_gain'],2)
+
     def test_refresh_card_has_future_value_but_no_last_round_income(self):
         cards = [Card('plain',2,2),Card('ring',2,2,effect='上场回合结束时，刷新+2')]
         first,early = self.plan(cards,coins=2)

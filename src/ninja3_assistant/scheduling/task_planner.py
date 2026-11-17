@@ -65,7 +65,11 @@ class TaskPlan:
                 item.mode = 'daily'
                 item.phase = '日常优先'
                 item.ready = not item.checked or task.open(now)
-                item.priority = (0, task.daily_priority, not task.open(now), task.closes(now))
+                # Finish the first pass before retries, then rotate retries so
+                # slow failures cannot repeatedly preempt later daily tasks.
+                retry = item.retry_at is not None
+                item.priority = (0, retry, item.last_run if retry else 0,
+                                 task.daily_priority, not task.open(now), task.closes(now))
             elif task.extra_mode:
                 item.mode = task.extra_mode
                 item.phase = '打满场次 / 上分'

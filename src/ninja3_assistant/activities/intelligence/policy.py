@@ -158,8 +158,9 @@ def choose_purchase(board: Sequence[Card | None], shop: Sequence[Card | None],
                     coins: int, round_number: int, *, explanation=None) -> tuple[int, int] | None:
     """Plan several distinct shop purchases within budget; execute only the first.
 
-    A deterministic beam keeps three placements per shop subset. Every later purchase
-    is replanned from a new observation. Scores estimate damage through round 5;
+    A deterministic beam keeps three placements per shop subset. The caller can
+    continue the explained plan while fresh observations still agree with it.
+    Scores estimate damage through round 5;
     they are neither win probabilities nor guarantees of globally optimal play.
     """
     if len(board) != 9 or len(shop) != 5 or not 1 <= round_number <= 5:
@@ -176,21 +177,35 @@ def choose_purchase(board: Sequence[Card | None], shop: Sequence[Card | None],
     future_turns = remaining-1
     # Value future purchases using this shop's observed base attack/cost. The
     # exact future shop is unknown, so log this conversion as an estimate.
-    ratios = sorted(c.attack/max(c.cost,1) for c in shop if c and c.id and c.attack >= 0 and c.cost >= 0)
+    future_budget = coins+_income(board)*future_turns
+    samples = tuple(c for c in shop if c and c.id and c.attack >= 0 and 0 <= c.cost <= future_budget)
+    ratios = sorted(c.attack/max(c.cost,1) for c in samples)
     coin_value = ratios[len(ratios)//2] if ratios else 1.
     coin_value = max(.5,min(2.,coin_value))
-    costs = sorted(c.cost for c in shop if c and c.cost > 0)
+    costs = sorted(c.cost for c in samples if c.cost > 0)
     expected_cost = costs[len(costs)//2] if costs else 2
 
     @lru_cache(maxsize=None)
     def economy(state, balance):
         income = _income(state)
         earned = income*future_turns
-        capacity = sum(c is None for c in state)*expected_cost
-        invested = min(earned,capacity)*coin_value*(future_turns+1)/2
-        # Choose investing OR saving for cat damage, not both on the same coins.
-        value = max(invested+_coin_damage(state,balance),_coin_damage(state,balance+earned))
-        return value,income,earned,invested
+        free_cells = sum(c is None for c in state)
+        capacity = free_cells*expected_cost
+        # A remaining cell is more scarce when fewer cells remain than future
+        # buying rounds. Do not price early, plentiful space as a guaranteed
+        # future card; use only held coins and income actually supplied by cards.
+        pressure = min(1.,max(0.,(future_turns+1-free_cells)/max(1,future_turns))) if future_turns else 0.
+        available = min(earned+balance*pressure,capacity)
+        invested = available*coin_value*(future_turns+1)/2
+        reserved = (available-min(earned,capacity))*coin_value*(future_turns+1)/2
+        # Split the same budget between investment and final cat damage; a coin
+        # assigned to future purchases must not also remain for cat damage.
+        investing = invested+_coin_damage(state,balance+earned-available)
+        saving = _coin_damage(state,balance+earned)
+        value = max(investing,saving)
+        if saving > investing:
+            reserved = 0.
+        return value,income,earned,invested,reserved,free_cells,pressure
 
     before_economy = economy(board,coins)[0]
 
@@ -273,12 +288,18 @@ def choose_purchase(board: Sequence[Card | None], shop: Sequence[Card | None],
             income_per_turn=economy(state,coins-spent)[1],
             future_income=economy(state,coins-spent)[2],
             economic_gain=round(economy(state,coins-spent)[0]-before_economy,2),
+            held_coin_value=round(economy(state,coins-spent)[4],2),
+            held_coin_value_before=round(economy(board,coins)[4],2),
+            empty_cells=economy(state,coins-spent)[5],
+            empty_cells_before=economy(board,coins)[5],
             granted_refreshes=sum(2 for _,cell in moves if '上场回合结束时刷新+2' in _text(state[cell])),
             economy_estimate={'attack_per_coin':coin_value,'expected_card_cost':expected_cost,
-                              'refresh_value_per_future_turn':.5*coin_value},
+                              'refresh_value_per_future_turn':.5*coin_value,
+                              'space_pressure':economy(state,coins-spent)[6]},
             plan=[{'shop':i,'cell':cell,'card':shop[i].id,'name':shop[i].name or shop[i].id,'cost':shop[i].cost,
                    'effect':shop[i].effect} for i,cell in moves],
             search='subset-beam3',evaluated=evaluated,
             limitations=['按卡库基础攻击估算','未追踪已有临时增益和历史上场次数',
-                         '未来商店收益为估算，末回合结算收入不算可用金币','相邻按上下左右计算'])
+                         '未来商店收益为估算，末回合结算收入不算可用金币',
+                         '持币机会收益按可见价格与空位稀缺度估算，不假定未来具体卡牌','相邻按上下左右计算'])
     return moves[0] if moves else None

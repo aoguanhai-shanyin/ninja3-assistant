@@ -83,6 +83,16 @@
       "sha256": "0f574b320793bdc475d4a3d7eb328470afc3160acc58100e608e2c70c66e0bad"
     },
     {
+      "path": "bounty-combat/boss-level-label.png",
+      "bytes": 531,
+      "sha256": "2e35877b050a629603b82a0bdd0880e82973053ac5c1f728e426bd3608a9e57d"
+    },
+    {
+      "path": "bounty-combat/boss-portrait-frame.png",
+      "bytes": 1806,
+      "sha256": "1b745350cec9e0ff8a7b162d6825ab686adf72c1bb714d9dc1c651ec464858f9"
+    },
+    {
       "path": "bounty-daily/daily-result-title.png",
       "bytes": 11739,
       "sha256": "618ce92261f4d63abb6462416c679fee71ce9dc00b5bd637f573560637269741"
@@ -188,9 +198,24 @@
       "sha256": "63e239abab8f8d391e1942dd4fb8a18cbf4ec1fed0bb9ee08af30f8db9c15de7"
     },
     {
+      "path": "bounty-daily/room-grade-A.png",
+      "bytes": 3331,
+      "sha256": "61612eb807a325fbe1d16c588011808dd1055067c842cdc5b508cb57692672c0"
+    },
+    {
       "path": "bounty-daily/room-grade-D.png",
       "bytes": 3293,
       "sha256": "f15d398aee71414d9ce7820ff6821d90a1d822ff1f5a497d61644dd45ef8775c"
+    },
+    {
+      "path": "bounty-daily/tasks-close.png",
+      "bytes": 2238,
+      "sha256": "79e0b3ba846447a3a5aa2cdeb96066ab2df6a6d8eb054bbfaf99f8a7cb45938b"
+    },
+    {
+      "path": "bounty-daily/tasks-title.png",
+      "bytes": 5127,
+      "sha256": "7f7a1f6d418f0c058ced48c577cc5aa316a25aa5cbd7215a97d3b33e78e11bbf"
     },
     {
       "path": "card-header.png",
@@ -273,6 +298,11 @@
       "sha256": "6fea1b7d1f9715b569d60fa1b8c1ed05efdf5eae2e113a0c02d31b981aa57d5d"
     },
     {
+      "path": "daily-cleanup/family-welcome-members.png",
+      "bytes": 2801,
+      "sha256": "2191a66f239d1a5f2b9f1253f15631b367f2cd16242d875e488c930eaf3cb3cf"
+    },
+    {
       "path": "daily-cleanup/family.png",
       "bytes": 8420,
       "sha256": "eee576fb3ba00e42cf4ed9a6eaae7c996d8905ea11f89ce5fbca6cd8e76902f8"
@@ -288,9 +318,24 @@
       "sha256": "f638a0738bc67d9a4e6543e4ed933d46c2dff1c1eae7e9ace870d0b3d9add7de"
     },
     {
+      "path": "daily-cleanup/guide-next.png",
+      "bytes": 2319,
+      "sha256": "e4d878cd18b7514d4b434ab548b5a470047f15681b84a3ee86957f29c6eb4883"
+    },
+    {
+      "path": "daily-cleanup/guide-prev.png",
+      "bytes": 2080,
+      "sha256": "498a5f7da3acf75bd37f8209829d96146c5ead0447d4a409ccffb7e60ec7d60a"
+    },
+    {
       "path": "daily-cleanup/hall.png",
       "bytes": 15717,
       "sha256": "974750990454c26091ef480e6b9f7d40a72ec563d257a1b4f2d3af862588d579"
+    },
+    {
+      "path": "daily-cleanup/home-thanks.png",
+      "bytes": 3168,
+      "sha256": "a50f658195474411f125b150eb2c867d8f2f39f57b5073963eb486013a5a7346"
     },
     {
       "path": "daily-cleanup/home.png",
@@ -318,6 +363,16 @@
       "sha256": "514da301eebbc9047273e655f8cb7f6c75248a78c8d376d6d016479ca36b1b6b"
     },
     {
+      "path": "daily-cleanup/login-button.png",
+      "bytes": 4811,
+      "sha256": "96d57d34dd91cb0e3740fddbf86c638bd618db3796430c9e085ea79dd68e909d"
+    },
+    {
+      "path": "daily-cleanup/login-server.png",
+      "bytes": 6063,
+      "sha256": "0694c1c62959dad83cde38ecb5aa397d95fde4b1e5c9a0fb4c35d12fbb95953e"
+    },
+    {
       "path": "daily-cleanup/monthly-sidebar.png",
       "bytes": 5947,
       "sha256": "c2255222036ab9b4df2215dd3efd5705f36ddf50ad093746bd662d35f1f0dcaa"
@@ -343,6 +398,11 @@
       "sha256": "3fe74fab0071bcfc8835a6e233b0a48d342281795511419f726ad7d1f3ab3ce3"
     },
     {
+      "path": "daily-cleanup/reward-banner.png",
+      "bytes": 12726,
+      "sha256": "2d6294b474218b9b4bd443fda35e62dbe0f51727d64dc5d0641a9b3414e19035"
+    },
+    {
       "path": "daily-cleanup/reward-continue.png",
       "bytes": 9022,
       "sha256": "3aef077e84ec151ca532365b4bb8b95bf227cac9155281be52eca067750faae1"
@@ -353,14 +413,34 @@
       "sha256": "acdddbcdc23aea83f691790dd8e9ae5cfcd347786cee3ce7725863ed8e4455c2"
     },
     {
+      "path": "daily-cleanup/shop-guide.png",
+      "bytes": 51123,
+      "sha256": "4966b6ec46130132ea5a3b5e9c17a3b4f24deb3389393836e7d8dc09a8039d49"
+    },
+    {
+      "path": "daily-cleanup/shop-stone-guide.png",
+      "bytes": 39077,
+      "sha256": "64fba836416d4f812b2a2140c0fc56e0285d5fc91bae8995607934ed84033d1c"
+    },
+    {
       "path": "daily-cleanup/shop.png",
       "bytes": 11008,
       "sha256": "627058191cc6c6f2caa64347572c30802d38cd036d04fcabd4bb0706ad6c7d5e"
     },
     {
+      "path": "daily-cleanup/summon-guide.png",
+      "bytes": 9449,
+      "sha256": "bcd64b20931ae615fb85110c3c6a59cffb2d21db35c48dbcfeae12f32fe4a820"
+    },
+    {
       "path": "daily-cleanup/summon.png",
       "bytes": 8893,
       "sha256": "f03aadea9f3ede4c346c93fde26844e184f0f86a26023ae13e09e70a08d5e827"
+    },
+    {
+      "path": "daily-cleanup/ten-signin-entry.png",
+      "bytes": 3344,
+      "sha256": "448e51b6ab81f1b1c57c86a2cacb46f7af44953dc75d1161e1f596cb28d26e35"
     },
     {
       "path": "daily-cleanup/ten-signin.png",
@@ -603,9 +683,29 @@
       "sha256": "ceb06da969753e2772b84b7e8146eb8367c84d88e06dbf416162a9444b134332"
     },
     {
+      "path": "intelligence-battle/empty-board-dark-variant.png",
+      "bytes": 2567,
+      "sha256": "f0fe0b5812fdaf8a6535a52b1eabc683e59bca7ad9f441a2127ccafe086471b4"
+    },
+    {
+      "path": "intelligence-battle/empty-board-selected-variant.png",
+      "bytes": 2779,
+      "sha256": "de2d709a211f7bf092e5d8e86ca366f06f4aaa62423e6543f04cf6370feb8fc7"
+    },
+    {
       "path": "intelligence-battle/empty-board.png",
       "bytes": 10365,
       "sha256": "c49ca3db0a5b777ef639f4212b48b12bec0d7b457170766ff8f0d9b9bcfd0c1b"
+    },
+    {
+      "path": "intelligence-battle/empty-shop-blue-variant.png",
+      "bytes": 4013,
+      "sha256": "360863e32af2596cddc6d170b12380b3c3f043f13543e34dfae50511557d1020"
+    },
+    {
+      "path": "intelligence-battle/empty-shop-dark-variant.png",
+      "bytes": 3931,
+      "sha256": "8baacf0356434064d911a12f6e3c642696187c804fe198124cc8425fad3b45b1"
     },
     {
       "path": "intelligence-battle/empty-shop.png",
@@ -616,6 +716,11 @@
       "path": "intelligence-battle/matching.png",
       "bytes": 4773,
       "sha256": "def45f622ed97c8dabdde785623497e411ef1f598b0c446db8c9f3d4e56a2673"
+    },
+    {
+      "path": "intelligence-battle/plus-variant.png",
+      "bytes": 608,
+      "sha256": "08b4030af515b18ee6626ec1c4c955dfe257364c8b90d9261045af484780a9fa"
     },
     {
       "path": "intelligence-battle/plus.png",

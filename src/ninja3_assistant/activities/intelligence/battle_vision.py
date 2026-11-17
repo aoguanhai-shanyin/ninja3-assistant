@@ -57,7 +57,15 @@ class BattleVision:
             self.patches.append(tuple((gray[a:b,c:d],c,a) for a,b,c,d in
                 ((0,20,0,30),(0,20,80,110),(45,65,0,30),(45,65,80,110))))
         self.empty_patterns = {area:tuple((t,cv2.Canny(t,15,50)) for name,t in self.templates.items()
-            if name.startswith('empty-'+area)) for area in ('board','shop')}
+            if name.startswith('empty-'+area) and not name.endswith('-variant')) for area in ('board','shop')}
+        self.empty_variants = {area:tuple((t,self._shape_edges(t)) for name,t in self.templates.items()
+            if name.startswith('empty-'+area) and name.endswith('-variant')) for area in ('board','shop')}
+
+    @staticmethod
+    def _shape_edges(gray):
+        # Dark card backs otherwise lose their shuriken outline at fixed Canny thresholds.
+        contrast = cv2.normalize(cv2.GaussianBlur(gray,(3,3),0),None,0,255,cv2.NORM_MINMAX)
+        return cv2.Canny(contrast,25,75)
 
     def _empty_pattern(self, gray, area, box):
         """Positive card-back pattern, robust to glow; not 'unknown means empty'."""
@@ -70,25 +78,48 @@ class BattleVision:
             score = cv2.minMaxLoc(cv2.matchTemplate(crop,template,cv2.TM_CCOEFF_NORMED))[1]
             if score >= .6 and cv2.minMaxLoc(cv2.matchTemplate(edges,pattern,cv2.TM_CCOEFF_NORMED))[1] >= .65:
                 return True
+        for template,pattern in self.empty_variants[area]:
+            if any(a < b for a,b in zip(crop.shape,template.shape)):
+                continue
+            _,score,_,at = cv2.minMaxLoc(cv2.matchTemplate(crop,template,cv2.TM_CCOEFF_NORMED))
+            if score < .8:
+                continue
+            patch = crop[at[1]:at[1]+template.shape[0],at[0]:at[0]+template.shape[1]]
+            outline = self._shape_edges(patch)
+            # Both directions must cover the same aligned outline, with one-pixel tolerance.
+            expanded = cv2.dilate(pattern,np.ones((3,3),np.uint8))
+            reverse = cv2.dilate(outline,np.ones((3,3),np.uint8))
+            forward_score = np.count_nonzero(outline & expanded)/max(1,np.count_nonzero(outline))
+            reverse_score = np.count_nonzero(pattern & reverse)/max(1,np.count_nonzero(pattern))
+            if min(forward_score,reverse_score) >= .7:
+                return True
         return False
 
     def _named_card(self, face, scores, candidates):
-        """An unoccluded name AND two aligned portrait patches must agree."""
+        """Use a distinctive name and independently aligned portrait patches."""
         names = np.array([cv2.minMaxLoc(cv2.matchTemplate(face[138:181,:],t,
                             cv2.TM_CCOEFF_NORMED))[1] for t in self.names])
         order = np.argsort(names)
         best = int(order[-1])
-        if names[best] < .75 or names[best]-names[order[-2]] < (.06 if names[best] >= .84 else .12):
+        margin = names[best]-names[order[-2]]
+        named = names[best] >= .75 and margin >= (.06 if names[best] >= .84 else .12)
+        ranked = np.argsort(scores)
+        # Golden selection effects can tint the name. In that case also require
+        # a distinctive whole portrait and three agreeing portrait patches.
+        glowing = (names[best] >= .65 and margin >= .1 and ranked[-1] == best and
+                   scores[best] >= .8 and scores[best]-scores[ranked[-2]] >= .2)
+        if not named and not glowing:
             return None
         search = cv2.cvtColor(face[25:125,:135],cv2.COLOR_RGB2GRAY)
         matches = []
         for template,x,y in self.patches[best]:
             _,score,_,at = cv2.minMaxLoc(cv2.matchTemplate(search,template,cv2.TM_CCOEFF_NORMED))
             matches.append((score,at[0]-x,at[1]-y))
-        threshold = .82 if names[best] >= .84 else .9
-        agreed = any(a[0] >= threshold and b[0] >= threshold and
-                     abs(a[1]-b[1]) <= 4 and abs(a[2]-b[2]) <= 4
-                     for i,a in enumerate(matches) for b in matches[i+1:])
+        def aligned(count, threshold):
+            return any(a[0] >= threshold and
+                       sum(score >= threshold and abs(x-a[1]) <= 4 and abs(y-a[2]) <= 4
+                           for score,x,y in matches) >= count for a in matches)
+        agreed = (named and aligned(2,.8)) or (glowing and aligned(3,.83))
         if candidates is not None:
             candidates[:] = ([{'card':self.cards[best].id,'score':round(float(scores[best]),4),
                 'name_score':round(float(names[best]),4),
@@ -219,8 +250,9 @@ class BattleVision:
                            for number in range(9))
             if empty or selected:
                 board.append(None)
-                plus = self._match(gray, 'plus', (x-23, y-24, x+24, y+25), .92, 30)
-                place_points.append((x, y) if selected and plus else None)
+                plus = any(self._match(gray,name,(x-23,y-24,x+24,y+25),.92,30)
+                           for name in ('plus','plus-variant'))
+                place_points.append((x, y) if plus else None)
             else:
                 candidates = []
                 card = self._card(frame, box, candidates=candidates)

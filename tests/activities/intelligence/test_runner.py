@@ -123,6 +123,17 @@ class ActivityRunnerTest(unittest.TestCase):
         actions = [r for r in rig.records if r.get('action') == 'prepare']
         self.assertEqual(actions[0]['selection']['budget'],5)
 
+    def test_transient_unknown_shop_is_not_recorded_or_used_as_a_stable_state(self):
+        transient = BattleObservation('placement',board=(None,)*9,shop=(None,)*5,
+            round_number=1,coins=5,unknown_shop=(2,))
+        settled = BattleObservation('placement',board=(None,)*9,shop=(None,)*5,
+            round_number=1,coins=5)
+        rig = ActivityRig([ActivityScreen('battle',battle=transient),
+                           ActivityScreen('battle',battle=settled)])
+        rig.run()
+        self.assertFalse([r for r in rig.records if r.get('event') == 'unknown_cards'])
+        self.assertFalse(rig.flow.step.called)
+
     def test_exception_during_match_retains_task_ownership_through_unknown_or_invite(self):
         for screen in (ActivityScreen(), ActivityScreen('invite', (10,10))):
             rig = ActivityRig([ActivityScreen('battle', battle=BattleObservation('combat')), screen])

@@ -59,7 +59,10 @@ class DailyTask(ActivityTask):
         if self.kind in ('bounty','bounty_s'):
             from ninja3_assistant.activities.bounty.daily_runner import run_daily_bounty
             return run_daily_bounty(folder,index,control,emit,
-                                    grade='S' if self.kind == 'bounty_s' else self.bounty_grade)
+                                    grade='S' if self.kind == 'bounty_s' else self.bounty_grade,
+                                    invite_only=mode in ('invite','invite_resume'),
+                                    invite_resume=mode == 'invite_resume',
+                                    recover_in_place=mode in ('recover','invite_resume'))
         from ninja3_assistant.activities.daily.runner import run_daily
         from datetime import datetime
         from ninja3_assistant.activities.intelligence.flow import CHINA

@@ -48,6 +48,7 @@ class ActivityFlow:
         self.last_action_at = float('-inf')
         self.pending = None
         self.purchase = None
+        self.combo = None
         self.refreshed_round = None
         self.last_refresh_count = None
         self.round_number = None
@@ -66,6 +67,7 @@ class ActivityFlow:
 
     def reset_inputs(self):
         self.pending = self.purchase = None
+        self.combo = None
 
     def step(self, screen, now, wall_time=None):
         day = daily_key(wall_time)
@@ -220,27 +222,51 @@ class ActivityFlow:
         # to buy into another confirmed empty cell. Keep its slot occupied.
         policy_board = tuple(Card('unrecognized', 0, 0) if index in battle.unknown_board else card
                              for index, card in enumerate(battle.board))
-        selection = {}
-        choice = choose_purchase(policy_board, battle.shop, battle.coins, battle.round_number,
-                                 explanation=selection)
+        # Continue the original combination only after a new frame matches its predicted state.
+        current = (policy_board, tuple(battle.shop), battle.coins)
+        if self.combo is not None and current != self.combo[:3]:
+            self.combo = None
+        if self.combo is not None:
+            _, _, _, plan, original = self.combo
+            choice = plan[0]['shop'], plan[0]['cell']
+            spent = sum(item['cost'] for item in plan)
+            selection = {'budget':battle.coins,'spent':spent,
+                'remaining_coins':battle.coins-spent,'round':battle.round_number,
+                'plan':list(plan),'continued_combo':True,'original_selection':original}
+        else:
+            selection = {}
+            choice = choose_purchase(policy_board, battle.shop, battle.coins, battle.round_number,
+                                     explanation=selection)
+            if choice and len(selection.get('plan',())) > 1:
+                self.combo = (*current,tuple(selection['plan']),dict(selection))
         selection.update(unknown_board=list(battle.unknown_board), unknown_shop=list(battle.unknown_shop))
+        resource_reason = ''
+        if 'held_coin_value' in selection:
+            resource_reason = (f"；保留{selection['remaining_coins']}金币、{selection['empty_cells']}空位，"
+                               f"持币机会估值{selection['held_coin_value']:g}（估算）")
         if choice:
             from ninja3_assistant.activities.intelligence.battle_vision import SHOP_POINTS
             shop, cell = choice
             if (battle.selected_shop == shop and len(battle.place_points) == 9 and
                     battle.place_points[cell]):
                 self.pending = (shop, cell, battle.shop[shop], battle.coins, now)
-                return ActivityDecision('place', battle.place_points[cell], '继续放置当前已确认选中的卡牌')
+                return ActivityDecision('place', battle.place_points[cell], '继续放置当前已确认选中的卡牌',
+                                        selection=selection)
             self.purchase = (shop, cell, battle.shop[shop], battle.coins)
             planned = ' → '.join(f"{item['name']}放{item['cell']//3+1}行{item['cell']%3+1}列"
                                   for item in selection['plan'])
-            reason = (f"预算{battle.coins}，组合花费{selection['spent']}，预计增益{selection['estimated_gain']:g}，"
-                      f"组合联动增益{selection['synergy_gain']:g}：{planned}")
-            if selection['future_income'] or selection['granted_refreshes']:
-                reason += (f"；每回合收入{selection['income_per_turn']}，后续共{selection['future_income']}金币，"
-                           f"回合结束增加{selection['granted_refreshes']}次刷新（未来收益估算）")
-            if selection['special_victory']:
-                reason += '；组合可凑齐鬼斩角色和三种不同铠甲，优先特殊胜利'
+            if selection.get('continued_combo'):
+                reason = (f"续接已确认组合，预算{battle.coins}，剩余组合花费{selection['spent']}：{planned}"
+                          f"（原组合预计增益{selection['original_selection']['estimated_gain']:g}）")
+            else:
+                reason = (f"预算{battle.coins}，组合花费{selection['spent']}，预计增益{selection['estimated_gain']:g}，"
+                          f"组合联动增益{selection['synergy_gain']:g}：{planned}")
+                if selection['future_income'] or selection['granted_refreshes']:
+                    reason += (f"；每回合收入{selection['income_per_turn']}，后续共{selection['future_income']}金币，"
+                               f"回合结束增加{selection['granted_refreshes']}次刷新（未来收益估算）")
+                if selection['special_victory']:
+                    reason += '；组合可凑齐鬼斩角色和三种不同铠甲，优先特殊胜利'
+                reason += resource_reason
             if battle.unknown_board or battle.unknown_shop:
                 reason += '；存在未识别卡，仅按已确认信息规划'
             return ActivityDecision('select_card', SHOP_POINTS[shop], reason, selection=selection)
@@ -257,10 +283,11 @@ class ActivityFlow:
         if (not selection.get('special_victory') and battle.coins > 0 and None in policy_board and
                 battle.refresh_point and refresh_available):
             selection['refreshes_before'] = battle.refreshes
-            return ActivityDecision('refresh', battle.refresh_point, '使用本回合免费刷新寻找可购买卡牌', selection=selection)
+            return ActivityDecision('refresh', battle.refresh_point,
+                                    '使用本回合免费刷新寻找可购买卡牌'+resource_reason, selection=selection)
         if battle.ready_point:
             reason = '鬼斩特殊胜利条件已齐，保留阵容并准备' if selection.get('special_victory') else '本回合购牌结束，准备战斗'
-            return ActivityDecision('prepare', battle.ready_point, reason, selection=selection)
+            return ActivityDecision('prepare', battle.ready_point, reason+resource_reason, selection=selection)
         return ActivityDecision(status='等待确认活动准备按钮')
 
     def completed(self, decision, now):
@@ -269,8 +296,18 @@ class ActivityFlow:
             self.pending = (*self.purchase, now)
             self.purchase = None
         elif decision.action == 'place' and self.pending:
+            if self.combo is not None:
+                board,shop,coins,plan,original = self.combo
+                index,cell,card,_,_ = self.pending
+                if (plan[0]['shop'],plan[0]['cell']) == (index,cell) and len(plan) > 1:
+                    board,shop = list(board),list(shop)
+                    board[cell],shop[index] = card,None
+                    self.combo = (tuple(board),tuple(shop),coins-card.cost,plan[1:],original)
+                else:
+                    self.combo = None
             self.pending = None
         elif decision.action == 'refresh':
+            self.combo = None
             self.refreshed_round = self.round_number
             self.last_refresh_count = (decision.selection or {}).get('refreshes_before')
         elif decision.action == 'result_confirm':
