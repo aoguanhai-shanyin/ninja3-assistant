@@ -1,8 +1,9 @@
 """Plan owns task management and policy; the scheduler only sorts priorities."""
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from ninja3_assistant.activities.intelligence.flow import daily_key
+from ninja3_assistant.activities.daily.resources import load_deadline, resource_path
+from ninja3_assistant.activities.intelligence.flow import CHINA, daily_key
 from ninja3_assistant.scheduling.activity_task import ActivityTask
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 
@@ -24,14 +25,23 @@ class PlannedTask:
 
 
 class TaskPlan:
-    description = '自动规划：先完成每日清理和活动日常，再打满场次或持续上分'
+    description = '自动规划：小屋到期优先，之后处理每日清理和活动日常，再打满场次或持续上分'
 
-    def __init__(self, tasks, now):
+    def __init__(self, tasks, now, *, instance=None):
         self.tasks = []
         self.day = daily_key(now)
         self.sequence = 0
         for task in tasks:
             self.add(task)
+        if instance is not None:
+            house = next((item for item in self.tasks if item.activity.name == 'daily_house'), None)
+            if house is not None:
+                deadline = load_deadline(resource_path(*instance))
+                if deadline is not None:
+                    try:
+                        house.recheck_at = datetime.fromtimestamp(deadline, CHINA)
+                    except (ValueError, OverflowError, OSError):
+                        pass
 
     def add(self, task):
         if any(item.activity.name == task.name for item in self.tasks):
@@ -50,9 +60,6 @@ class TaskPlan:
         owner = next((item for item in self.tasks if item.in_progress), None)
         for item in self.tasks:
             task = item.activity
-            if item.recheck_at is not None and now >= item.recheck_at:
-                item.daily_done = item.checked = False
-                item.recheck_at = None
             item.ready = False
             if owner is not None:
                 if item is owner:
@@ -61,7 +68,13 @@ class TaskPlan:
                 continue
             if item.blocked or (item.retry_at is not None and now < item.retry_at):
                 continue
-            if not item.daily_done:
+            if item.recheck_at is not None and now >= item.recheck_at:
+                item.daily_done = item.checked = False
+                item.mode = 'daily'
+                item.phase = '倒计时到期'
+                item.ready = task.open(now)
+                item.priority = (-1, 0, 0)
+            elif not item.daily_done:
                 item.mode = 'daily'
                 item.phase = '日常优先'
                 item.ready = not item.checked or task.open(now)
@@ -87,13 +100,13 @@ class TaskPlan:
             delay = max(0, (owner.retry_at-now).total_seconds()) if owner.retry_at else 0
             return '等待恢复当前对局：'+owner.activity.label, min(30, delay)
         retries = [item for item in pending if item.retry_at is not None and item.retry_at > now]
-        if retries:
-            delay = min(30, min((item.retry_at-now).total_seconds() for item in retries))
-            return '等待重试：'+'、'.join(item.activity.label for item in retries), delay
         scheduled = [item for item in pending if item.recheck_at is not None and item.recheck_at > now]
-        if scheduled:
-            due = min(item.recheck_at for item in scheduled)
-            return '等待倒计时：'+'、'.join(item.activity.label for item in scheduled), min(30,(due-now).total_seconds())
+        retry_at = min((item.retry_at for item in retries), default=None)
+        recheck_at = min((item.recheck_at for item in scheduled), default=None)
+        if recheck_at is not None and (retry_at is None or recheck_at <= retry_at):
+            return '等待倒计时：'+'、'.join(item.activity.label for item in scheduled), min(30,(recheck_at-now).total_seconds())
+        if retry_at is not None:
+            return '等待重试：'+'、'.join(item.activity.label for item in retries), min(30,(retry_at-now).total_seconds())
         return '等待活动开放：'+'、'.join(item.activity.label for item in pending), 30
 
     def complete(self, item, outcome, now):
@@ -103,7 +116,7 @@ class TaskPlan:
         item.retry_at = None
         label = item.activity.label
         safe = outcome in (TaskOutcome.DAILY_DONE, TaskOutcome.MATCH_DONE, TaskOutcome.LIMIT_REACHED,
-                           TaskOutcome.UNAVAILABLE, TaskOutcome.SCENE_CHANGED) or (
+                           TaskOutcome.DEFERRED_TODAY, TaskOutcome.UNAVAILABLE, TaskOutcome.SCENE_CHANGED) or (
                                outcome == TaskOutcome.WAITING and not item.activity.open(now))
         if outcome == TaskOutcome.RECOVER_IN_PLACE or (item.in_progress and not safe):
             item.in_progress = True
@@ -112,7 +125,11 @@ class TaskPlan:
         item.in_progress = False
         if outcome == TaskOutcome.DAILY_DONE:
             item.daily_done = True
-            item.recheck_at = item.activity.next_check_at
+            next_check = item.activity.next_check_at
+            # A cached, already processed countdown cannot trigger an immediate repeat.
+            if next_check is not None and next_check == item.recheck_at and next_check <= now:
+                next_check = None
+            item.recheck_at = next_check
             return 'status', label+'：已确认全部日常领取，进入后续计划'
         if outcome == TaskOutcome.MATCH_DONE:
             if not item.daily_done:
@@ -128,6 +145,9 @@ class TaskPlan:
         if outcome == TaskOutcome.LIMIT_REACHED:
             item.blocked = True
             return 'status', label+'：今日积分场次已用完，不再匹配；未领取的日常不会记为完成'
+        if outcome == TaskOutcome.DEFERRED_TODAY:
+            item.blocked = True
+            return 'status', label+'：未确认完成，今日暂缓，05:00 日常刷新后可重新检查'
         if outcome == TaskOutcome.UNAVAILABLE:
             item.blocked = True
             return 'status', label+'：当前活动不可用，继续其他任务'

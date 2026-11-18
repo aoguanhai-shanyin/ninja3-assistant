@@ -55,6 +55,20 @@ class PlannerTest(unittest.TestCase):
         run_tasks('f',1,RunControl(),Mock(),plan=plan,clock=lambda:now,navigate=navigate)
         self.assertEqual(calls,[('daily_bounty','invite'),('activity','daily')])
 
+    def test_invitation_targets_depend_on_passive_option_only(self):
+        calls = []
+        control = RunControl()
+        bounty = FakeTask('daily_bounty',[O.DAILY_DONE],calls)
+        bounty.bounty_grade = 'A'
+        bounty.active_invite,bounty.passive_invite = True,False
+        summons = FakeTask('daily_bounty_s',[O.DAILY_DONE],calls)
+        summons.active_invite,summons.passive_invite = False,True
+        def navigate(*_,**__):
+            self.assertEqual(control.bounty_invite_targets,{'S':'daily_bounty_s'})
+            return True
+        self.run_plan([bounty,summons],control=control,navigate=navigate)
+        self.assertEqual(calls,[('daily_bounty','daily'),('daily_bounty_s','daily')])
+
     def test_foreign_scene_ends_invite_recovery_and_routes_back_to_original_task(self):
         calls = []
         bounty = FakeTask('daily_bounty',[O.RECOVER_IN_PLACE,O.SCENE_CHANGED],calls)
@@ -215,6 +229,38 @@ class PlannerTest(unittest.TestCase):
         self.run_plan([FakeTask('a', [O.DAILY_DONE, O.MATCH_DONE, O.DAILY_DONE, O.LIMIT_REACHED],
                                       calls, '25', hook=reset)], clock=lambda: wall[0])
         self.assertEqual([m for _, m in calls], ['daily', '25', 'daily', '25'])
+
+    def test_deferred_daily_yields_to_continuous_tasks_until_game_day_refresh(self):
+        calls = []
+        wall = [datetime(2026,11,18,4,59,30,tzinfo=CHINA)]
+        def refresh_day(control):
+            if len(calls) == 3:
+                wall[0] += timedelta(seconds=30)
+        events = self.run_plan([
+            FakeTask('limited',[O.DEFERRED_TODAY,O.DAILY_DONE],calls),
+            FakeTask('activity',[O.DAILY_DONE,O.MATCH_DONE,O.DAILY_DONE,O.LIMIT_REACHED],
+                     calls,extra='continuous',hook=refresh_day),
+        ],clock=lambda:wall[0])
+        self.assertEqual(calls,[('limited','daily'),('activity','daily'),('activity','continuous'),
+                                ('limited','daily'),('activity','daily'),('activity','continuous')])
+        results = [message for _,message in events if message.startswith('limited：')]
+        self.assertEqual(len(results),2)
+        self.assertIn('未确认完成，今日暂缓',results[0])
+        self.assertIn('已确认',results[1])
+
+    def test_fresh_plan_can_check_a_deferred_daily_without_waiting_for_refresh(self):
+        now = datetime(2026,11,18,12,tzinfo=CHINA)
+        task = FakeTask('limited',[],[])
+        plan = TaskPlan([task],now)
+        item = plan.tasks[0]
+        plan.complete(item,O.DEFERRED_TODAY,now)
+        plan.refresh(now+timedelta(hours=1))
+        self.assertFalse(item.daily_done)
+        self.assertFalse(item.ready)
+        self.assertEqual(plan.pending(),[])
+        fresh = TaskPlan([task],now+timedelta(hours=1))
+        fresh.refresh(now+timedelta(hours=1))
+        self.assertTrue(fresh.tasks[0].ready)
 
     def test_newly_opened_earlier_deadline_preempts_at_daily_match_checkpoint(self):
         calls = []

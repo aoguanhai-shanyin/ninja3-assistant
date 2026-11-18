@@ -31,6 +31,7 @@ class DailyScreen:
         self.frame,self.ocr,self.page = frame,ocr,page
         self.home_summon = None
         self.home_points = {}
+        self.chore_page = False
 
     def hits(self, pattern, box=(0,0,1280,720)):
         x1,y1,x2,y2 = box
@@ -197,6 +198,11 @@ class DailyVision:
             return 'home',None
         return None,None
 
+    def chore_navigation(self, screen):
+        from ninja3_assistant.activities.daily import arena, landlady, pet_feed
+
+        return landlady.observe(screen) or arena.observe(screen,self) or pet_feed.observe(screen)
+
     def observe(self, frame, ocr):
         screen = DailyScreen(frame,ocr)
         invite = self.invitations.detect(cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY))
@@ -228,6 +234,9 @@ class DailyVision:
         elif (('恭喜' in text and ('确定' in text or self.match(frame,'confirm',(200,550,750,710)))) or
                 ('再抽一次' in text and '确定' in text)):
             screen.page = 'reward'
+        elif chore := self.chore_navigation(screen):
+            screen.page,screen.point = chore
+            screen.chore_page = True
         elif '本月累计签到' in text:
             screen.page = 'monthly'
         elif '限购数量' in text and '购买' in text:
@@ -270,6 +279,8 @@ class DailyVision:
                 for name,pattern,box in (
                     ('limited',r'答[谢榭]礼',(80,130,330,600)),
                     ('house',r'[小卜]屋',(80,130,330,600)),
+                    ('pet_feed',r'通灵兽',(50,130,345,610)),
+                    ('arena_reward',r'竞技场|决斗场',(880,510,1260,720)),
                     ('monthly',r'活动',(0,150,100,360)),
                     ('shop',r'商.?店',(180,620,770,715))):
                     hits = screen.hits(pattern,box)
@@ -310,6 +321,10 @@ class DailyVision:
             return False
         if decision.status in ('领取忍阶已完成每日任务','领取忍阶每周随机道具'):
             return self.match(fresh,'rank',(120,0,320,110)) is not None
+        if decision.status == '提交老板娘答题选项':
+            from ninja3_assistant.activities.daily.landlady import same_prompt
+            if not same_prompt(screen.frame,fresh):
+                return False
         if decision.free_kind:
             if not self.free(DailyScreen(fresh,screen.ocr,screen.page),decision.free_kind):
                 return False
@@ -329,8 +344,10 @@ class DailyVision:
         hits = screen.hits(r'\d+',(1160,15,1225,75))
         if hits:
             return int(hits[0].text)
-        repeated = screen.ocr.get('food_counter_repeat',{}).get('text','').replace('》',' ')
-        count = re.fullmatch(r'\s*(\d+)\s+\1\s+\1\s*',repeated)
+        repeated = screen.ocr.get('food_counter_repeat',{}).get('text','')
+        if repeated.strip() == '0':
+            return 0
+        count = re.fullmatch(r'\s*(\d+)\s+\1\s+\1\s*',repeated.replace('》',' '))
         if count:
             return int(count[1])
         for name in self.templates:

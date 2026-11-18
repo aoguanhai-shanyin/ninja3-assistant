@@ -2,6 +2,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from ninja3_assistant.activities.daily import CHORES, DEFAULT_PET_FEED_REWARD, PET_FEED_REWARDS
+
 
 @dataclass
 class ActivityTask(ABC):
@@ -43,17 +45,24 @@ class WeekendTask(ActivityTask):
 
 
 class DailyTask(ActivityTask):
-    def __init__(self, kind, *, bounty_grade='D'):
-        from ninja3_assistant.activities.daily import CHORES
+    def __init__(self, kind, *, bounty_grade='D', pet_feed_reward=DEFAULT_PET_FEED_REWARD,
+                 active_invite=True, passive_invite=True):
         if kind not in CHORES:
             raise ValueError('未知每日清理任务：'+kind)
         super().__init__('daily_'+kind,CHORES[kind],None,((0,24),),daily_priority=list(CHORES).index(kind))
         self.kind = kind
         self.bounty_grade = bounty_grade
+        self.pet_feed_reward = pet_feed_reward
+        self.active_invite = active_invite
+        self.passive_invite = passive_invite
         if kind == 'bounty':
             if bounty_grade not in ('D','C','B','A'):
                 raise ValueError('每日悬赏等级应为D、C、B或A')
             self.label = CHORES[kind]+'（'+bounty_grade+'级）'
+        if kind == 'pet_feed':
+            if pet_feed_reward not in PET_FEED_REWARDS:
+                raise ValueError('未知通灵兽喂养奖励：'+str(pet_feed_reward))
+            self.label = CHORES[kind]+'（'+PET_FEED_REWARDS[pet_feed_reward]+'）'
 
     def run(self, folder, index, control, emit, *, mode):
         if self.kind in ('bounty','bounty_s'):
@@ -62,7 +71,8 @@ class DailyTask(ActivityTask):
                                     grade='S' if self.kind == 'bounty_s' else self.bounty_grade,
                                     invite_only=mode in ('invite','invite_resume'),
                                     invite_resume=mode == 'invite_resume',
-                                    recover_in_place=mode in ('recover','invite_resume'))
+                                    recover_in_place=mode in ('recover','invite_resume'),
+                                    active_invite=self.active_invite,passive_invite=self.passive_invite)
         from ninja3_assistant.activities.daily.runner import run_daily
         from datetime import datetime
         from ninja3_assistant.activities.intelligence.flow import CHINA
@@ -72,11 +82,17 @@ class DailyTask(ActivityTask):
                 self.next_check_at = datetime.fromtimestamp(value,CHINA)
             else:
                 emit(kind,value)
+        if self.kind == 'pet_feed':
+            return run_daily(self.kind,folder,index,control,forward,pet_feed_reward=self.pet_feed_reward)
         return run_daily(self.kind,folder,index,control,forward)
 
 
-def selected_tasks(*, activity_mode=None, weekend_mode=None, daily_tasks=(), bounty_grade='D'):
-    tasks = [DailyTask(kind,bounty_grade=bounty_grade) for kind in dict.fromkeys(daily_tasks)]
+def selected_tasks(*, activity_mode=None, weekend_mode=None, daily_tasks=(), bounty_grade='D',
+                   pet_feed_reward=DEFAULT_PET_FEED_REWARD, bounty_active_invite=True,
+                   bounty_passive_invite=True):
+    tasks = [DailyTask(kind,bounty_grade=bounty_grade,pet_feed_reward=pet_feed_reward,
+                       active_invite=bounty_active_invite,passive_invite=bounty_passive_invite)
+             for kind in dict.fromkeys(daily_tasks)]
     if activity_mode is not None:
         tasks.append(IntelligenceTask(activity_mode))
     if weekend_mode is not None:

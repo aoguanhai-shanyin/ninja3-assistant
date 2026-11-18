@@ -10,7 +10,7 @@ from ninja3_assistant.scheduling.invitation_handoff import InvitationHandoff
 
 
 class TaskNavigationTest(unittest.TestCase):
-    def navigate(self, screens, kinds, control=None, target=None, daily_pages=None):
+    def navigate(self, screens, kinds, control=None, target=None, daily_pages=None, chore=None):
         control = control or RunControl(clock=Mock(side_effect=range(100)))
         activity, race, device, native = Mock(), Mock(), Mock(), Mock()
         daily, bounty = Mock(), Mock()
@@ -19,6 +19,7 @@ class TaskNavigationTest(unittest.TestCase):
         race.detect.side_effect = kinds
         daily.navigation.return_value = (None, None)
         daily.navigation.side_effect = daily_pages
+        daily.chore_navigation.return_value = chore
         bounty.navigation.return_value = (None, None)
         device.capture.return_value = np.zeros((720, 1280, 3), np.uint8)
         with patch('ninja3_assistant.device.mumu.prepare_game', return_value=False), \
@@ -26,6 +27,7 @@ class TaskNavigationTest(unittest.TestCase):
                 patch('ninja3_assistant.activities.intelligence.vision.ActivityVision', return_value=activity), \
                 patch('ninja3_assistant.activities.weekend.runner.RaceVision', return_value=race), \
                 patch('ninja3_assistant.activities.daily.vision.DailyVision', return_value=daily), \
+                patch('ninja3_assistant.activities.intelligence.ocr.WindowsOcr'), \
                 patch('ninja3_assistant.activities.bounty.daily_vision.DailyBountyVision', return_value=bounty), \
                 patch('ninja3_assistant.device.native_touch.create_native_touch', return_value=native), \
                 patch.object(control.stop, 'wait', return_value=False):
@@ -115,6 +117,13 @@ class TaskNavigationTest(unittest.TestCase):
             daily_pages=[('rank', (75, 50))])
         self.assertTrue(result)
         native.priority_tap.assert_not_called()
+
+    def test_bounty_returns_home_from_a_recognized_quiz_page(self):
+        result, native = self.navigate(
+            [ActivityScreen(), ActivityScreen('home')], ['unknown']*2,
+            target='daily_bounty', chore=('landlady-quiz', (70,50)))
+        self.assertTrue(result)
+        self.assertEqual([call.args[0] for call in native.priority_tap.call_args_list],[(70,50)])
 
     def test_login_is_completed_before_handing_off_any_daily_runner(self):
         for target in ('daily_monthly','daily_bounty','daily_bounty_s'):

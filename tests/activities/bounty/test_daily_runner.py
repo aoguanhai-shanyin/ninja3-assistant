@@ -16,7 +16,10 @@ from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 
 
 class DailyBountyRunnerTest(unittest.TestCase):
-    def run_simulation(self, states, *, page=None, ocr_page=None, decision=None, fresh=True, grade='D', cleanup_error=False, stop_on_capture=False, navigation_pages=None, stop_on_ocr=0, invite_only=False, invite_resume=False, recover_in_place=False, tasks_overlay=False):
+    def run_simulation(self, states, *, page=None, ocr_page=None, decision=None, fresh=True, grade='D',
+                       cleanup_error=False, stop_on_capture=False, navigation_pages=None, stop_on_ocr=0,
+                       invite_only=False, invite_resume=False, recover_in_place=False, tasks_overlay=False,
+                       active_invite=True, passive_invite=True):
         ticks = [0.]
         control = RunControl(clock=lambda:ticks[0])
         device,native,vision,combat_vision,ocr,flow = (Mock() for _ in range(6))
@@ -72,13 +75,22 @@ class DailyBountyRunnerTest(unittest.TestCase):
             flow_factory = daily_runner.DailyBountyFlow
             stack.enter_context(patch.object(control.stop,'wait',return_value=False))
             outcome = daily_runner.run_daily_bounty('folder',1,control,
-                lambda kind,value:events.append((kind,value)),grade=grade,invite_only=invite_only,
+                lambda kind,value:events.append((kind,value)),grade=grade,
+                active_invite=active_invite,passive_invite=passive_invite,invite_only=invite_only,
                 invite_resume=invite_resume,recover_in_place=recover_in_place)
         native.close.assert_called_once()
         device.close.assert_called_once()
         self.assertIsNone(control._release_input)
         self.assertIn(('finished',''),events)
         return outcome,device,native,vision,combat_vision,ocr,flow,flow_factory
+
+    def test_runner_forwards_both_invitation_switches_to_the_flow(self):
+        for active,passive in ((False,True),(True,False)):
+            with self.subTest(active=active,passive=passive):
+                *_,factory = self.run_simulation([BountyBattleState()],page='bounty_daily',decision=DailyDecision('done'),
+                                                active_invite=active,passive_invite=passive)
+                self.assertIs(factory.call_args.kwargs['active_invite'],active)
+                self.assertIs(factory.call_args.kwargs['passive_invite'],passive)
 
     def test_confirmed_combat_never_uses_ocr_and_capture_error_retains_match(self):
         active = BountyBattleState(active=True,ground=True)

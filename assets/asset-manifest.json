@@ -298,6 +298,11 @@
       "sha256": "6fea1b7d1f9715b569d60fa1b8c1ed05efdf5eae2e113a0c02d31b981aa57d5d"
     },
     {
+      "path": "daily-cleanup/duel-arena-menu.png",
+      "bytes": 28017,
+      "sha256": "7872cb8fb981e4da3a28b83c1f3ff8b8d445b6f3254bd72d02ba797f97cdcbdd"
+    },
+    {
       "path": "daily-cleanup/family-welcome-members.png",
       "bytes": 2801,
       "sha256": "2191a66f239d1a5f2b9f1253f15631b367f2cd16242d875e488c930eaf3cb3cf"

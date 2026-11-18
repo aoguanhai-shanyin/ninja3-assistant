@@ -98,7 +98,8 @@ class _InvitationRun:
         return None
 
 
-def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=False, invite_resume=False, recover_in_place=False):
+def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=True, passive_invite=True,
+                     invite_only=False, invite_resume=False, recover_in_place=False):
     if grade not in ('D','C','B','A','S'):
         raise ValueError('expected bounty grade D/C/B/A/S')
     root = Path(sys.executable).parent if getattr(sys,'frozen',False) else project_root()/'data/runtime'
@@ -127,7 +128,8 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
             if prepare_game(folder,index,control,status) is None:
                 return TaskOutcome.STOPPED
             flow = DailyBountyFlow(kind='bounty_s' if grade == 'S' else 'bounty',
-                                   grade='D' if grade == 'S' else grade,clock=control.now)
+                                   grade='D' if grade == 'S' else grade,
+                                   active_invite=active_invite,passive_invite=passive_invite,clock=control.now)
             flow.battle_seen = recover_in_place
             vision,ocr = DailyBountyVision(grade=grade),WindowsOcr()
             battle_vision = BountyCombatVision()
@@ -142,6 +144,7 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
             control.set_release_input(native.stop_all)
             diagnostics = FrameDiagnostics()
             record({'event':'start','grade':grade,
+                    'active_invite':active_invite,'passive_invite':passive_invite,
                     'timing_scope':'input_ms measures dispatch, not visible game response'})
             emit('state','running')
             status('每日悬赏记录：'+str(output))

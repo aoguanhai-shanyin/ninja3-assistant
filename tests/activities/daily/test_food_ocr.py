@@ -21,9 +21,12 @@ class FoodCounterOcrTest(unittest.TestCase):
 
     def test_incomplete_disagreeing_or_non_numeric_readings_remain_unknown(self):
         for text in ('','7','777','7 7','7 7 9','7 7 7 7','17 7 7',
-                     '7 7 07','7 7 7金币','7a 7 7'):
+                     '7 7 07','7 7 7金币','7a 7 7','0 0','0》'):
             with self.subTest(text=text):
                 self.assertIsNone(self.food(text))
+
+    def test_standalone_zero_is_safe_when_ocr_reads_only_one_copy(self):
+        self.assertEqual(self.food(' 0\n'),0)
 
     def test_regular_counter_reading_keeps_priority(self):
         self.assertEqual(self.food('7 7 7',

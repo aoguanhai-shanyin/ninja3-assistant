@@ -16,11 +16,13 @@ class DailyDecision:
     end: tuple | None = None
     free_kind: str | None = None
     guard: tuple | None = None
+    defer_on_timeout: bool = False
 
 
 class DailyFlow:
-    def __init__(self, kind, *, training_finishes_at=None, clock=time.time):
+    def __init__(self, kind, *, training_finishes_at=None, clock=time.time, task_flow=None):
         self.kind = kind
+        self.task_flow = task_flow
         self.free_sent = False
         self.pending_item = None
         self.reward_seen = False
@@ -54,6 +56,10 @@ class DailyFlow:
             return self.tap((640,650),'关闭家族入场展示，继续每日清理',guard=(200,240,1100,490))
         if page == 'paged-guide':
             return self.tap(screen.point,'继续功能说明',guard=(650,225,1220,480))
+        if self.task_flow is not None:
+            decision = self.task_flow.step(screen,vision)
+            if decision is not None:
+                return decision
         if page == 'reward_continue':
             return self.tap((1130,590),'关闭已领取奖励，继续每日清理')
         if page == 'reward':
@@ -62,6 +68,12 @@ class DailyFlow:
                 return self.tap(hits[0].point,'确认领取奖励',guard=(250,560,750,715))
             point = vision.match(screen.frame,'confirm',(200,560,750,715))
             return self.tap(point,'确认领取奖励') if point else DailyDecision(status='等待奖励确定按钮')
+        if screen.chore_page:
+            if screen.point is None:
+                return DailyDecision(status='等待当前日常页面的返回入口')
+            x,y = screen.point
+            return self.tap(screen.point,'返回主页，继续每日清理',
+                            guard=(max(0,x-25),max(0,y-25),min(1280,x+25),min(720,y+25)))
         if page == 'home':
             target = ('summon' if self.kind in ('weapon','curse') or
                       (self.kind == 'limited' and 'anniversary' in self.limited_checked) else
@@ -70,7 +82,8 @@ class DailyFlow:
                 'monthly':(50,280),'blessing':(1010,450),'village':(865,600),
                 'house':(143,195),'rank':(65,50)}.get(target)
             if point is None:
-                return DailyDecision(status='寻找主页每日清理入口：'+target)
+                return DailyDecision(status='寻找主页每日清理入口：'+target,
+                                     defer_on_timeout=target == 'limited')
             return self.tap(point,'进入每日清理项目')
         if page == 'monthly':
             if self.kind != 'monthly':
@@ -292,7 +305,7 @@ class DailyFlow:
         energy = vision.food(s)
         reserve = reserve_food(self.training_finishes_at,self.clock())
         if energy is None:
-            return DailyDecision(status='等待确认饭团数量与小屋预留')
+            return DailyDecision(status='等待确认饭团数量与小屋预留',defer_on_timeout=True)
         if energy-reserve < 5:
             return DailyDecision('unavailable',status=f'预留{reserve}饭团用于小屋续练后不足5点，停止扫荡；每30分钟恢复1点')
         headers = s.hits(r'第\d+关',(0,190,1280,260))
@@ -311,7 +324,7 @@ class DailyFlow:
             if count is None:
                 if self.stage != number and '关奖励' in panel:
                     return self.tap((x,360),f'选择右侧第{number}关')
-                return DailyDecision(status='等待确认右侧关卡剩余次数')
+                return DailyDecision(status='等待确认右侧关卡剩余次数',defer_on_timeout=True)
             if count:
                 if self.stage != number:
                     return self.tap((x,360),f'选择右侧第{number}关')
@@ -321,6 +334,9 @@ class DailyFlow:
         return DailyDecision('unavailable',status='未确认其余关卡扫荡状态，保留未完成状态')
 
     def completed(self, decision, screen):
+        completed = getattr(self.task_flow,'completed',None)
+        if completed is not None:
+            completed(decision,screen)
         if decision.free_kind:
             self.free_sent = True
         if decision.action == 'swipe' and screen.page != 'hall':

@@ -1,6 +1,7 @@
 """Per-instance house countdown used to reserve naturally regenerating food."""
 import hashlib
 import json
+from math import isfinite
 from pathlib import Path
 import re
 import sys
@@ -39,13 +40,11 @@ def reserve_food(training_finishes_at, now):
 
 
 def load_deadline(path):
-    if not path.is_file():
-        return None
     try:
-        value = json.loads(path.read_text(encoding='utf-8')).get('training_finishes_at')
-        return float(value) if value is not None else None
-    except (ValueError,TypeError):
+        value = float(json.loads(path.read_text(encoding='utf-8')).get('training_finishes_at'))
+    except (AttributeError, OSError, OverflowError, TypeError, ValueError):
         return None
+    return value if isfinite(value) else None
 
 
 def save_deadline(path, deadline, observed_at):

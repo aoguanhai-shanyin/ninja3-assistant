@@ -153,6 +153,29 @@ class DailyBountyFlowTest(unittest.TestCase):
         invite=SimpleNamespace(source='family',grade='D',accept=(810,525))
         self.assertEqual(flow.step(screen('invite',point=(470,525),invitation=invite),None).point,(810,525))
 
+    def test_active_and_passive_invitation_switches_are_independent(self):
+        for kind,grade in (('bounty','A'),('bounty_s','S')):
+            for active,passive in ((False,False),(True,False),(False,True),(True,True)):
+                with self.subTest(grade=grade,active=active,passive=passive):
+                    flow=checked_flow(kind,'D' if grade=='S' else grade,
+                                      active_invite=active,passive_invite=passive)
+                    for source in ('friend','family'):
+                        invite=SimpleNamespace(source=source,grade=grade,accept=(810,525))
+                        dialog=screen('invite',point=(470,525),invitation=invite)
+                        self.assertEqual(flow.step(dialog,None).point,(810,525) if passive else (470,525))
+
+                    flow.room_owned=True
+                    room=screen('bounty_room',grade=grade,minimum_players=True,invite_open=(640,383))
+                    self.assertEqual(flow.step(room,None).point,(640,383) if active else None)
+
+                    flow.recruit_stage='friends'
+                    panel=screen('bounty_recruit',recruit_tab='friend',
+                                 recruit_candidates=[('好友甲',(1210,135))])
+                    self.assertEqual(flow.step(panel,None).point,(1210,135) if active else (750,350))
+
+                    ready=screen('bounty_room',grade=grade,ready=(1100,660))
+                    self.assertEqual(flow.step(ready,None).point,(1100,660))
+
     def test_combat_and_settlement_do_not_invent_a_quota_decrement(self):
         flow=checked_flow()
         self.assertEqual(flow.step(screen('battle'),None).action,'battle')

@@ -5,6 +5,7 @@ import json
 import sys
 import threading
 
+from ninja3_assistant.activities.daily import CHORES, DEFAULT_PET_FEED_REWARD, PET_FEED_REWARDS
 from ninja3_assistant.runtime.runner import RunControl, probe, run_flow
 
 
@@ -21,9 +22,13 @@ def main():
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
     parser.add_argument('--weekend-enabled', action='store_true')
     parser.add_argument('--weekend-mode', choices=('daily', '25'), default='daily')
-    from ninja3_assistant.activities.daily import CHORES
     parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
     parser.add_argument('--bounty-grade',choices=('D','C','B','A'),default=None)
+    parser.add_argument('--no-bounty-active-invite',dest='bounty_active_invite',action='store_false',
+                        help='disable proactively inviting friends and clan members')
+    parser.add_argument('--no-bounty-passive-invite',dest='bounty_passive_invite',action='store_false',
+                        help='disable accepting bounty invitations from friends and clan members')
+    parser.add_argument('--pet-feed-reward',choices=tuple(PET_FEED_REWARDS))
     args = parser.parse_args()
     if args.mode == 'hayabusa-video':
         if not args.video:
@@ -46,6 +51,11 @@ def main():
         parser.error('daily chores are available only in run mode')
     if args.bounty_grade is not None and (args.mode != 'run' or 'bounty' not in args.daily_tasks):
         parser.error('bounty-grade requires the bounty daily task in run mode')
+    if not (args.bounty_active_invite and args.bounty_passive_invite) and not (
+            args.mode == 'run' and {'bounty','bounty_s'}.intersection(args.daily_tasks)):
+        parser.error('bounty invitation options require a bounty daily task in run mode')
+    if args.pet_feed_reward is not None and (args.mode != 'run' or 'pet_feed' not in args.daily_tasks):
+        parser.error('pet-feed-reward requires the pet_feed daily task in run mode')
 
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
@@ -91,7 +101,10 @@ def main():
         from ninja3_assistant.scheduling.task_scheduler import run_tasks
         tasks = selected_tasks(activity_mode=args.activity_mode if args.activity_enabled else None,
                                weekend_mode=args.weekend_mode if args.weekend_enabled else None,
-                               daily_tasks=args.daily_tasks,bounty_grade=args.bounty_grade or 'D')
+                               daily_tasks=args.daily_tasks,bounty_grade=args.bounty_grade or 'D',
+                               pet_feed_reward=args.pet_feed_reward or DEFAULT_PET_FEED_REWARD,
+                               bounty_active_invite=args.bounty_active_invite,
+                               bounty_passive_invite=args.bounty_passive_invite)
         run_tasks(args.folder, args.index, control, emit, tasks=tasks)
     else:
         run_flow(args.folder, args.index, control, emit, join_interval_ms=args.join_interval_ms)

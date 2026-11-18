@@ -31,7 +31,8 @@ def return_to_home(folder, index, control, *, target=None):
     from ninja3_assistant.activities.weekend.runner import RaceVision
     from ninja3_assistant.device.mumu import MuMu, prepare_game
     from ninja3_assistant.device.native_touch import create_native_touch
-    from ninja3_assistant.activities.daily.vision import DailyVision
+    from ninja3_assistant.activities.daily.flow import DailyDecision
+    from ninja3_assistant.activities.daily.vision import DailyScreen, DailyVision
     from ninja3_assistant.activities.bounty.daily_vision import DailyBountyVision
 
     if prepare_game(folder, index, control, lambda s: None) is None:
@@ -58,6 +59,23 @@ def return_to_home(folder, index, control, *, target=None):
                 kind in ('race','respawn') and race.confirmed_race)
             daily_page,daily_back = daily.navigation(frame)
             bounty_page,bounty_back = bounty.navigation(frame)
+            chore_screen = None
+            if (daily_page is None and bounty_page is None and screen.kind not in
+                    ('login','invite','battle','home','hall','event_home','tasks','hall_search') and
+                    not race_active and kind not in ('home','hall','tasks')):
+                if ocr is None:
+                    from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
+                    ocr = WindowsOcr()
+                result = ocr.read(frame,stop=control.stop)
+                if generation != control.generation() or control.stop.is_set():
+                    continue
+                if result is not None:
+                    observed = DailyScreen(frame,result)
+                    chore = daily.chore_navigation(observed)
+                    if chore:
+                        daily_page,daily_back = chore
+                        observed.page = daily_page
+                        chore_screen = observed
             if screen.kind == 'invite' and safe_invite and getattr(control,'bounty_invite_targets',{}):
                 if ocr is None:
                     from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
@@ -71,7 +89,8 @@ def return_to_home(folder, index, control, *, target=None):
                                bounty_page in ('bounty_daily','bounty_order','bounty_hub'))
                 if safe_invite:
                     clear_handled_invitation(control)
-            if _ready_to_run(target,screen.kind,kind,daily_page,bounty_page,race_active):
+            if (chore_screen is None or target in ('daily_pet_feed','daily_arena_reward','daily_landlady_quiz')) and \
+                    _ready_to_run(target,screen.kind,kind,daily_page,bounty_page,race_active):
                 return True
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             hall = activity.navigation.match(gray, 'startup-hall-title', 80, 0, 300, 110,
@@ -101,8 +120,16 @@ def return_to_home(folder, index, control, *, target=None):
             if point:
                 def tap():
                     if generation == control.generation():
-                        return native.priority_tap(point, captured_at=captured,
-                                                   deadline=captured+.2, wait_seconds=.2)
+                        current_capture = captured
+                        if chore_screen is not None:
+                            x,y = point
+                            decision = DailyDecision('tap',point,'返回主页，继续切换任务',
+                                guard=(max(0,x-25),max(0,y-25),min(1280,x+25),min(720,y+25)))
+                            current_capture = time.perf_counter()
+                            if not daily.current_action(chore_screen,decision,device.capture()):
+                                return False
+                        return native.priority_tap(point, captured_at=current_capture,
+                                                   deadline=current_capture+.2, wait_seconds=.2)
                 control.run_if_active(tap)
             control.stop.wait(.75)
         return False

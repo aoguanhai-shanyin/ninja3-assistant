@@ -5,10 +5,13 @@ from ninja3_assistant.activities.daily.flow import DailyDecision
 
 
 class DailyBountyFlow:
-    def __init__(self, kind='bounty', grade='D', *, clock=time.monotonic):
+    def __init__(self, kind='bounty', grade='D', *, active_invite=True, passive_invite=True,
+                 clock=time.monotonic):
         if kind not in ('bounty','bounty_s') or grade not in ('D','C','B','A'):
             raise ValueError('expected a daily bounty kind and grade D/C/B/A')
         self.kind,self.grade = kind,grade
+        self.active_invite = active_invite
+        self.passive_invite = passive_invite
         self.free_checked = False
         self.free_attempted = False
         self.free_baseline = None
@@ -46,7 +49,7 @@ class DailyBountyFlow:
         if page == 'invite':
             invitation = screen.invitation
             expected_grade = 'S' if self.kind == 'bounty_s' else self.grade
-            if (invitation and invitation.source in ('friend','family') and
+            if (self.passive_invite and invitation and invitation.source in ('friend','family') and
                     invitation.grade == expected_grade and not self.in_room and not self.battle_seen):
                 source = '好友' if invitation.source == 'friend' else '族员'
                 return self.tap(invitation.accept,'接受'+source+expected_grade+'级悬赏邀请',
@@ -163,7 +166,9 @@ class DailyBountyFlow:
                 return DailyDecision(status='等待确认创建队伍的悬赏等级')
             return self.tap(screen.create,'确认创建目标等级的悬赏队伍') if screen.create else DailyDecision(status='等待创建队伍按钮')
         if page == 'bounty_recruit':
-            if not self.room_owned or not self.room_trusted:
+            if not self.active_invite:
+                self.recruit_stage = 'close'
+            elif not self.room_owned or not self.room_trusted:
                 return DailyDecision(status='等待返回悬赏队伍')
             tab = screen.recruit_tab
             if self.recruit_stage == 'opening':
@@ -213,9 +218,9 @@ class DailyBountyFlow:
             if self.room_since is None:
                 self.room_since = self.clock()
             if screen.minimum_players:
-                if self.room_owned and self.recruit_stage == 'open' and screen.invite_open:
+                if self.active_invite and self.room_owned and self.recruit_stage == 'open' and screen.invite_open:
                     return self.tap(screen.invite_open,'打开悬赏队伍邀请列表',guard=(520,300,755,405))
-                if self.room_owned and self.recruit_stage == 'opening':
+                if self.active_invite and self.room_owned and self.recruit_stage == 'opening':
                     if self.clock()-self.recruit_at < 3:
                         return DailyDecision(status='等待邀请列表打开')
                     self.recruit_stage = 'done'

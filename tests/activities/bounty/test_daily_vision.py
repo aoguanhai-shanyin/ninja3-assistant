@@ -79,6 +79,24 @@ class DailyBountyVisionTest(unittest.TestCase):
             self.assertEqual(screen.task_states,{'friend':'pending','family':'claimed'})
             self.assertIsNone(screen.task_claim)
 
+    def test_orange_pending_labels_survive_misread_or_missing_ocr(self):
+        frame=np.zeros((720,1280,3),np.uint8)
+        for y in (265,375):
+            for x in (855,877,899):
+                frame[y:y+21,x:x+18]=(228,116,29)
+        words=[{'text':'与好友组队完成1次悬赏令','bbox':[399,262,260,24]},
+               {'text':'与家族成员完成1次悬赏令','bbox':[399,375,260,24]},
+               {'text':'未完咸','bbox':[855,264,62,21]}]
+        with patch.object(self.vision,'tasks_panel',return_value=True):
+            screen=self.vision.observe(frame,{'words':words})
+            self.assertEqual(screen.task_states,{'friend':'pending','family':'pending'})
+            self.assertIsNone(screen.task_claim)
+            frame[375:396,855:917]=(228,116,29)
+            screen=self.vision.observe(frame,{'words':words})
+            self.assertEqual(screen.task_states,{'friend':'pending','family':'unknown'})
+            screen=self.vision.observe(frame,{'words':words[1:]})
+            self.assertEqual(screen.task_states,{'friend':'unknown','family':'unknown'})
+
     def test_full_a_room_departure_label_is_a_start_button(self):
         run=project_root()/'data/runtime/daily-cleanup/runs/20261117-101056-253400-bounty-A'
         records=[json.loads(line) for line in (run/'events.jsonl').read_text(encoding='utf-8').splitlines()]

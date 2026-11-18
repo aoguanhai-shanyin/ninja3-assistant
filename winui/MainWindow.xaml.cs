@@ -13,6 +13,8 @@ namespace Ninja3Assistant;
 public sealed partial class MainWindow : Window
 {
     private static readonly string[] BountyGrades = ["D", "C", "B", "A"];
+    private static readonly string[] NewDailyTasks = ["pet_feed", "arena_reward", "landlady_quiz"];
+    private const int DailyTasksVersion = 1;
     private readonly string _settingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Ninja3Assistant", "settings.json");
@@ -40,8 +42,12 @@ public sealed partial class MainWindow : Window
         public string WeekendMode { get; set; } = "daily";
         public bool HideGameWindow { get; set; }
         public bool DailyEnabled { get; set; }
-        public string[] DailyTasks { get; set; } = ["monthly", "limited", "blessing", "weapon", "curse", "bounty_shop", "daily_shop", "village", "house", "bounty", "bounty_s", "rank"];
+        public string[] DailyTasks { get; set; } = ["monthly", "limited", "blessing", "weapon", "curse", "bounty_shop", "daily_shop", "village", "house", "bounty", "bounty_s", "rank", .. NewDailyTasks];
+        public int DailyTaskOptionsVersion { get; set; }
         public string BountyGrade { get; set; } = "D";
+        public bool BountyActiveInvite { get; set; } = true;
+        public bool BountyPassiveInvite { get; set; } = true;
+        public string PetFeedReward { get; set; } = "exp";
         public bool CloseToTray { get; set; } = true;
         public bool RememberCloseAction { get; set; }
     }
@@ -99,11 +105,19 @@ public sealed partial class MainWindow : Window
         WeekendModeBox.IsEnabled = settings.WeekendEnabled;
         HideGameWindowSwitch.IsOn = settings.HideGameWindow;
         DailyEnabledSwitch.IsOn = settings.DailyEnabled;
+        var dailyTasks = settings.DailyTasks ?? [];
+        if (settings.DailyTaskOptionsVersion < DailyTasksVersion)
+            dailyTasks = dailyTasks.Union(NewDailyTasks).ToArray();
         foreach (var option in DailyOptionsPanel.Children.OfType<CheckBox>())
-            option.IsChecked = (settings.DailyTasks ?? []).Contains((string)option.Tag);
+            option.IsChecked = dailyTasks.Contains((string)option.Tag);
         DailyOptionsControl.IsEnabled = settings.DailyEnabled;
         BountyGradeSlider.Value = Math.Max(0, Array.IndexOf(BountyGrades, settings.BountyGrade));
-        BountyGradeSlider.IsEnabled = BountyTaskOption.IsChecked == true;
+        BountyActiveInviteOption.IsChecked = settings.BountyActiveInvite;
+        BountyPassiveInviteOption.IsChecked = settings.BountyPassiveInvite;
+        UpdateBountyOptions();
+        PetFeedRewardBox.SelectedItem = PetFeedRewardBox.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(option => (string)option.Tag == settings.PetFeedReward) ?? PetFeedRewardBox.Items[0];
+        PetFeedRewardBox.IsEnabled = PetFeedTaskOption.IsChecked == true;
         LoadCloseBehaviorSettings(settings);
         _savedIndex = settings.Index;
         _savedName = settings.InstanceName;
@@ -147,7 +161,11 @@ public sealed partial class MainWindow : Window
         settings.DailyEnabled = DailyEnabledSwitch.IsOn;
         settings.DailyTasks = DailyOptionsPanel.Children.OfType<CheckBox>()
             .Where(option => option.IsChecked == true).Select(option => (string)option.Tag).ToArray();
+        settings.DailyTaskOptionsVersion = DailyTasksVersion;
         settings.BountyGrade = BountyGrades[(int)Math.Round(BountyGradeSlider.Value)];
+        settings.BountyActiveInvite = BountyActiveInviteOption.IsChecked == true;
+        settings.BountyPassiveInvite = BountyPassiveInviteOption.IsChecked == true;
+        settings.PetFeedReward = (PetFeedRewardBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "exp";
         settings.CloseToTray = _closeToTray;
         settings.RememberCloseAction = _rememberCloseAction;
         return true;
@@ -343,10 +361,21 @@ public sealed partial class MainWindow : Window
             {
                 info.ArgumentList.Add("--daily-tasks");
                 foreach (string task in settings.DailyTasks) info.ArgumentList.Add(task);
-                if (settings.DailyTasks.Contains("bounty"))
+                bool regularBounty = settings.DailyTasks.Contains("bounty");
+                if (regularBounty)
                 {
                     info.ArgumentList.Add("--bounty-grade");
                     info.ArgumentList.Add(settings.BountyGrade);
+                }
+                if (regularBounty || settings.DailyTasks.Contains("bounty_s"))
+                {
+                    if (!settings.BountyActiveInvite) info.ArgumentList.Add("--no-bounty-active-invite");
+                    if (!settings.BountyPassiveInvite) info.ArgumentList.Add("--no-bounty-passive-invite");
+                }
+                if (settings.DailyTasks.Contains("pet_feed"))
+                {
+                    info.ArgumentList.Add("--pet-feed-reward");
+                    info.ArgumentList.Add(settings.PetFeedReward);
                 }
             }
             var process = Process.Start(info) ?? throw new InvalidOperationException("无法启动运行组件");
@@ -549,10 +578,21 @@ public sealed partial class MainWindow : Window
             DailyOptionsControl.IsEnabled = DailyEnabledSwitch.IsOn && _worker is null && !_scanning && !VideoDebugBusy;
     }
 
-    private void BountyTask_Changed(object sender, RoutedEventArgs e)
+    private void BountyTask_Changed(object sender, RoutedEventArgs e) => UpdateBountyOptions();
+
+    private void UpdateBountyOptions()
     {
+        bool regularBounty = BountyTaskOption?.IsChecked == true;
         if (BountyGradeSlider is not null)
-            BountyGradeSlider.IsEnabled = BountyTaskOption.IsChecked == true;
+            BountyGradeSlider.IsEnabled = regularBounty;
+        if (BountyInviteOptionsControl is not null)
+            BountyInviteOptionsControl.IsEnabled = regularBounty || SBountyTaskOption?.IsChecked == true;
+    }
+
+    private void PetFeedTask_Changed(object sender, RoutedEventArgs e)
+    {
+        if (PetFeedRewardBox is not null)
+            PetFeedRewardBox.IsEnabled = PetFeedTaskOption.IsChecked == true;
     }
 
     private void BountyGrade_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)

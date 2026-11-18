@@ -13,4 +13,10 @@ CHORES = {
     'bounty_s': 'S级悬赏清理（累计最多7次）',
     'village': '忍村试炼扫荡',
     'rank': '忍阶每日任务与每周道具',
+    'pet_feed': '通灵兽每日喂养',
+    'arena_reward': '竞技场奖励领取',
+    'landlady_quiz': '老板娘答题',
 }
+
+PET_FEED_REWARDS = {'exp': '经验', 'coins': '忍币', 'hammers': '强化锤'}
+DEFAULT_PET_FEED_REWARD = 'exp'

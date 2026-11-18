@@ -32,6 +32,23 @@ class WorkerActivityTest(unittest.TestCase):
         self.assertEqual(error.exception.code,2)
         thread.assert_not_called()
 
+    def test_bounty_invitation_switches_reach_both_bounty_runners_independently(self):
+        active_flag = '--no-bounty-active-invite'
+        passive_flag = '--no-bounty-passive-invite'
+        for flags in ([],[active_flag],[passive_flag],[active_flag,passive_flag]):
+            with self.subTest(flags=flags),patch.object(sys,'argv',[
+                 'worker.py','--mode','run','--folder','selected','--index','1',
+                 '--daily-tasks','bounty','bounty_s',*flags]),\
+                 patch.object(sys,'stdout',io.StringIO()),\
+                 patch('ninja3_assistant.entrypoints.worker.threading.Thread'),\
+                 patch('ninja3_assistant.scheduling.task_scheduler.run_tasks') as run:
+                worker.main()
+            with patch('ninja3_assistant.activities.bounty.daily_runner.run_daily_bounty') as bounty:
+                for task in run.call_args.kwargs['tasks']:
+                    task.run('selected',1,Mock(),Mock(),mode='daily')
+                    self.assertIs(bounty.call_args.kwargs['active_invite'],active_flag not in flags)
+                    self.assertIs(bounty.call_args.kwargs['passive_invite'],passive_flag not in flags)
+
     def test_daily_chores_share_the_same_task_planner(self):
         with patch.object(sys,'argv',['worker.py','--mode','run','--folder','selected','--index','1',
                          '--daily-tasks','monthly','house','village','rank']),patch.object(sys,'stdout',io.StringIO()),\
@@ -40,6 +57,18 @@ class WorkerActivityTest(unittest.TestCase):
             worker.main()
         self.assertEqual([t.name for t in run.call_args.kwargs['tasks']],
                          ['daily_monthly','daily_house','daily_village','daily_rank'])
+
+    def test_new_chores_and_selected_feeding_reward_reach_the_same_planner(self):
+        with patch.object(sys,'argv',['worker.py','--mode','run','--folder','selected','--index','1',
+                         '--daily-tasks','pet_feed','arena_reward','landlady_quiz','--pet-feed-reward','hammers']),\
+             patch.object(sys,'stdout',io.StringIO()),\
+             patch('ninja3_assistant.entrypoints.worker.threading.Thread'),\
+             patch('ninja3_assistant.scheduling.task_scheduler.run_tasks') as run:
+            worker.main()
+        tasks = run.call_args.kwargs['tasks']
+        self.assertEqual([task.name for task in tasks],['daily_pet_feed','daily_arena_reward','daily_landlady_quiz'])
+        self.assertEqual(tasks[0].pet_feed_reward,'hammers')
+        self.assertIn('强化锤',tasks[0].label)
 
     def test_window_flag_reaches_task_control_and_defaults_to_visible(self):
         for extra,expected in (([],False),(['--hide-game-window'],True)):

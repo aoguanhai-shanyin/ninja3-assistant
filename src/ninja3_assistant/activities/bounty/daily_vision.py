@@ -2,6 +2,7 @@
 import re
 
 import cv2
+import numpy as np
 
 from ninja3_assistant.activities.daily.vision import DailyScreen, DailyVision
 from ninja3_assistant.paths import resource_root
@@ -91,6 +92,20 @@ class DailyBountyVision:
     def tasks_panel(self, frame):
         return bool(self.match(frame,'tasks-title',(500,155,760,225),.95) and
                     self.match(frame,'tasks-close',(975,115,1075,195),.95))
+
+    @staticmethod
+    def _pending_task_label(frame, box):
+        # 未完成 is three separate orange glyphs. Claimed marks form one
+        # continuous stamp, and claim buttons are wider and taller.
+        x1,y1,x2,y2 = box
+        hsv = cv2.cvtColor(frame[y1:y2,x1:x2],cv2.COLOR_RGB2HSV)
+        mask = cv2.inRange(hsv,(4,130,90),(28,255,255))
+        x,y,w,h = cv2.boundingRect(mask)
+        if not (45 <= x <= 75 and 15 <= y <= 45 and 52 <= w <= 75 and 16 <= h <= 28):
+            return False
+        painted = (mask != 0).sum(axis=0) >= 3
+        edges = np.flatnonzero(np.diff(painted,prepend=False,append=False))
+        return len(edges) == 6 and all(12 <= width <= 24 for width in edges[1::2]-edges[::2])
 
     @staticmethod
     def _recruit_tab(frame):
@@ -197,7 +212,8 @@ class DailyBountyVision:
                         if hits and screen.task_claim is None:
                             screen.task_claim = hits[0].point
                     elif (status in ('未完成','去完成','前往','去完成任务') or
-                          '0/1' in status or '0/1' in labels[name]):
+                          '0/1' in status or '0/1' in labels[name] or
+                          (tasks_panel and self._pending_task_label(frame,status_box))):
                         screen.task_states[name] = 'pending'
                     else:
                         screen.task_states[name] = 'unknown'

@@ -9,13 +9,14 @@ from ninja3_assistant.scheduling.invitation_handoff import InvitationHandoff
 
 
 SAFE_CHECKPOINTS = (TaskOutcome.DAILY_DONE, TaskOutcome.MATCH_DONE, TaskOutcome.LIMIT_REACHED,
-                    TaskOutcome.WAITING, TaskOutcome.UNAVAILABLE, TaskOutcome.SCENE_CHANGED)
+                    TaskOutcome.WAITING, TaskOutcome.DEFERRED_TODAY, TaskOutcome.UNAVAILABLE,
+                    TaskOutcome.SCENE_CHANGED)
 
 
 def run_tasks(folder, index, control, emit, *, tasks=None, plan=None, clock=None, navigate=None):
     clock = clock or (lambda: datetime.now(CHINA))
     navigate = navigate or return_to_home
-    plan = plan if plan is not None else TaskPlan(tasks or [], clock())
+    plan = plan if plan is not None else TaskPlan(tasks or [], clock(), instance=(folder, index))
     prior_control = {name:getattr(control,name,None) for name in
                      ('bounty_invite_targets','bounty_invite_suppressed','bounty_navigation_safe')}
     control.bounty_invite_suppressed = False
@@ -23,7 +24,8 @@ def run_tasks(folder, index, control, emit, *, tasks=None, plan=None, clock=None
     control.bounty_invite_targets = {
         ('S' if item.activity.name == 'daily_bounty_s' else item.activity.bounty_grade): item.activity.name
         for item in plan.tasks
-        if item.activity.name in ('daily_bounty', 'daily_bounty_s')
+        if item.activity.name in ('daily_bounty', 'daily_bounty_s') and
+        getattr(item.activity,'passive_invite',True)
     }
 
     def forward(kind, value):

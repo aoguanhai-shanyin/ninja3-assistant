@@ -8,6 +8,7 @@ import sys
 import cv2
 
 from ninja3_assistant.paths import project_root
+from ninja3_assistant.activities.daily import DEFAULT_PET_FEED_REWARD
 from ninja3_assistant.activities.daily.flow import DailyFlow
 from ninja3_assistant.activities.daily.vision import DailyScreen, DailyVision
 from ninja3_assistant.activities.daily.resources import resource_path, load_deadline, save_deadline, remaining_seconds
@@ -18,14 +19,25 @@ from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 
 
-def run_daily(kind, folder, index, control, emit):
+def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET_FEED_REWARD):
     import subprocess
     root = Path(sys.executable).parent if getattr(sys,'frozen',False) else project_root()/'data/runtime'
     output = root/'daily-cleanup/runs'/(time.strftime('%Y%m%d-%H%M%S')+f'-{time.time_ns()%1000000:06d}-{kind}')
     output.mkdir(parents=True,exist_ok=False)
     device = native = None
     resources = resource_path(folder,index)
-    flow,vision,ocr = DailyFlow(kind,training_finishes_at=load_deadline(resources)),DailyVision(),WindowsOcr()
+    task_flow = None
+    if kind == 'pet_feed':
+        from ninja3_assistant.activities.daily.pet_feed import PetFeed
+        task_flow = PetFeed(pet_feed_reward)
+    elif kind == 'arena_reward':
+        from ninja3_assistant.activities.daily.arena import ArenaReward
+        task_flow = ArenaReward()
+    elif kind == 'landlady_quiz':
+        from ninja3_assistant.activities.daily.landlady import LandladyQuiz, question_bank_path, recover_question_ocr
+        task_flow = LandladyQuiz(question_bank_path(folder,index))
+    flow = DailyFlow(kind,training_finishes_at=load_deadline(resources),task_flow=task_flow)
+    vision,ocr = DailyVision(),WindowsOcr()
     lock = threading.Lock()
     with (output/'events.jsonl').open('w',encoding='utf-8') as log:
         def record(value):
@@ -51,12 +63,22 @@ def run_daily(kind, folder, index, control, emit):
             while control.wait_active() and control.now()-started < 240:
                 generation = control.generation()
                 frame = device.capture()
+                if kind == 'landlady_quiz' and task_flow.pending:
+                    # Answer feedback advances automatically while full-frame OCR is still running.
+                    until = time.perf_counter()+.55
+                    while generation == control.generation() and not control.stop.is_set():
+                        if (task_flow.observe_feedback(frame) or time.perf_counter() >= until or
+                                control.stop.wait(.12)):
+                            break
+                        frame = device.capture()
                 # Trial counters are small; enlarging sign-in pages loses whole rows.
                 scale = 1.5 if vision.match(frame,'trial',(0,0,470,120)) else 1
                 result = ocr.read(cv2.resize(frame,None,fx=scale,fy=scale) if scale != 1 else frame,
                                   stop=control.stop)
                 if result is None:
                     continue
+                if kind == 'landlady_quiz':
+                    result = recover_question_ocr(frame,result,ocr,control.stop)
                 if not control.wait_active():
                     return TaskOutcome.STOPPED
                 if generation != control.generation():
@@ -107,7 +129,7 @@ def run_daily(kind, folder, index, control, emit):
                     if handoff:
                         return handoff
                 else:
-                    safe_invite = screen.page not in ('unknown','trial')
+                    safe_invite = screen.page not in ('unknown','trial') and not screen.page.startswith('landlady-')
                     if safe_invite:
                         clear_handled_invitation(control)
                 if kind == 'house' and screen.page == 'house':
@@ -141,6 +163,9 @@ def run_daily(kind, folder, index, control, emit):
                     if decision.action == 'wait':
                         waiting_snapshot_at = now
                 if waiting_timeout:
+                    if decision.defer_on_timeout:
+                        emit('status','日常页面持续无进展，已保留最新画面，今日暂缓并继续其他任务')
+                        return TaskOutcome.DEFERRED_TODAY
                     emit('status','日常页面持续无进展，已保留最新画面，稍后重试并继续其他任务')
                     return TaskOutcome.WAITING
                 if decision.action == 'done':
@@ -178,7 +203,7 @@ def run_daily(kind, folder, index, control, emit):
                             flow.completed(decision,screen)
                             record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind})
                     control.run_if_active(act)
-                control.stop.wait(.65)
+                control.stop.wait(.17 if screen.page.startswith('landlady-') and decision.action == 'tap' else .65)
             if control.stop.is_set():
                 return TaskOutcome.STOPPED
             emit('status','未确认日常完成，已保留画面，继续其他任务')

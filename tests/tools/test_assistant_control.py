@@ -130,14 +130,43 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
         command=launch.call_args.args[0]
         self.assertEqual(command,[str(self.controller.worker),'--mode','run',
             '--folder',str(self.root.resolve()),'--index','1','--daily-tasks',*CHORES,
-            '--bounty-grade','A'])
+            '--bounty-grade','A','--pet-feed-reward','exp'])
         state=self.controller.status()
         self.assertEqual(state['daily_tasks'],list(CHORES))
         self.assertEqual(state['bounty_grade'],'A')
+        self.assertTrue(state['bounty_active_invite'])
+        self.assertTrue(state['bounty_passive_invite'])
+        self.assertEqual(state['pet_feed_reward'],'exp')
         self.assertFalse(state['activity_enabled'])
         self.assertFalse(state['weekend_enabled'])
         state['daily_tasks'].clear()
         self.assertEqual(self.controller.status()['daily_tasks'],list(CHORES))
+
+    def test_bounty_invitation_flags_are_forwarded_for_s_only(self):
+        self.controller.worker = self.root/'Ninja3Worker.EXE'
+        process = SimpleNamespace(pid=123,poll=lambda:0,wait=lambda **kwargs:0,
+                                  stdin=StringIO(),stdout=StringIO(),stderr=StringIO())
+        with patch.object(self.controller,'_prepare'), \
+                patch('tools.diagnostics.assistant_control.subprocess.Popen',return_value=process) as launch:
+            self.controller.command({'command':'start','mode':'run','daily_tasks':['bounty_s'],
+                                     'bounty_active_invite':False,'bounty_passive_invite':False})
+            self.wait_state('stopped')
+        self.assertEqual(launch.call_args.args[0][-4:],['--daily-tasks','bounty_s',
+                         '--no-bounty-active-invite','--no-bounty-passive-invite'])
+        self.assertFalse(self.controller.status()['bounty_active_invite'])
+        self.assertFalse(self.controller.status()['bounty_passive_invite'])
+
+    def test_pet_feed_reward_reaches_worker_and_status(self):
+        self.controller.worker = self.root/'Ninja3Worker.EXE'
+        process = SimpleNamespace(pid=123, poll=lambda:0, wait=lambda **kwargs:0,
+                                  stdin=StringIO(), stdout=StringIO(), stderr=StringIO())
+        with patch.object(self.controller,'_prepare'), \
+                patch('tools.diagnostics.assistant_control.subprocess.Popen',return_value=process) as launch:
+            self.controller.command({'command':'start','mode':'run',
+                                     'daily_tasks':['pet_feed'],'pet_feed_reward':'coins'})
+            self.wait_state('stopped')
+        self.assertEqual(launch.call_args.args[0][-4:],['--daily-tasks','pet_feed','--pet-feed-reward','coins'])
+        self.assertEqual(self.controller.status()['pet_feed_reward'],'coins')
 
     def test_mixed_task_options_are_cleared_on_the_next_start(self):
         self.controller.worker = self.root/'Ninja3Worker.EXE'
@@ -170,7 +199,11 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
                  dict(mode='observe',daily_tasks=['rank']),dict(mode='hayabusa',weekend_enabled=True),
                  dict(mode='run',weekend_enabled='false'),dict(mode='run',weekend_mode='continuous'),
                  dict(mode='run',bounty_grade='A'),dict(mode='run',daily_tasks=['rank'],bounty_grade='A'),
-                 dict(mode='run',daily_tasks=['bounty'],bounty_grade='S')]
+                 dict(mode='run',daily_tasks=['bounty'],bounty_grade='S'),
+                 dict(mode='run',daily_tasks=['bounty_s'],bounty_active_invite='false'),
+                 dict(mode='run',daily_tasks=['rank'],bounty_passive_invite=False),
+                 dict(mode='run',daily_tasks=['rank'],pet_feed_reward='coins'),
+                 dict(mode='run',daily_tasks=['pet_feed'],pet_feed_reward='other')]
         with patch.object(self.controller,'_prepare') as prepare, \
                 patch('tools.diagnostics.assistant_control.subprocess.Popen') as launch:
             for options in invalid:
@@ -275,6 +308,7 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
     def test_start_cli_serializes_daily_and_weekend_selection(self):
         with patch.object(sys,'argv',['assistant_control.py','--command','start','--mode','run',
                      '--daily-tasks','monthly','bounty','rank','--bounty-grade','B',
+                     '--no-bounty-passive-invite',
                      '--weekend-enabled','--weekend-mode','25']), \
                 patch('tools.diagnostics.assistant_control.urlopen',return_value=BytesIO(b'{"ok":true}')) as request, \
                 redirect_stdout(StringIO()):
@@ -282,12 +316,14 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
         self.assertEqual(json.loads(request.call_args.args[0].data),{
             'command':'start','mode':'run','activity_enabled':False,'activity_mode':'daily',
             'daily_tasks':['monthly','bounty','rank'],'bounty_grade':'B',
+            'bounty_passive_invite':False,
             'weekend_enabled':True,'weekend_mode':'25'})
 
     def test_daily_cli_validation_does_not_issue_a_request(self):
         for arguments in (['--command','start','--mode','observe','--daily-tasks','rank'],
                           ['--command','status','--daily-tasks','rank'],
                           ['--command','start','--mode','run','--bounty-grade','A'],
+                          ['--command','start','--mode','run','--no-bounty-active-invite'],
                           ['--command','start','--mode','run','--daily-tasks','unknown']):
             with self.subTest(arguments=arguments),patch.object(sys,'argv',['assistant_control.py',*arguments]), \
                     patch('tools.diagnostics.assistant_control.urlopen') as request, \

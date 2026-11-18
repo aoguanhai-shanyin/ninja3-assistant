@@ -144,6 +144,21 @@ class DailyRunnerTest(unittest.TestCase):
         native.priority_tap.assert_not_called()
         flow.completed.assert_not_called()
 
+    def test_deferred_wait_returns_only_after_saving_the_timeout_frame(self):
+        for page,status in (('home','寻找主页每日清理入口：limited'),
+                            ('trial','等待确认右侧关卡剩余次数')):
+            with self.subTest(page=page):
+                decision = DailyDecision(status=status,defer_on_timeout=True)
+                outcome,records,events,device,native,_,flow,_ = self.run_simulation([
+                    {'page':page,'decision':decision},
+                ]*20)
+                self.assertIs(outcome,TaskOutcome.DEFERRED_TODAY)
+                self.assertEqual(device.capture.call_count,13)
+                self.assertEqual([r['ocr']['text'] for r in records],['1.0','6.0','11.0','13.0'])
+                self.assertIn('今日暂缓',events[-2][1])
+                native.priority_tap.assert_not_called()
+                flow.completed.assert_not_called()
+
     def test_changed_wait_reason_resets_the_no_progress_budget(self):
         outcome,*_ = self.run_simulation([
             {'page':'home','decision':DailyDecision(status='寻找入口')},

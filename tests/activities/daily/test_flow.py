@@ -36,12 +36,15 @@ class DailyFlowTest(unittest.TestCase):
                 decision=DailyFlow(kind).step(screen('home',[]),self.vision())
                 self.assertEqual(decision.action,'wait')
                 self.assertIsNone(decision.point)
+                self.assertEqual(decision.defer_on_timeout,kind == 'limited')
 
     def test_summon_signup_entry_follows_its_label_after_unlocking_recycle(self):
         flow=DailyFlow('limited');flow.limited_checked.add('anniversary')
         s=screen('summon',[('十日签',[240,670,60,22])])
         self.assertEqual(flow.step(s,self.vision()).point,(270,681))
-        self.assertEqual(flow.step(screen('summon',[]),self.vision()).action,'wait')
+        missing=flow.step(screen('summon',[]),self.vision())
+        self.assertEqual(missing.action,'wait')
+        self.assertFalse(missing.defer_on_timeout)
 
     def test_known_summon_guide_is_closed_outside_all_draw_buttons(self):
         decision=DailyFlow('weapon').step(screen('summon-guide',[]),self.vision())
@@ -121,7 +124,9 @@ class DailyFlowTest(unittest.TestCase):
 
     def test_unknown_food_or_scan_limit_does_not_mark_sweeps_completed(self):
         flow=DailyFlow('village')
-        self.assertEqual(flow.step(screen('trial',[]),self.vision()).action,'wait')
+        unknown=flow.step(screen('trial',[]),self.vision())
+        self.assertEqual(unknown.action,'wait')
+        self.assertTrue(unknown.defer_on_timeout)
         flow.scans=7
         self.assertEqual(flow.step(screen('trial',[('20',[1180,30,30,30])]),self.vision()).action,'unavailable')
 
@@ -132,7 +137,9 @@ class DailyFlowTest(unittest.TestCase):
         flow=DailyFlow('village')
         choose=flow.step(s,self.vision());flow.completed(choose,s)
         self.assertIn('第28关',choose.status)
-        self.assertEqual(flow.step(s,self.vision()).action,'wait')
+        unreadable=flow.step(s,self.vision())
+        self.assertEqual(unreadable.action,'wait')
+        self.assertTrue(unreadable.defer_on_timeout)
 
     def test_trial_counter_missing_the_last_label_character_keeps_right_to_left_order(self):
         s=screen('trial',[('20',[1180,30,30,30]),('第50关',[1100,220,75,25]),

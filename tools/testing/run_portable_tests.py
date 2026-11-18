@@ -8,6 +8,8 @@ MODULES = (
     'tests.activities.bounty.test_daily_runner',
     'tests.activities.daily.test_flow','tests.activities.daily.test_resources','tests.activities.daily.test_food_ocr',
     'tests.activities.daily.test_home_vision','tests.activities.daily.test_runner',
+    'tests.activities.daily.test_pet_feed','tests.activities.daily.test_arena_quiz',
+    'tests.activities.daily.test_quiz_bank',
     'tests.activities.intelligence.test_flow','tests.activities.intelligence.test_battle_flow',
     'tests.activities.intelligence.test_combo_execution',
     'tests.activities.intelligence.test_evidence','tests.activities.intelligence.test_purchase_planning',
