@@ -4,8 +4,28 @@ import time
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 
 
+def _ready_to_run(target, activity_page, race_page, daily_page, bounty_page, race_active):
+    if activity_page in ('invite','login'):
+        return False
+    if activity_page in ('event_home','tasks','battle'):
+        return target == 'intelligence'
+    if race_page in ('tasks','home') or race_active:
+        return target == 'weekend'
+    if daily_page == 'login':
+        return False
+    if daily_page == 'home' or activity_page == 'home':
+        return True
+    if target == 'intelligence':
+        return activity_page in ('hall','hall_search')
+    if target == 'weekend':
+        return race_page in ('hall','reward')
+    if target in ('daily_bounty','daily_bounty_s') and bounty_page and bounty_page.startswith('bounty_'):
+        return True
+    return bool(target and target.startswith('daily_') and daily_page is not None)
+
+
 def return_to_home(folder, index, control, *, target=None):
-    """Leave only recognized activity menus; never press back during combat."""
+    """Find a frame the target can handle or leave a recognized menu."""
     import cv2
     from ninja3_assistant.activities.intelligence.vision import ActivityVision
     from ninja3_assistant.activities.weekend.runner import RaceVision
@@ -34,6 +54,8 @@ def return_to_home(folder, index, control, *, target=None):
             captured = time.perf_counter()
             frame = device.capture()
             screen, kind = activity.detect(frame), race.detect(frame)
+            race_active = kind in ('ready','dash','finish','result','standings') or (
+                kind in ('race','respawn') and race.confirmed_race)
             daily_page,daily_back = daily.navigation(frame)
             bounty_page,bounty_back = bounty.navigation(frame)
             if screen.kind == 'invite' and safe_invite and getattr(control,'bounty_invite_targets',{}):
@@ -49,23 +71,15 @@ def return_to_home(folder, index, control, *, target=None):
                                bounty_page in ('bounty_daily','bounty_order','bounty_hub'))
                 if safe_invite:
                     clear_handled_invitation(control)
-            if (target in ('daily_bounty','daily_bounty_s') and bounty_page and
-                    bounty_page.startswith('bounty_')):
-                return True
-            if target and target.startswith('daily_') and daily_page not in (None,'login'):
-                return True
-            if target == 'intelligence' and screen.kind == 'battle':
-                return True
-            if target == 'weekend' and (kind in ('ready','dash') or
-                    (kind in ('race','respawn') and race.confirmed_race)):
-                return True
-            if daily_page == 'home' or screen.kind == 'home':
+            if _ready_to_run(target,screen.kind,kind,daily_page,bounty_page,race_active):
                 return True
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             hall = activity.navigation.match(gray, 'startup-hall-title', 80, 0, 300, 110,
                                              threshold=.93, max_error=30)
             if screen.kind == 'invite':
                 point = screen.point
+            elif screen.kind == 'battle' or race_active:
+                point = None
             elif daily_page == 'login' or screen.kind == 'login':
                 point = daily_back if daily_page == 'login' else screen.point
             elif screen.kind == 'tasks':

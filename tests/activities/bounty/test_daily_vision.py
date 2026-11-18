@@ -35,6 +35,25 @@ class DailyBountyVisionTest(unittest.TestCase):
         self.assertEqual(decision.point,(1025,155))
         self.assertTrue(self.vision.current_action(screen,decision,frame))
 
+    def test_intelligence_task_panel_is_a_foreign_scene_even_without_ocr(self):
+        run = project_root()/'data/runtime/daily-cleanup/runs/20261118-104437-907300-bounty-A'
+        frame = cv2.cvtColor(cv2.imread(str(run/'0000-unknown-wait.png')),cv2.COLOR_BGR2RGB)
+        self.assertEqual(self.vision.observe(frame,{'words':[]}).page,'intelligence_tasks')
+
+    def test_real_bounty_task_panel_with_full_claim_button_label(self):
+        run=project_root()/'data/runtime/daily-cleanup/runs/20261118-102436-170900-bounty-A'
+        records=[json.loads(line) for line in (run/'events.jsonl').read_text(encoding='utf-8').splitlines()]
+        record=next(r for r in records if r.get('frame')=='0011-bounty_tasks-tap.png')
+        frame=cv2.cvtColor(cv2.imread(str(run/record['frame'])),cv2.COLOR_BGR2RGB)
+        screen=self.vision.observe(frame,record['ocr'])
+        self.assertEqual(screen.task_states,{'friend':'claimable','family':'claimable'})
+        decision=DailyBountyFlow().step(screen,self.vision)
+        self.assertEqual(decision.point,(908,274))
+        self.assertTrue(self.vision.current_action(screen,decision,frame))
+        claimed=project_root()/'data/evidence/2026-11-17/daily-exploration/112544-bounty-task-panel.png'
+        claimed_frame=cv2.cvtColor(cv2.imread(str(claimed)),cv2.COLOR_BGR2RGB)
+        self.assertFalse(self.vision.current_action(screen,decision,claimed_frame))
+
     def test_reward_overlay_takes_precedence_over_task_text(self):
         folder=project_root()/'data/evidence/2026-11-17/daily-exploration'
         record=json.loads((folder/'112544-bounty-task-panel.json').read_text(encoding='utf-8'))

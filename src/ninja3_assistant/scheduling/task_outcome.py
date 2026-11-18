@@ -9,5 +9,6 @@ class TaskOutcome(Enum):
     WAITING = 'waiting'
     UNAVAILABLE = 'unavailable'
     ERROR = 'error'
+    SCENE_CHANGED = 'scene_changed'
     RECOVER_IN_PLACE = 'recover_in_place'
     STOPPED = 'stopped'

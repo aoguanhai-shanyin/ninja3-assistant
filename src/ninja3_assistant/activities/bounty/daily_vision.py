@@ -32,6 +32,7 @@ class DailyBountyVision:
         self.common = DailyVision()
         self.grade_hint = grade
         self.rank_detector = None
+        self.intelligence_tasks = None
         root = resource_root()/'assets'
         self.templates = {p.stem:cv2.imread(str(p),0) for p in (root/'bounty-daily').glob('*.png')}
         for name,path in (('hub-title','menu-title'),('hall-entry','startup-hall-bounty'),
@@ -190,8 +191,8 @@ class DailyBountyVision:
                     status = screen.text(status_box).replace('颌','领')
                     if '已领取' in status:
                         screen.task_states[name] = 'claimed'
-                    elif status == '领取':
-                        hits = screen.hits('领取',status_box)
+                    elif status in ('领取','领取奖励'):
+                        hits = screen.hits(status,status_box)
                         screen.task_states[name] = 'claimable'
                         if hits and screen.task_claim is None:
                             screen.task_claim = hits[0].point
@@ -265,6 +266,12 @@ class DailyBountyVision:
         page,back = self.navigation(frame)
         screen.page = page or common.page
         screen.back = back
+        if screen.page == 'unknown':
+            if self.intelligence_tasks is None:
+                from ninja3_assistant.activities.intelligence.tasks import TaskVision
+                self.intelligence_tasks = TaskVision()
+            if self.intelligence_tasks.detect(frame).kind == 'tasks':
+                screen.page = 'intelligence_tasks'
         if screen.page == 'bounty_daily':
             screen.join_failed = '加入队伍失败' in text or '当前暂未找到队伍' in text
             count = screen.hits(r'\d+',(285,145,323,200))

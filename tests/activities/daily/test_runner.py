@@ -12,13 +12,17 @@ from ninja3_assistant.activities.daily import runner
 from ninja3_assistant.activities.daily.flow import DailyDecision
 from ninja3_assistant.activities.daily.vision import DailyScreen
 from ninja3_assistant.runtime.runner import RunControl
+from ninja3_assistant.scheduling.invitation_handoff import InvitationHandoff
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
+from ninja3_assistant.vision.invitation import BountyInvitation
 
 
 class DailyRunnerTest(unittest.TestCase):
-    def run_simulation(self, steps):
+    def run_simulation(self, steps, *, navigation_safe=False):
         ticks = [0.]
         control = RunControl(clock=lambda:ticks[0])
+        control.bounty_navigation_safe = navigation_safe
+        control.bounty_invite_targets = {'A':'daily_bounty'}
         device,native,vision,ocr,flow = (Mock() for _ in range(5))
         frame = np.zeros((720,1280,3),np.uint8)
         current = [None]
@@ -55,6 +59,7 @@ class DailyRunnerTest(unittest.TestCase):
             (1,1) if name == current[0]['page'] and name in ('trial','house') else None)
         vision.food.return_value = 10
         vision.observe.side_effect = lambda frame,result:DailyScreen(frame,result,result['page'])
+        vision.invitations.bounty_invitation.return_value = BountyInvitation('friend','A',(818,526))
         flow.step.side_effect = lambda *args:current[0].get('decision',DailyDecision(status='等待页面'))
         events = []
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -79,6 +84,25 @@ class DailyRunnerTest(unittest.TestCase):
         self.assertIsNone(control._release_input)
         self.assertIn(('finished',''),events)
         return outcome,records,events,device,native,vision,flow,control
+
+    def test_first_frame_invitation_uses_scheduler_checkpoint(self):
+        outcome,_,_,device,native,vision,flow,_ = self.run_simulation(
+            [{'page':'invite'}],navigation_safe=True)
+        self.assertEqual(outcome,InvitationHandoff('daily_bounty'))
+        self.assertEqual(device.capture.call_count,1)
+        vision.invitations.bounty_invitation.assert_called_once()
+        flow.step.assert_not_called()
+        native.priority_tap.assert_not_called()
+
+    def test_first_frame_invitation_without_checkpoint_cannot_handoff(self):
+        decline = DailyDecision('tap',(471,526),'拒绝队友或家族邀请')
+        outcome,_,_,_,native,vision,_,_ = self.run_simulation([
+            {'page':'invite','decision':decline}, {'page':'invite'},
+            {'page':'monthly','decision':DailyDecision('done')},
+        ])
+        self.assertIs(outcome,TaskOutcome.DAILY_DONE)
+        vision.invitations.bounty_invitation.assert_not_called()
+        self.assertEqual([call.args[0] for call in native.priority_tap.call_args_list],[decline.point])
 
     def test_continuous_unknown_yields_with_periodic_and_final_evidence(self):
         outcome,records,events,device,native,_,flow,_ = self.run_simulation(

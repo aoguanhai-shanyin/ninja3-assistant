@@ -68,6 +68,26 @@ class DailyMenuReplayTest(unittest.TestCase):
         self.assertTrue(self.vision.current_action(s,decision,s.frame))
         self.assertFalse(self.vision.current_action(s,decision,normal.frame))
 
+    def test_limited_shop_welcome_is_dismissed_before_either_shop_task(self):
+        normal=self.read('173943-shop-guide-dismiss')
+        self.assertEqual(self.vision.navigation(normal.frame),('limited-shop',(75,45)))
+        for kind,run,image,tab in (
+                ('bounty_shop','20261118-094619-490400-bounty_shop','0005-unknown-wait.png',(1190,378)),
+                ('daily_shop','20261118-094652-707300-daily_shop','0001-unknown-wait.png',(1000,690))):
+            with self.subTest(kind=kind):
+                guide=self.runtime_screen(run,image)
+                self.assertEqual(guide.page,'menu-guide')
+                self.assertEqual(self.vision.observe(guide.frame,{'words':[]}).page,'menu-guide')
+                self.assertEqual(self.vision.navigation(guide.frame),('menu-guide',(640,100)))
+                flow=DailyFlow(kind)
+                dismiss=flow.step(guide,self.vision)
+                self.assertEqual(dismiss.point,(640,100))
+                self.assertTrue(self.vision.current_action(guide,dismiss,guide.frame))
+                self.assertFalse(self.vision.current_action(guide,dismiss,normal.frame))
+                enter=flow.step(normal,self.vision)
+                self.assertEqual(enter.point,tab)
+                self.assertFalse(self.vision.current_action(normal,enter,guide.frame))
+
     def test_second_shop_stone_guide_is_dismissed_before_any_product(self):
         s=self.runtime_screen('20261117-095019-052000-bounty_shop','0005-unknown-wait.png')
         normal=self.read('173943-shop-guide-dismiss')
@@ -138,6 +158,17 @@ class DailyMenuReplayTest(unittest.TestCase):
                 self.assertTrue(self.vision.current_action(free,decision,free.frame))
                 self.assertFalse(self.vision.current_action(free,decision,paid.frame))
                 self.assertEqual(DailyFlow(kind).step(paid,self.vision).action,'done')
+
+    def test_blessing_recognizes_enlarged_free_label_and_rechecks_it_before_tap(self):
+        run='20261118-094520-945100-blessing'
+        opening=self.runtime_screen(run,'0003-prayer-wait.png')
+        free=self.runtime_screen(run,'0004-prayer-wait.png')
+        paid=self.read('090104-blessing-done')
+        self.assertEqual(DailyFlow('blessing').step(opening,self.vision).action,'wait')
+        decision=DailyFlow('blessing').step(free,self.vision)
+        self.assertEqual((decision.point,decision.free_kind),((310,651),'blessing'))
+        self.assertTrue(self.vision.current_action(free,decision,free.frame))
+        self.assertFalse(self.vision.current_action(free,decision,paid.frame))
 
     def test_monthly_unclaimed_and_already_claimed_have_different_decisions(self):
         before=self.read('084337-login-check')

@@ -103,7 +103,8 @@ class TaskPlan:
         item.retry_at = None
         label = item.activity.label
         safe = outcome in (TaskOutcome.DAILY_DONE, TaskOutcome.MATCH_DONE, TaskOutcome.LIMIT_REACHED,
-                           TaskOutcome.UNAVAILABLE) or (outcome == TaskOutcome.WAITING and not item.activity.open(now))
+                           TaskOutcome.UNAVAILABLE, TaskOutcome.SCENE_CHANGED) or (
+                               outcome == TaskOutcome.WAITING and not item.activity.open(now))
         if outcome == TaskOutcome.RECOVER_IN_PLACE or (item.in_progress and not safe):
             item.in_progress = True
             item.retry_at = now+timedelta(seconds=1)
@@ -119,10 +120,11 @@ class TaskPlan:
             return None
         if outcome == TaskOutcome.WAITING and not item.activity.open(now):
             return None
-        if outcome == TaskOutcome.WAITING:
+        if outcome in (TaskOutcome.WAITING, TaskOutcome.SCENE_CHANGED):
             item.retry_at = now+timedelta(seconds=15)
             item.checked = False
-            return 'status', label+'：暂未就绪，15秒后重试，期间继续其他任务'
+            reason = '当前画面已离开任务场景' if outcome == TaskOutcome.SCENE_CHANGED else '暂未就绪'
+            return 'status', f'{label}：{reason}，15秒后重试，期间继续其他任务'
         if outcome == TaskOutcome.LIMIT_REACHED:
             item.blocked = True
             return 'status', label+'：今日积分场次已用完，不再匹配；未领取的日常不会记为完成'

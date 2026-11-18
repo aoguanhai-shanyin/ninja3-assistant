@@ -16,7 +16,7 @@ from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 
 
 class DailyBountyRunnerTest(unittest.TestCase):
-    def run_simulation(self, states, *, page=None, ocr_page=None, decision=None, fresh=True, grade='D', cleanup_error=False, stop_on_capture=False, navigation_pages=None, stop_on_ocr=0, invite_only=False, recover_in_place=False, tasks_overlay=False):
+    def run_simulation(self, states, *, page=None, ocr_page=None, decision=None, fresh=True, grade='D', cleanup_error=False, stop_on_capture=False, navigation_pages=None, stop_on_ocr=0, invite_only=False, invite_resume=False, recover_in_place=False, tasks_overlay=False):
         ticks = [0.]
         control = RunControl(clock=lambda:ticks[0])
         device,native,vision,combat_vision,ocr,flow = (Mock() for _ in range(6))
@@ -73,7 +73,7 @@ class DailyBountyRunnerTest(unittest.TestCase):
             stack.enter_context(patch.object(control.stop,'wait',return_value=False))
             outcome = daily_runner.run_daily_bounty('folder',1,control,
                 lambda kind,value:events.append((kind,value)),grade=grade,invite_only=invite_only,
-                recover_in_place=recover_in_place)
+                invite_resume=invite_resume,recover_in_place=recover_in_place)
         native.close.assert_called_once()
         device.close.assert_called_once()
         self.assertIsNone(control._release_input)
@@ -224,6 +224,7 @@ class DailyBountyRunnerTest(unittest.TestCase):
         kernel.priority_tap.return_value = True
         vision.navigation.side_effect = [(page,None) for page in ('invite','bounty_room','result','bounty_daily')]
         screens = [Mock(page=page) for page in ('invite','bounty_room','result','bounty_daily')]
+        screens[0].invitation.accept = (810,526)
         screens[1].grade = 'A'
         vision.observe.side_effect = screens
         vision.current_action.return_value = True
@@ -249,15 +250,17 @@ class DailyBountyRunnerTest(unittest.TestCase):
         self.assertEqual([call.args[0] for call in kernel.priority_tap.call_args_list],
                          [(810,526),(1100,660),(640,680)])
 
-    def test_accepted_invitation_returning_to_home_never_starts_daily_navigation(self):
+    def assert_invitation_join_does_not_start_daily_navigation(self, page, expected):
         control = RunControl(clock=count().__next__)
         device,native,vision,combat_vision,ocr,flow,kernel = (Mock() for _ in range(7))
         frame = np.zeros((720,1280,3),np.uint8)
         kernel.capture.return_value = frame
         kernel.capture_ms,kernel.captured_at,kernel.stale_drops = 1.,0.,0
         kernel.priority_tap.return_value = True
-        vision.navigation.side_effect = [('invite',None)]+[('home',None)]*10
-        vision.observe.side_effect = [Mock(page='invite')]+[Mock(page='home')]*10
+        vision.navigation.side_effect = [('invite',None)]+[(page,None)]*10
+        invitation = Mock(page='invite')
+        invitation.invitation.accept = (810,526)
+        vision.observe.side_effect = [invitation]+[Mock(page=page)]*10
         vision.current_action.return_value = True
         combat_vision.detect.return_value = BountyBattleState()
         ocr.read.return_value = {'words':[]}
@@ -272,9 +275,25 @@ class DailyBountyRunnerTest(unittest.TestCase):
             stack.enter_context(patch.object(control.stop,'wait',return_value=False))
             stack.enter_context(patch.object(daily_runner.time,'perf_counter',side_effect=count(step=1).__next__))
             outcome = daily_runner.run_daily_bounty('folder',1,control,Mock(),grade='A',invite_only=True)
-        self.assertIs(outcome,TaskOutcome.WAITING)
+        self.assertIs(outcome,expected)
         flow.step.assert_called_once()
         kernel.priority_tap.assert_called_once()
+
+    def test_invitation_touch_alone_does_not_own_a_match(self):
+        for page,expected in (('home',TaskOutcome.WAITING),('unknown',TaskOutcome.WAITING),
+                              ('intelligence_tasks',TaskOutcome.SCENE_CHANGED)):
+            with self.subTest(page=page):
+                self.assert_invitation_join_does_not_start_daily_navigation(page,expected)
+
+    def test_recognized_foreign_panel_ends_both_kinds_of_bounty_recovery(self):
+        for invited in (False,True):
+            with self.subTest(invited=invited):
+                outcome,_,native,_,_,_,flow,_ = self.run_simulation(
+                    [BountyBattleState()]*5,ocr_page='intelligence_tasks',invite_only=invited,
+                    invite_resume=invited,recover_in_place=not invited)
+                self.assertIs(outcome,TaskOutcome.SCENE_CHANGED)
+                flow.step.assert_not_called()
+                native.priority_tap.assert_not_called()
 
     def test_wrong_grade_invited_room_is_left_before_returning_to_original_task(self):
         control = RunControl()

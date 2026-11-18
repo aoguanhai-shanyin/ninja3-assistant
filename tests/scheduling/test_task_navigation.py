@@ -53,6 +53,13 @@ class TaskNavigationTest(unittest.TestCase):
         self.assertFalse(result)
         native.priority_tap.assert_not_called()
 
+    def test_foreign_battle_prevents_back_tap_from_background_menu_match(self):
+        result, native = self.navigate(
+            [ActivityScreen('battle')]*30,['unknown']*30,target='daily_bounty',
+            daily_pages=[('rank',(75,50))]*30)
+        self.assertFalse(result)
+        native.priority_tap.assert_not_called()
+
     def test_invitation_during_safe_navigation_returns_handoff_without_touch(self):
         control = RunControl(clock=Mock(side_effect=range(100)))
         control.bounty_invite_targets = {'A':'daily_bounty'}
@@ -78,6 +85,17 @@ class TaskNavigationTest(unittest.TestCase):
         result, native = self.navigate([ActivityScreen('battle')], ['unknown'], target='intelligence')
         self.assertTrue(result)
         native.priority_tap.assert_not_called()
+
+    def test_intelligence_tasks_panel_routes_only_to_its_owner(self):
+        panel = ActivityScreen('tasks')
+        result, native = self.navigate([panel],['unknown'],target='intelligence')
+        self.assertTrue(result)
+        native.priority_tap.assert_not_called()
+        result, native = self.navigate(
+            [panel,ActivityScreen('event_home'),ActivityScreen('home')],['unknown']*3,
+            target='daily_bounty',daily_pages=[('rank',(75,50)),(None,None),('home',None)])
+        self.assertTrue(result)
+        self.assertEqual([c.args[0] for c in native.priority_tap.call_args_list],[(1120,111),(50,45)])
 
     def test_weekend_battle_can_resume_without_leaving_it(self):
         result, native = self.navigate([ActivityScreen()], ['race'], target='weekend')

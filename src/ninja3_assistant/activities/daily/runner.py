@@ -46,7 +46,7 @@ def run_daily(kind, folder, index, control, emit):
             started = control.now()
             sequence = 0
             previous = None
-            safe_invite = False
+            safe_invite = getattr(control,'bounty_navigation_safe',False)
             waiting_state = waiting_since = waiting_snapshot_at = None
             while control.wait_active() and control.now()-started < 240:
                 generation = control.generation()

@@ -63,6 +63,13 @@ class DailyVision:
     def __init__(self):
         self.templates = {p.stem:cv2.imread(str(p),0)
                           for p in (resource_root()/'assets/daily-cleanup').glob('*.png')}
+        shop_guide = self.templates.get('shop-guide')
+        if shop_guide is not None:
+            # The limited-shop welcome variants share their highlighted title.
+            self.templates['limited-shop-guide'] = shop_guide[5:38,99:220]
+        blessing_free = self.templates.get('blessing-free')
+        if blessing_free is not None:
+            self.templates['blessing-free-expanded'] = cv2.resize(blessing_free,None,fx=1.12,fy=1.12)
         for name,source in (('home-hall','navigation-home'),('home-summon','navigation-home-summon')):
             path = resource_root()/'assets/intelligence'/(source+'.png')
             self.templates[name] = cv2.imread(str(path),0) if path.is_file() else None
@@ -140,6 +147,11 @@ class DailyVision:
                 return (640,100)
         return None
 
+    def shop_guide(self, frame):
+        return (self.match(frame,'limited-shop-guide',(330,297,540,365),threshold=.98) or
+                self.match(frame,'shop-guide',(250,280,1020,380),threshold=.94) or
+                self.match(frame,'shop-stone-guide',(250,280,1020,380),threshold=.94))
+
     def navigation(self, frame):
         """Fast recognized handoff; never uses a game-wide back key."""
         invite = self.invitations.detect(cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY))
@@ -155,8 +167,7 @@ class DailyVision:
             return 'paged-guide',next_guide
         if self.match(frame,'summon-guide',(620,220,820,300),threshold=.94):
             return 'summon-guide',(640,100)
-        if any(self.match(frame,name,(250,280,1020,380),threshold=.94)
-               for name in ('shop-guide','shop-stone-guide')):
+        if self.shop_guide(frame):
             return 'menu-guide',(640,100)
         if self.match(frame,'monthly-sidebar',(20,130,250,220)):
             return 'monthly',(1238,48)
@@ -207,8 +218,7 @@ class DailyVision:
             screen.page,screen.point = 'paged-guide',next_guide
         elif (('这里是限购商店' in text and '优惠的商品' in text) or
                 ('获得的原石可在' in text and '兑换元素石' in text) or
-                any(self.match(frame,name,(250,280,1020,380),threshold=.94)
-                    for name in ('shop-guide','shop-stone-guide'))):
+                self.shop_guide(frame)):
             screen.page = 'menu-guide'
         elif (('召唤池存在两种UP模式' in text and '规则界面' in text) or
                 self.match(frame,'summon-guide',(620,220,820,300),threshold=.94)):
@@ -284,7 +294,11 @@ class DailyVision:
                     'weapon':('weapon-free',(620,610,950,695)),
                     'blessing':('blessing-free',(185,620,440,690))}[kind]
         # The cooldown's “下次免费” is outside these exact button-label templates.
-        return self.match(screen.frame,name,box,threshold=.95) is not None
+        if self.match(screen.frame,name,box,threshold=.95) is not None:
+            return True
+        # The prayer button expands after its entrance animation.
+        return kind == 'blessing' and self.match(screen.frame,'blessing-free-expanded',
+                                                (220,643,401,690),threshold=.92) is not None
 
     def current_action(self, screen, decision, fresh):
         fresh_page,_ = self.navigation(fresh)

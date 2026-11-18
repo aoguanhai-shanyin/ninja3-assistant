@@ -61,6 +61,43 @@ def _recognize_frame(frame, vision, battle_vision):
     return None,state
 
 
+class _InvitationRun:
+    """Own an invited match only after a room, battle or result is visible."""
+
+    def __init__(self, resume):
+        self.phase = 'owned' if resume else 'offered'
+        self.sent_at = None
+
+    @property
+    def owns_match(self):
+        return self.phase in ('owned','settling')
+
+    def sent(self, now):
+        self.phase, self.sent_at = 'joining',now
+
+    def saw_match(self):
+        if self.phase != 'settling':
+            self.phase = 'owned'
+
+    def checkpoint(self, page, now):
+        if page == 'intelligence_tasks':
+            if self.phase == 'joining' and now-self.sent_at < 5:
+                return None
+            self.phase = 'finished'
+            return TaskOutcome.SCENE_CHANGED
+        if self.phase == 'offered':
+            return None if page == 'invite' else TaskOutcome.WAITING
+        if page in ('bounty_room','result'):
+            self.saw_match()
+        if self.phase == 'joining':
+            return TaskOutcome.WAITING if now-self.sent_at >= 5 else None
+        if page in ('bounty_daily','bounty_order','bounty_hub','home','hall'):
+            outcome = TaskOutcome.MATCH_DONE if self.phase == 'settling' else TaskOutcome.WAITING
+            self.phase = 'finished'
+            return outcome
+        return None
+
+
 def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=False, invite_resume=False, recover_in_place=False):
     if grade not in ('D','C','B','A','S'):
         raise ValueError('expected bounty grade D/C/B/A/S')
@@ -72,10 +109,7 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
     in_battle = recover_in_place
     outcome = TaskOutcome.ERROR
     previous_status = None
-    invitation_accepted = invite_resume
-    invitation_accepted_at = control.now() if invite_resume else None
-    invitation_settled = False
-    invitation_room_seen = invite_resume
+    invitation = _InvitationRun(invite_resume) if invite_only else None
     lock = threading.Lock()
     with (output/'events.jsonl').open('w',encoding='utf-8') as log:
         def record(value):
@@ -145,8 +179,8 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
                 if state.active:
                     inactive_since = None
                     in_battle = flow.battle_seen = True
-                    if invite_only:
-                        invitation_room_seen = True
+                    if invitation:
+                        invitation.saw_match()
                     last_progress = now
                     before = time.perf_counter()
                     message = combat.update(state,now)
@@ -183,26 +217,18 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
                         if result is None or control.stop.is_set() or control.paused() or observed_generation != control.generation():
                             continue
                         screen = vision.observe(frame,result)
-                        if invite_only:
-                            if screen.page == 'bounty_room':
-                                invitation_room_seen = True
-                            if screen.page in ('bounty_daily','bounty_order','bounty_hub','home','hall'):
-                                if invitation_settled or (invitation_accepted and invitation_room_seen):
-                                    outcome = TaskOutcome.MATCH_DONE if invitation_settled else TaskOutcome.WAITING
-                                    break
-                                if not invitation_accepted:
-                                    outcome = TaskOutcome.WAITING
-                                    break
-                            if invitation_accepted and not invitation_room_seen:
-                                if now-invitation_accepted_at >= 5:
-                                    outcome = (TaskOutcome.WAITING if screen.page in
-                                               ('invite','bounty_daily','bounty_order','bounty_hub','home','hall')
-                                               else TaskOutcome.RECOVER_IN_PLACE)
-                                    break
-                                control.stop.wait(.15)
-                                continue
-                            if not invitation_accepted and screen.page != 'invite':
-                                continue
+                        checkpoint = invitation.checkpoint(screen.page,now) if invitation else (
+                            TaskOutcome.SCENE_CHANGED if screen.page == 'intelligence_tasks' else None)
+                        if checkpoint is not None:
+                            in_battle = False
+                            if checkpoint == TaskOutcome.SCENE_CHANGED:
+                                status('识别到情报模拟战任务面板，结束当前悬赏流程并继续调度')
+                            record({'event':'checkpoint','page':screen.page,'outcome':checkpoint.value})
+                            outcome = checkpoint
+                            break
+                        if invitation and invitation.phase == 'joining':
+                            control.stop.wait(.15)
+                            continue
                         if screen.page == 'bounty_order' and screen.remaining is None:
                             # Limit the fallback to the unlocked order page and
                             # the S field; SS+ starts to the right of this crop.
@@ -225,8 +251,9 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
                                                      guard=(280,0,360,85))
                         else:
                             decision = flow.step(screen,vision)
-                        if invite_only and not invitation_accepted and not (
-                                decision.status.startswith('接受') and decision.status.endswith('级悬赏邀请')):
+                        accepts_invite = (screen.page == 'invite' and screen.invitation is not None and
+                                          decision.action == 'tap' and decision.point == screen.invitation.accept)
+                        if invitation and invitation.phase == 'offered' and not accepts_invite:
                             outcome = TaskOutcome.WAITING
                             break
                         menu = (screen.page,decision.action,decision.status,decision.point)
@@ -244,14 +271,13 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
                         if decision.action in ('done','unavailable'):
                             outcome = (TaskOutcome.DAILY_DONE if decision.action == 'done' else
                                        TaskOutcome.RECOVER_IN_PLACE if in_battle or
-                                       (invite_only and invitation_accepted) else TaskOutcome.UNAVAILABLE)
+                                       (invitation and invitation.owns_match) else TaskOutcome.UNAVAILABLE)
                             break
                         if decision.action == 'retry':
                             outcome = TaskOutcome.WAITING
                             break
                         if decision.point is not None:
                             def act():
-                                nonlocal invitation_accepted, invitation_accepted_at, invitation_settled
                                 if observed_generation != control.generation():
                                     return False
                                 fresh = kernel.capture(device)
@@ -274,11 +300,10 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
                                     control.stop.wait(.09)
                                 if acted:
                                     flow.completed(decision,screen)
-                                    if invite_only and decision.status.startswith('接受') and decision.status.endswith('级悬赏邀请'):
-                                        invitation_accepted = True
-                                        invitation_accepted_at = control.now()
-                                    if invite_only and screen.page == 'result':
-                                        invitation_settled = True
+                                    if invitation and accepts_invite:
+                                        invitation.sent(control.now())
+                                    if invitation and screen.page == 'result':
+                                        invitation.phase = 'settling'
                                     record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind})
                                 return bool(acted)
                             before = time.perf_counter()
@@ -301,17 +326,17 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', invite_only=Fal
                     capture_ms = recognition_ms = input_ms = menu_ocr_ms = 0.
                 if now-last_progress >= (30 if in_battle else 90):
                     status('悬赏画面未恢复，保留未完成状态并稍后重试')
-                    outcome = TaskOutcome.RECOVER_IN_PLACE if in_battle or (invite_only and invitation_accepted) else TaskOutcome.ERROR
+                    outcome = TaskOutcome.RECOVER_IN_PLACE if in_battle or (invitation and invitation.owns_match) else TaskOutcome.ERROR
                     break
                 control.stop.wait(max(0.,1/60-(time.perf_counter()-loop_at)))
             else:
                 outcome = (TaskOutcome.STOPPED if control.stop.is_set() else
-                            TaskOutcome.RECOVER_IN_PLACE if in_battle or (invite_only and invitation_accepted) else TaskOutcome.UNAVAILABLE)
+                            TaskOutcome.RECOVER_IN_PLACE if in_battle or (invitation and invitation.owns_match) else TaskOutcome.UNAVAILABLE)
         except Exception as error:
             record({'event':'error','message':str(error),'in_battle':in_battle})
             emit('error','每日悬赏：'+str(error))
             outcome = TaskOutcome.STOPPED if control.stop.is_set() else (
-                TaskOutcome.RECOVER_IN_PLACE if in_battle or (invite_only and invitation_accepted) else TaskOutcome.ERROR)
+                TaskOutcome.RECOVER_IN_PLACE if in_battle or (invitation and invitation.owns_match) else TaskOutcome.ERROR)
         finally:
             control.set_release_input(None)
             for resource in (combat,native,device,diagnostics):

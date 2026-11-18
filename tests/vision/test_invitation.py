@@ -24,6 +24,18 @@ class InvitationTest(unittest.TestCase):
         self.assertEqual((invitation.source,invitation.grade),('friend','S'))
         self.assertTrue(700 <= invitation.accept[0] <= 920 and 490 <= invitation.accept[1] <= 565)
 
+    def test_left_aligned_friend_sender_keeps_first_ocr_character(self):
+        evidence = ROOT/'data/evidence/2026-11-16/daily-exploration/175313-trial-guide-next-1.png'
+        gray = cv2.imread(str(evidence),cv2.IMREAD_GRAYSCALE)
+        words = [{'text':text,'bbox':box} for text,box in (
+            ('来',[104,213,21,24]), ('自',[131,213,17,23]),
+            ('好',[152,214,23,23]), ('友',[178,213,21,23]),
+            ('A级每日赏',[566,195,161,29]),
+        )]
+        invitation = InvitationVision().bounty_invitation(gray,{'words':words})
+        self.assertIsNotNone(invitation)
+        self.assertEqual((invitation.source,invitation.grade),('friend','A'))
+
     def test_bounty_invitation_requires_sender_and_unambiguous_title(self):
         evidence = ROOT/'data/evidence/2026-11-16/daily-exploration/175313-trial-guide-next-1.png'
         gray = cv2.imread(str(evidence),cv2.IMREAD_GRAYSCALE)

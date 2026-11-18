@@ -47,7 +47,7 @@ class InvitationVision:
                 if x1 <= word['bbox'][0]+word['bbox'][2]/2 < x2
                 and y1 <= word['bbox'][1]+word['bbox'][3]/2 < y2))
 
-        sender = text_in((120,195,350,245))
+        sender = text_in((100,195,350,245))
         if '来自好友' in sender and '来自族员' not in sender:
             source = 'friend'
         elif '来自族员' in sender and '来自好友' not in sender:

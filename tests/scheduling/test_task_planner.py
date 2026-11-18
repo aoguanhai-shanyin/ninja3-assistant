@@ -55,6 +55,46 @@ class PlannerTest(unittest.TestCase):
         run_tasks('f',1,RunControl(),Mock(),plan=plan,clock=lambda:now,navigate=navigate)
         self.assertEqual(calls,[('daily_bounty','invite'),('activity','daily')])
 
+    def test_foreign_scene_ends_invite_recovery_and_routes_back_to_original_task(self):
+        calls = []
+        bounty = FakeTask('daily_bounty',[O.RECOVER_IN_PLACE,O.SCENE_CHANGED],calls)
+        bounty.bounty_grade = 'A'
+        activity = FakeTask('intelligence',[InvitationHandoff('daily_bounty'),O.DAILY_DONE],calls)
+        now = datetime(2026,11,18,10,tzinfo=CHINA)
+        plan = TaskPlan([activity,bounty],now)
+        plan.tasks[1].daily_done = True
+        control = RunControl()
+        navigate = Mock(return_value=True)
+        with patch.object(control.stop,'wait',return_value=False):
+            run_tasks('f',1,control,Mock(),plan=plan,clock=lambda:now,navigate=navigate)
+        self.assertEqual(calls,[('intelligence','daily'),('daily_bounty','invite'),
+                                ('daily_bounty','invite_resume'),('intelligence','daily')])
+        self.assertEqual([c.kwargs['target'] for c in navigate.call_args_list],['intelligence']*2)
+        self.assertEqual(plan.tasks[1].last_run,0)
+
+    def test_waiting_retry_routes_from_current_screen_even_for_same_task(self):
+        calls = []
+        wall = [datetime(2026,11,18,10,tzinfo=CHINA)]
+        control = RunControl()
+        navigate = Mock(side_effect=[True,False,True])
+        task = FakeTask('intelligence',[O.WAITING,O.DAILY_DONE],calls)
+        with patch.object(control.stop,'wait',side_effect=lambda delay:wall.__setitem__(0,wall[0]+timedelta(seconds=delay))):
+            self.run_plan([task],control=control,clock=lambda:wall[0],navigate=navigate)
+        self.assertEqual(navigate.call_count,3)
+        self.assertEqual(calls,[('intelligence','daily')]*2)
+
+    def test_scene_change_releases_match_ownership_without_crediting_completion(self):
+        now = datetime(2026,11,18,10,tzinfo=CHINA)
+        plan = TaskPlan([FakeTask('daily_bounty',[],[]),FakeTask('intelligence',[],[])],now)
+        bounty, intelligence = plan.tasks
+        plan.complete(bounty,O.RECOVER_IN_PLACE,now)
+        plan.complete(bounty,O.SCENE_CHANGED,now+timedelta(seconds=1))
+        plan.refresh(now+timedelta(seconds=1))
+        self.assertFalse(bounty.in_progress)
+        self.assertFalse(bounty.ready)
+        self.assertFalse(bounty.daily_done)
+        self.assertTrue(intelligence.ready)
+
     def test_bounty_recovery_runs_with_battle_ownership(self):
         calls = []
         control = RunControl()
