@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from ninja3_assistant.activities.daily.resources import load_deadline, resource_path
 from ninja3_assistant.activities.intelligence.flow import CHINA, daily_key
-from ninja3_assistant.scheduling.activity_task import ActivityTask
+from ninja3_assistant.scheduling.activity_task import ActivityTask, DailyTask
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 
 
@@ -51,6 +51,11 @@ class TaskPlan:
     def remove(self, name):
         self.tasks[:] = [item for item in self.tasks if item.activity.name != name]
 
+    def _s_bounty_waiting_for_a(self, now):
+        return any(isinstance(item.activity,DailyTask) and item.activity.kind == 'bounty' and
+                   item.activity.bounty_grade == 'A' and not item.activity.bounty_quota_exhausted(now)
+                   for item in self.tasks)
+
     def refresh(self, now):
         if daily_key(now) != self.day:
             self.day = daily_key(now)
@@ -58,6 +63,7 @@ class TaskPlan:
                 item.daily_done = item.blocked = item.checked = False
                 item.retry_at = None
         owner = next((item for item in self.tasks if item.in_progress), None)
+        wait_for_a = self._s_bounty_waiting_for_a(now)
         for item in self.tasks:
             task = item.activity
             item.ready = False
@@ -65,6 +71,8 @@ class TaskPlan:
                 if item is owner:
                     item.ready = item.retry_at is None or now >= item.retry_at
                     item.priority = (-1, 0, 0)
+                continue
+            if wait_for_a and task.name == 'daily_bounty_s':
                 continue
             if item.blocked or (item.retry_at is not None and now < item.retry_at):
                 continue
@@ -107,6 +115,8 @@ class TaskPlan:
             return '等待倒计时：'+'、'.join(item.activity.label for item in scheduled), min(30,(recheck_at-now).total_seconds())
         if retry_at is not None:
             return '等待重试：'+'、'.join(item.activity.label for item in retries), min(30,(retry_at-now).total_seconds())
+        if self._s_bounty_waiting_for_a(now) and any(item.activity.name == 'daily_bounty_s' for item in pending):
+            return '等待A级悬赏次数清零，再进行S级悬赏', 30
         return '等待活动开放：'+'、'.join(item.activity.label for item in pending), 30
 
     def complete(self, item, outcome, now):
@@ -116,7 +126,8 @@ class TaskPlan:
         item.retry_at = None
         label = item.activity.label
         safe = outcome in (TaskOutcome.DAILY_DONE, TaskOutcome.MATCH_DONE, TaskOutcome.LIMIT_REACHED,
-                           TaskOutcome.DEFERRED_TODAY, TaskOutcome.UNAVAILABLE, TaskOutcome.SCENE_CHANGED) or (
+                           TaskOutcome.DEFERRED_TODAY, TaskOutcome.MAINTENANCE,
+                           TaskOutcome.UNAVAILABLE, TaskOutcome.SCENE_CHANGED) or (
                                outcome == TaskOutcome.WAITING and not item.activity.open(now))
         if outcome == TaskOutcome.RECOVER_IN_PLACE or (item.in_progress and not safe):
             item.in_progress = True
@@ -134,9 +145,15 @@ class TaskPlan:
         if outcome == TaskOutcome.MATCH_DONE:
             if not item.daily_done:
                 item.checked = False
+                if item.activity.name == 'xumi':
+                    # A full pair of trials puts the next one behind older daily retries.
+                    item.retry_at = now
             return None
         if outcome == TaskOutcome.WAITING and not item.activity.open(now):
             return None
+        if outcome == TaskOutcome.MAINTENANCE:
+            item.retry_at = now+timedelta(minutes=5)
+            return 'status', label+'：服务器维护，5分钟后复查，期间继续其他任务'
         if outcome in (TaskOutcome.WAITING, TaskOutcome.SCENE_CHANGED):
             item.retry_at = now+timedelta(seconds=15)
             item.checked = False

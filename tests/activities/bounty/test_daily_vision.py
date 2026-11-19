@@ -19,6 +19,112 @@ class DailyBountyVisionTest(unittest.TestCase):
     def setUpClass(cls):
         cls.vision=DailyBountyVision()
 
+    def test_152_refreshes_the_observed_empty_s_board_and_honors_cooldown(self):
+        run=project_root()/'data/runtime/daily-cleanup/runs/20261119-135208-715700-bounty-S'
+        path=run/'0011-bounty_order-retry.png'
+        if not path.is_file():
+            self.skipTest('requires the local 152 S bounty replay')
+        records=[json.loads(line) for line in (run/'events.jsonl').read_text(encoding='utf-8').splitlines()]
+        record=next(r for r in records if r.get('frame')==path.name)
+        frame=cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB)
+        screen=self.vision.observe(frame,record['ocr'])
+        self.assertEqual((screen.page,screen.remaining,screen.s_filter,screen.ss_filter),('bounty_order',2,'on','off'))
+        flow=DailyBountyFlow('bounty_s')
+        flow.tasks_checked=flow.no_owned_orders=True
+        decision=flow.step(screen,self.vision)
+        self.assertEqual((decision.point,decision.status),((1146,171),'刷新悬赏队伍列表'))
+        self.assertTrue(self.vision.current_action(screen,decision,frame))
+        changed=frame.copy()
+        changed[148:203,1075:1220]=0
+        self.assertFalse(self.vision.current_action(screen,decision,changed))
+        flow.completed(decision,screen)
+        self.assertEqual(flow.step(screen,self.vision).action,'wait')
+
+    def test_s_join_requires_the_same_rank_slot_and_filters_in_the_fresh_frame(self):
+        frame=np.zeros((720,1280,3),np.uint8)
+        from ninja3_assistant.activities.bounty.daily_vision import DailyBountyScreen
+
+        board=DailyBountyScreen(frame,{'words':[]},'bounty_order',remaining=2,
+                              s_filter='on',ss_filter='off',join=(400,300))
+        flow=DailyBountyFlow('bounty_s')
+        flow.tasks_checked=True
+        decision=flow.step(board,self.vision)
+        with patch.object(self.vision,'navigation',return_value=('bounty_order',(65,50))),\
+             patch.object(self.vision,'_filter',side_effect=['on','off','on','on','on','off']),\
+             patch.object(self.vision,'_join',side_effect=[(400,300),(780,300)]):
+            self.assertTrue(self.vision.current_action(board,decision,frame))
+            self.assertFalse(self.vision.current_action(board,decision,frame))
+            self.assertFalse(self.vision.current_action(board,decision,frame))
+
+    def test_real_s_order_turns_off_observed_ss_filter(self):
+        run=project_root()/'data/runtime/daily-cleanup/runs/20261119-113407-130900-bounty-S'
+        records=[json.loads(line) for line in (run/'events.jsonl').read_text(encoding='utf-8').splitlines()]
+        record=next(r for r in records if r.get('frame')=='0007-bounty_order-wait.png')
+        frame=cv2.cvtColor(cv2.imread(str(run/record['frame'])),cv2.COLOR_BGR2RGB)
+        screen=self.vision.observe(frame,record['ocr'])
+        self.assertEqual((screen.page,screen.remaining,screen.s_filter,screen.ss_filter),('bounty_order',2,'on','on'))
+        flow=DailyBountyFlow('bounty_s')
+        flow.tasks_checked=True
+        self.assertIsNone(screen.join)
+        decision=flow.step(screen,self.vision)
+        self.assertEqual((decision.action,decision.point,decision.status),('tap',(978,171),'关闭SS+悬赏筛选'))
+
+    def test_152_fast_board_distinguishes_s_plus_scaled_failure_and_join_success(self):
+        run=project_root()/'data/runtime/daily-cleanup/runs/20261119-143120-219100-bounty-S'
+        if not (run/'events.jsonl').is_file():
+            self.skipTest('requires the local 152 S bounty replay')
+        def read(name):
+            return cv2.cvtColor(cv2.imread(str(run/name)),cv2.COLOR_BGR2RGB)
+        listing=read('0008-bounty_order-tap.png')
+        reference=(2,self.vision.order_counter(listing).copy())
+        self.assertEqual(self.vision.fast_order(listing,reference).join,(401,307))
+        for number in (9,10,12,18,47,53):
+            with self.subTest(frame=number):
+                failed=self.vision.fast_order(read(f'{number:04}-bounty_order-tap.png'),reference)
+                self.assertTrue(failed.join_failed)
+                self.assertIsNone(failed.join)
+                self.assertEqual(failed.refresh,(1146,171))
+        next_listing=read('0054-bounty_order-tap.png')
+        self.assertEqual(self.vision.fast_order(next_listing,reference).join,(401,307))
+        joined=self.vision.fast_order(read('0055-bounty_order-wait.png'),reference)
+        self.assertTrue(joined.join_pending)
+        self.assertIsNone(joined.join)
+        different_quota=listing.copy()
+        self.vision.order_counter(different_quota)[:]=0
+        self.assertIsNone(self.vision.fast_order(different_quota,reference))
+        other_filter=listing.copy()
+        other_filter[168:175,975:982]=listing[168:175,873:880]
+        self.assertIsNone(self.vision.fast_order(other_filter,reference))
+
+    def test_152_join_success_detects_toast_before_it_reaches_full_size(self):
+        run=project_root()/'data/runtime/daily-cleanup/runs/20261119-144753-036000-bounty-S'
+        evidence=run/'0028-bounty_order-wait.png'
+        if not evidence.is_file():
+            self.skipTest('requires the local 152 S bounty replay')
+        listing=cv2.cvtColor(cv2.imread(str(run/'0012-bounty_order-tap.png')),cv2.COLOR_BGR2RGB)
+        frame=cv2.cvtColor(cv2.imread(str(evidence)),cv2.COLOR_BGR2RGB)
+        reference=(1,self.vision.order_counter(listing).copy())
+        joined=self.vision.fast_order(frame,reference)
+        self.assertTrue(joined.join_pending)
+        self.assertIsNone(joined.join)
+
+    def test_real_hall_search_moves_towards_right_and_rechecks_visible_bounty_entry(self):
+        root=project_root()/'data/runtime/daily-cleanup/runs'
+        paths=(root/'20261119-104012-734900-bounty-A/0063-hall-swipe.png',
+               root/'20261119-102019-471000-bounty-A/0004-hall-tap.png')
+        first, second=(cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB) for path in paths)
+        before, after=(self.vision.observe(frame,{'words':[]}) for frame in (first,second))
+        self.assertIsNone(before.entry)
+        self.assertEqual(after.entry,(1045,161))
+        flow=DailyBountyFlow('bounty','A')
+        swipe=flow.step(before,self.vision)
+        self.assertEqual((swipe.point,swipe.end),((1080,400),(280,400)))
+        self.assertTrue(self.vision.current_action(before,swipe,first))
+        self.assertFalse(self.vision.current_action(before,swipe,second))
+        tap=flow.step(after,self.vision)
+        self.assertTrue(self.vision.current_action(after,tap,second))
+        self.assertFalse(self.vision.current_action(after,tap,first))
+
     def test_real_bounty_task_panel_including_claimed_ocr_error(self):
         folder=project_root()/'data/evidence/2026-11-17/daily-exploration'
         record=json.loads((folder/'112544-bounty-task-panel.json').read_text(encoding='utf-8'))

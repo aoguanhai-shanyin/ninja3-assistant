@@ -1,16 +1,28 @@
 """Screen recognition for the 1280x720 reverse-bounty flow."""
 from ninja3_assistant.paths import resource_root
+from concurrent.futures import Future
 from dataclasses import dataclass
+import logging
+from threading import Thread
 
 import cv2
 import numpy as np
 import onnxruntime as ort
 
-from ninja3_assistant.device.dxgi_adapters import adapters
 from ninja3_assistant.vision.invitation import InvitationVision
+from ninja3_assistant.vision.winml import model_session
 
 ROOT = resource_root()
 ASSETS = ROOT / 'assets'
+_LOG = logging.getLogger(__name__)
+
+
+def _rank_session(use_gpu):
+    options = ort.SessionOptions()
+    options.enable_mem_pattern = False
+    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    options.intra_op_num_threads = 1
+    return model_session(ASSETS / 'rank-s.onnx', use_gpu=use_gpu, options=options)
 
 @dataclass(frozen=True)
 class Screen:
@@ -39,7 +51,7 @@ class Screen:
     card_cells: tuple = ()
 
 class Vision:
-    def __init__(self, use_gpu=True):
+    def __init__(self, use_gpu=True, *, prewarm=False):
         self.invitations = InvitationVision()
         names = ['board-title', 'refresh', 'join', 'join-bottom', 'ready', 'prepared', 'invite-label',
                  'invite-collapse', 'invite-collapse-alt', 'menu-title', 'menu-reverse',
@@ -53,21 +65,33 @@ class Vision:
             if image is None:
                 raise RuntimeError('找不到识别图片：' + name)
             self.images[name] = image
-        options = ort.SessionOptions()
-        options.enable_mem_pattern = False
-        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        options.intra_op_num_threads = 1
-        providers = ['CPUExecutionProvider']
-        self.backend = 'CPU'
-        if use_gpu and 'DmlExecutionProvider' in ort.get_available_providers():
-            available = [a for a in adapters() if a[2] != 0x1414]
-            if available:
-                index, name, _, _ = max(available, key=lambda item: item[3])
-                providers.insert(0, ('DmlExecutionProvider', {'device_id': index}))
-                self.backend = 'GPU: ' + name
-        self.session = ort.InferenceSession(str(ASSETS / 'rank-s.onnx'), sess_options=options, providers=providers)
-        if use_gpu and self.backend.startswith('GPU') and self.session.get_providers()[0] != 'DmlExecutionProvider':
-            raise RuntimeError('GPU 推理初始化失败')
+        self.session, self.backend = _rank_session(use_gpu and not prewarm)
+        self._rank_ready = None
+        if use_gpu and prewarm:
+            self._rank_ready = Future()
+            Thread(target=self._warm_rank, name='rank-s-warmup', daemon=True).start()
+
+    def _warm_rank(self):
+        try:
+            session, backend = _rank_session(True)
+            if backend != 'CPU':
+                session.run(None, {'image': np.zeros((1, 1, 75, 110), np.float32)})
+        except Exception as error:
+            self._rank_ready.set_exception(error)
+        else:
+            self._rank_ready.set_result((session, backend))
+
+    def use_prepared_gpu(self):
+        if self._rank_ready is None or not self._rank_ready.done():
+            return
+        try:
+            session, backend = self._rank_ready.result()
+            if backend != 'CPU':
+                self.session, self.backend = session, backend
+        except Exception as error:
+            _LOG.warning('Windows ML rank-S warmup unavailable: %s', error)
+        finally:
+            self._rank_ready = None
 
     def match(self, gray, name, x, y, w, h, threshold=.92, max_error=None):
         template = self.images[name]
@@ -103,6 +127,7 @@ class Vision:
     def detect(self, frame):
         if frame.shape != (720, 1280, 3):
             return Screen()
+        self.use_prepared_gpu()
         gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         invite = self.invitations.detect(gray)
         if invite:

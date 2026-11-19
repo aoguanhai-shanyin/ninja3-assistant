@@ -7,6 +7,7 @@ class TaskOutcome(Enum):
     MATCH_DONE = 'match_done'
     LIMIT_REACHED = 'limit_reached'
     WAITING = 'waiting'
+    MAINTENANCE = 'maintenance'
     DEFERRED_TODAY = 'deferred_today'
     UNAVAILABLE = 'unavailable'
     ERROR = 'error'

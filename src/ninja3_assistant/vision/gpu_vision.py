@@ -2,26 +2,18 @@
 import numpy as np
 import onnxruntime as ort
 
-from ninja3_assistant.device.dxgi_adapters import adapters
 from ninja3_assistant.vision.vision import ASSETS
+from ninja3_assistant.vision.winml import model_session
 
 
 class GpuAttackSegmenter:
     def __init__(self):
-        if 'DmlExecutionProvider' not in ort.get_available_providers():
-            raise RuntimeError('当前环境没有 DirectML GPU 推理支持')
-        available = [adapter for adapter in adapters() if adapter[2] != 0x1414]
-        if not available:
-            raise RuntimeError('找不到可用的 GPU')
-        index, self.backend, _, _ = max(available, key=lambda adapter: adapter[3])
         options = ort.SessionOptions()
         options.enable_mem_pattern = False
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         options.intra_op_num_threads = 1
-        self.session = ort.InferenceSession(str(ASSETS / 'boss-red-segmentation.onnx'),
-                sess_options=options, providers=[('DmlExecutionProvider', {'device_id': index}), 'CPUExecutionProvider'])
-        if self.session.get_providers()[0] != 'DmlExecutionProvider':
-            raise RuntimeError('GPU 推理初始化失败')
+        self.session, self.backend = model_session(ASSETS / 'boss-red-segmentation.onnx',
+                                                   require_gpu=True,options=options)
 
     def masks(self, field):
         tensor = np.ascontiguousarray(field.transpose(2, 0, 1)[None], dtype=np.float32)

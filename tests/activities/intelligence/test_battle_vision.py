@@ -1,7 +1,9 @@
 """Regression on actual live frames, not a claim of unseen-screen generalization."""
 from ninja3_assistant.paths import project_root
+from concurrent.futures import Future
 from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -82,6 +84,47 @@ class BattleVisionTest(unittest.TestCase):
         self.assertEqual(observation.refreshes, 1)
         self.assertIsNone(observation.selected_shop)
         self.assertFalse(any(observation.place_points))
+
+    def test_winml_runtime_error_preserves_opencv_recognition(self):
+        frame = image('20261113-181458-match-search-01-end.png')
+        expected = self.vision.detect(frame)
+        vision = BattleVision(use_winml=True)
+        module = 'ninja3_assistant.activities.intelligence.battle_vision'
+        ready = Future()
+        ready.set_result((object(), 32.))
+        with patch(module+'.warm_portrait_session', return_value=ready) as session, \
+                patch(module+'.portrait_scores', side_effect=RuntimeError('GPU unavailable')) as scores, \
+                self.assertLogs(module, level='WARNING'):
+            self.assertEqual(vision.detect(frame), expected)
+            self.assertEqual(vision.detect(frame), expected)
+        session.assert_called_once()
+        scores.assert_called_once()
+        self.assertEqual(vision.backend, 'CPU: OpenCV')
+
+    def test_winml_scores_near_an_acceptance_threshold_are_rechecked(self):
+        frame = image('20261113-181458-match-search-01-end.png')
+        expected = self.vision.detect(frame)
+        vision = BattleVision(use_winml=True)
+        module = 'ninja3_assistant.activities.intelligence.battle_vision'
+        ready = Future()
+
+        def borderline(_session, faces):
+            scores = np.zeros((len(faces), len(vision.cards)), np.float32)
+            scores[:, 0] = .8795
+            upper_scores = scores.copy()
+            upper_scores[:, 0] = .82
+            return scores, upper_scores
+
+        with patch(module+'.warm_portrait_session', return_value=ready) as session, \
+                patch(module+'.portrait_scores', side_effect=borderline) as scores:
+            self.assertEqual(vision.detect(frame), expected)
+            self.assertEqual(vision.backend, 'CPU: OpenCV')
+            scores.assert_not_called()
+            ready.set_result((object(), 32.))
+            self.assertEqual(vision.detect(frame), expected)
+        self.assertIn('Windows ML', vision.backend)
+        session.assert_called_once()
+        scores.assert_called_once()
 
     def test_live_empty_board_sparkles_preserve_occupied_cards(self):
         observation = self.vision.detect(image('20261114-round1-check.png'))

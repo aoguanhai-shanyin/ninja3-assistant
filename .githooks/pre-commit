@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+git diff --cached --check --
+
+python=python
+if [ -x .venv/Scripts/python.exe ]; then
+    python=.venv/Scripts/python.exe
+elif [ -x .venv/bin/python ]; then
+    python=.venv/bin/python
+fi
+exec "$python" -m tools.testing.lint_staged

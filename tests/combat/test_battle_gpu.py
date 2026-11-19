@@ -5,22 +5,25 @@ import unittest
 
 import cv2
 import numpy as np
-import onnxruntime as ort
 
 from ninja3_assistant.combat.battle import RedBladeTracker
 from ninja3_assistant.vision.gpu_vision import GpuAttackSegmenter
+from ninja3_assistant.vision.winml import winml_gpu
 
 
 VIDEO = project_root().parent / 'android-icon-clicker/build/evidence/battle-inspect/boss-fight.mp4'
 
 
 @unittest.skipUnless(VIDEO.is_file(), 'local boss recording unavailable')
-@unittest.skipUnless('DmlExecutionProvider' in ort.get_available_providers(), 'DirectML unavailable')
 class GpuBattleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.capture = cv2.VideoCapture(str(VIDEO))
+        device = winml_gpu()
+        if device is None:
+            raise unittest.SkipTest('Windows ML GPU unavailable')
+        cls.provider = device.ep_name
         cls.segmenter = GpuAttackSegmenter()
+        cls.capture = cv2.VideoCapture(str(VIDEO))
 
     @classmethod
     def tearDownClass(cls):
@@ -33,7 +36,7 @@ class GpuBattleTest(unittest.TestCase):
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     def test_gpu_masks_match_recorded_attack_colors(self):
-        self.assertEqual(self.segmenter.session.get_providers()[0], 'DmlExecutionProvider')
+        self.assertEqual(self.segmenter.session.get_providers()[0], self.provider)
         frame = self.frame(360)
         field = cv2.resize(frame[110:710, 100:1280], (590, 300))
         strong, weak = self.segmenter.masks(field)

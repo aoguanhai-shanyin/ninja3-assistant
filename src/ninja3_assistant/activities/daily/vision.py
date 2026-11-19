@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from ninja3_assistant.paths import resource_root
+from ninja3_assistant.vision.game_update import game_update_banner, game_update_point
 from ninja3_assistant.vision.invitation import InvitationVision
 
 
@@ -13,6 +14,22 @@ def compact(text):
     return (re.sub(r'\s+','',text).replace('：',':').replace('夭','天')
             .replace('阝艮','限').replace('剌余','剩余').replace('卜时','小时').replace('下时','小时')
             .replace('铫战','挑战').replace('坎数','次数'))
+
+
+def bounty_booklet(text):
+    match = re.search(r'([BCD（(])?级.{0,3}赏奖册',text,re.I)
+    if match is None:
+        return None
+    grade = match[1]
+    if grade is None:
+        return 'booklet'
+    return ('C' if grade in ('（','(') else grade.upper())+'级'
+
+
+def booklet_dialog_grade(screen):
+    detail = screen.text((500,122,860,172))
+    grade = bounty_booklet(detail) if detail.startswith('获得一个') else None
+    return grade if grade != 'booklet' else None
 
 
 @dataclass(frozen=True)
@@ -98,6 +115,9 @@ class DailyVision:
         return (self.match(frame,'home-summon',box,threshold=.94) or
                 self.match(frame,'home',box,threshold=.90))
 
+    def home_monthly(self, frame):
+        return self.match(frame,'home-monthly',(10,150,103,400))
+
     def login(self, frame):
         point = self.match(frame,'login-button',(500,470,800,560),threshold=.95)
         if point and self.match(frame,'login-server',(680,395,840,465),threshold=.95):
@@ -153,14 +173,21 @@ class DailyVision:
                 self.match(frame,'shop-guide',(250,280,1020,380),threshold=.94) or
                 self.match(frame,'shop-stone-guide',(250,280,1020,380),threshold=.94))
 
+    def weapon_entry(self, frame):
+        return self.match(frame,'weapon-entry',(20,95,280,600),threshold=.94)
+
     def navigation(self, frame):
         """Fast recognized handoff; never uses a game-wide back key."""
+        from ninja3_assistant.activities.daily.friend_rice import navigation as friend_navigation
+
         invite = self.invitations.detect(cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY))
         if invite:
             return 'invite',invite
         login = self.login(frame)
         if login:
             return 'login',login
+        if friends := friend_navigation(frame,self):
+            return friends
         if self.family_welcome(frame):
             return 'family-welcome',(640,650)
         next_guide = self.guide_point(frame)
@@ -199,12 +226,16 @@ class DailyVision:
         return None,None
 
     def chore_navigation(self, screen):
-        from ninja3_assistant.activities.daily import arena, landlady, pet_feed
+        from ninja3_assistant.activities.daily import arena, friend_rice, landlady, pet_feed
 
-        return landlady.observe(screen) or arena.observe(screen,self) or pet_feed.observe(screen)
+        return (friend_rice.navigation(screen.frame,self) or landlady.observe(screen) or
+                arena.observe(screen,self) or pet_feed.observe(screen))
 
     def observe(self, frame, ocr):
         screen = DailyScreen(frame,ocr)
+        if point := game_update_point(screen):
+            screen.page,screen.point = 'game_update',point
+            return screen
         invite = self.invitations.detect(cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY))
         if invite:
             screen.page,screen.point = 'invite',invite
@@ -241,7 +272,7 @@ class DailyVision:
             screen.page = 'monthly'
         elif '限购数量' in text and '购买' in text:
             screen.page = 'shop_dialog'
-        elif re.search(r'获得一个[DC（(]级.*奖册',text,re.I) and '购买' in text:
+        elif booklet_dialog_grade(screen) and screen.hits('购买',(620,630,800,704)):
             screen.page = 'bounty_dialog'
         elif '距离自动刷新' in text and '剩余次数' in text:
             screen.page = 'daily_shop'
@@ -281,11 +312,12 @@ class DailyVision:
                     ('house',r'[小卜]屋',(80,130,330,600)),
                     ('pet_feed',r'通灵兽',(50,130,345,610)),
                     ('arena_reward',r'竞技场|决斗场',(880,510,1260,720)),
-                    ('monthly',r'活动',(0,150,100,360)),
                     ('shop',r'商.?店',(180,620,770,715))):
                     hits = screen.hits(pattern,box)
                     if hits:
                         screen.home_points[name] = hits[0].point
+                if monthly := self.home_monthly(frame):
+                    screen.home_points['monthly'] = monthly
                 if 'limited' not in screen.home_points:
                     thanks = self.match(frame,'home-thanks',(80,130,330,600),threshold=.94)
                     if thanks:
@@ -312,21 +344,48 @@ class DailyVision:
                                                 (220,643,401,690),threshold=.92) is not None
 
     def current_action(self, screen, decision, fresh):
+        if screen.page != 'game_update' and game_update_banner(fresh):
+            return False
         fresh_page,_ = self.navigation(fresh)
         if screen.page == 'login':
             return fresh_page == 'login'
         if fresh_page in ('invite','login','paged-guide','summon-guide','menu-guide','family-welcome','reward','reward_continue') and fresh_page != screen.page:
             return False
+        if screen.page.startswith('friend-') and fresh_page != screen.page:
+            return False
+        if decision.rice_gifts:
+            from ninja3_assistant.activities.daily.friend_rice import same_gift
+            return same_gift(fresh,self,decision)
         if decision.status.startswith('返回主页，') and self.home(fresh):
             return False
+        if decision.status == '进入主页活动，检查每日签到':
+            return fresh_page == 'home' and self.home_monthly(fresh) == decision.point
         if decision.status in ('领取忍阶已完成每日任务','领取忍阶每周随机道具'):
             return self.match(fresh,'rank',(120,0,320,110)) is not None
         if decision.status == '提交老板娘答题选项':
             from ninja3_assistant.activities.daily.landlady import same_prompt
             if not same_prompt(screen.frame,fresh):
                 return False
+        if screen.page in ('arena-history','arena-trophy'):
+            from ninja3_assistant.activities.daily.arena import HISTORY_TITLE, TROPHY_TITLE
+            x1,y1,x2,y2 = HISTORY_TITLE if screen.page == 'arena-history' else TROPHY_TITLE
+            if cv2.absdiff(screen.frame[y1:y2,x1:x2],fresh[y1:y2,x1:x2]).mean() > 12:
+                return False
+        if screen.page == 'arena-currency':
+            from ninja3_assistant.activities.daily.arena import previous_currency_point
+            point = previous_currency_point(fresh,self)
+            return point is not None and max(abs(a-b) for a,b in zip(point,decision.point)) <= 10
         if decision.free_kind:
             if not self.free(DailyScreen(fresh,screen.ocr,screen.page),decision.free_kind):
+                return False
+        if decision.status == '确认仅使用忍币购买悬赏奖册':
+            if not self.coin(DailyScreen(fresh,screen.ocr,screen.page),(510,640,610,705),large=True):
+                return False
+        if decision.status == '进入白银武库' and self.weapon_entry(fresh) != decision.point:
+            return False
+        if decision.status == '开始通灵兽巡逻':
+            from ninja3_assistant.activities.daily.pet_feed import extra_food_still_empty
+            if not extra_food_still_empty(screen,fresh):
                 return False
         if decision.guard:
             x1,y1,x2,y2 = decision.guard
@@ -354,6 +413,20 @@ class DailyVision:
             if name.startswith('food-') and self.match(screen.frame,name,(1175,27,1222,67),.98):
                 return int(name[5:])
         return None
+
+    @staticmethod
+    def trial_selected(screen, x):
+        # One bright border can belong to a neighboring stage. Require both sides.
+        width = screen.frame.shape[1]
+        for edge in (x-113,x+113):
+            if not 0 <= edge < width:
+                return False
+            border = screen.frame[312:494,max(0,edge-6):edge+7].astype(np.int16)
+            red,green,blue = border.transpose(2,0,1)
+            orange = (red >= 220)&(green >= 90)&(red-green >= 62)&(blue < 100)
+            if orange.mean(axis=0).max() < .85:
+                return False
+        return True
 
     def signin(self, screen):
         hits = screen.hits(r'(?:第)?[0-9]+天',(130,270,1250,700))

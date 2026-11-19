@@ -1,13 +1,16 @@
 """Live-sampled 1280x720 intelligence battle layout; no device access."""
 from ninja3_assistant.paths import resource_root
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field, replace
 import json
+import logging
 import re
 
 import cv2
 import numpy as np
 
 from ninja3_assistant.activities.intelligence.policy import Card
+from ninja3_assistant.activities.intelligence.portrait_batch import portrait_scores, warm_portrait_session
 
 ROOT = resource_root()
 ASSETS = ROOT/'assets/intelligence-battle'
@@ -16,6 +19,7 @@ BOARD_BOXES = tuple((x-73, y-94, x+72, y+78) for x, y in BOARD_CENTERS)
 SHOP_BOXES = ((645, 196, 812, 395), (836, 196, 1003, 395), (1027, 196, 1194, 395),
               (645, 403, 812, 602), (836, 403, 1003, 602))
 SHOP_POINTS = tuple(((x1+x2)//2, (y1+y2)//2) for x1, y1, x2, y2 in SHOP_BOXES)
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -40,7 +44,11 @@ class BattleObservation:
 
 
 class BattleVision:
-    def __init__(self):
+    def __init__(self, *, use_winml=False):
+        self._use_winml = use_winml
+        self._portrait_ready = None
+        self._portrait_session = None
+        self.portrait_warmup_ms = None
         self.templates = {p.stem: cv2.imread(str(p), 0) for p in ASSETS.glob('*.png')}
         data = json.loads((ROOT/'assets/intelligence-cards.json').read_text(encoding='utf-8'))
         self.cards = tuple(Card(**{key: entry[key] for key in Card.__dataclass_fields__})
@@ -60,6 +68,23 @@ class BattleVision:
             if name.startswith('empty-'+area) and not name.endswith('-variant')) for area in ('board','shop')}
         self.empty_variants = {area:tuple((t,self._shape_edges(t)) for name,t in self.templates.items()
             if name.startswith('empty-'+area) and name.endswith('-variant')) for area in ('board','shop')}
+
+    @property
+    def backend(self):
+        return 'GPU: Windows ML / TensorRT RTX' if self._portrait_session is not None else 'CPU: OpenCV'
+
+    def warmup(self):
+        if not self._use_winml or self._portrait_session is not None:
+            return
+        try:
+            if self._portrait_ready is None:
+                self._portrait_ready = warm_portrait_session(len(self.art), np.stack(self.art).tobytes())
+            if self._portrait_ready.done():
+                self._portrait_session, self.portrait_warmup_ms = self._portrait_ready.result()
+                self._use_winml = self._portrait_session is not None
+        except Exception as error:
+            _LOG.warning('Windows ML portrait warmup unavailable: %s', error)
+            self._use_winml = False
 
     @staticmethod
     def _shape_edges(gray):
@@ -145,12 +170,30 @@ class BattleVision:
         patch = area[at[1]:at[1]+template.shape[0], at[0]:at[0]+template.shape[1]]
         return score >= threshold and np.abs(patch.astype(np.int16)-template).mean() <= error
 
-    def _card(self, frame, box, selected=False, candidates=None):
+    @staticmethod
+    def _card_face(frame, box):
         x1, y1, x2, y2 = box
-        face = cv2.resize(frame[y1:y2, x1:x2], (150, 181), interpolation=cv2.INTER_AREA)
+        return cv2.resize(frame[y1:y2, x1:x2], (150, 181), interpolation=cv2.INTER_AREA)
+
+    def _card(self, frame, box, selected=False, candidates=None):
+        return self._classify_card(self._card_face(frame, box), selected, candidates)
+
+    def _classify_card(self, face, selected, candidates, scores=None, upper=None):
         search = face[30:115, 0:130]
-        scores = np.array([cv2.minMaxLoc(cv2.matchTemplate(search, art, cv2.TM_CCOEFF_NORMED))[1]
-                           for art in self.art])
+        if scores is not None:
+            runner_up, best = np.sort(scores)[-2:]
+            upper_runner_up, upper_best = np.sort(upper)[-2:]
+            # Preserve OpenCV decisions near a confidence threshold or rank tie.
+            tolerance = .001
+            near_gate = (any(abs(best-cutoff) < tolerance for cutoff in (.8, .85, .87, .88)) or
+                         any(abs(best-runner_up-cutoff) < tolerance for cutoff in (0, .15, .2)) or
+                         abs(upper_best-.89) < tolerance or
+                         any(abs(upper_best-upper_runner_up-cutoff) < tolerance for cutoff in (0, .25)))
+            if near_gate:
+                scores = upper = None
+        if scores is None:
+            scores = np.array([cv2.minMaxLoc(cv2.matchTemplate(search, art, cv2.TM_CCOEFF_NORMED))[1]
+                               for art in self.art])
         order = np.argsort(scores)
         if candidates is not None:
             candidates.extend({'card':self.cards[int(i)].id,'score':round(float(scores[i]),4)}
@@ -161,8 +204,9 @@ class BattleVision:
         if scores[best] < (.87 if selected else .88) or scores[best]-scores[runner_up] < .15:
             # On-board damage text covers the lower portrait. Require an
             # independent upper portrait and name match for the same candidate.
-            upper = np.array([cv2.minMaxLoc(cv2.matchTemplate(search, art[:30], cv2.TM_CCOEFF_NORMED))[1]
-                              for art in self.art])
+            if upper is None:
+                upper = np.array([cv2.minMaxLoc(cv2.matchTemplate(search, art[:30], cv2.TM_CCOEFF_NORMED))[1]
+                                  for art in self.art])
             ranked = np.argsort(upper)
             name = cv2.minMaxLoc(cv2.matchTemplate(face[144:181, 20:145], self.names[best],
                                                    cv2.TM_CCOEFF_NORMED))[1]
@@ -171,6 +215,24 @@ class BattleVision:
                     upper[best]-upper[ranked[-2]] < .25 or name < .86):
                 return self._named_card(face,scores,candidates)
         return self.cards[best]
+
+    def _batch_portraits(self, frame, jobs):
+        if not self._use_winml or not jobs:
+            return None
+        self.warmup()
+        if self._portrait_session is None:
+            return None
+        try:
+            faces = [self._card_face(frame, box) for _, _, box, _ in jobs]
+            scores, upper = portrait_scores(self._portrait_session, faces)
+            if not np.isfinite(scores).all() or not np.isfinite(upper).all():
+                raise RuntimeError('nonfinite portrait scores')
+            return faces, scores, upper
+        except Exception as error:
+            _LOG.warning('Windows ML portrait matching failed: %s', error)
+            self._portrait_session = None
+            self._use_winml = False
+            return None
 
     def _round(self, gray):
         values = []
@@ -221,14 +283,26 @@ class BattleVision:
         gain = re.search(r'本局[+＋]?(\d+)', text)
         return (int(score[1]) if score else None, int(gain[1]) if gain else None)
 
+    @classmethod
+    def with_numbers(cls, observation, ocr):
+        """Apply OCR from the same frame without repeating visual recognition."""
+        if observation.kind == 'result':
+            score, gain = cls.parse_result_numbers(ocr)
+            return replace(observation, score=score, score_gain=gain)
+        coins, refreshes = cls.parse_numbers(ocr)
+        if refreshes is None:
+            refreshes = observation.refreshes
+        return replace(observation, coins=coins, refreshes=refreshes,
+                       refresh_point=(1115, 535) if refreshes else None)
+
     def detect(self, frame, ocr=None):
         if not isinstance(frame, np.ndarray) or frame.shape != (720, 1280, 3):
             return BattleObservation()
         gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         if (self._match(gray, 'result-title', (480, 104, 760, 170)) and
                 self._match(gray, 'result-confirm', (588, 512, 694, 570))):
-            score, gain = self.parse_result_numbers(ocr)
-            return BattleObservation('result', result_point=(640, 541), score=score, score_gain=gain)
+            result = BattleObservation('result', result_point=(640, 541))
+            return self.with_numbers(result, ocr) if ocr is not None else result
         if self._match(gray, 'matching', (595, 535, 690, 592)):
             return BattleObservation('matching')
         round_number = self._round(gray)
@@ -238,8 +312,10 @@ class BattleVision:
             return BattleObservation('combat', round_number=round_number)
         if not self._match(gray, 'shop-title', (637, 148, 795, 195)):
             return BattleObservation()
+        if not self._match(gray, 'ready', (1048, 627, 1197, 682)):
+            return BattleObservation('prepared', round_number=round_number)
         board, unknown_board, place_points = [], [], []
-        card_candidates = {}
+        card_jobs = []
         for index, ((x, y), box) in enumerate(zip(BOARD_CENTERS, BOARD_BOXES)):
             region = (x-55, y-55, x+55, y+55)
             empty = any(self._match(gray, f'empty-board-{number}', region, .88, 32)
@@ -248,20 +324,16 @@ class BattleVision:
                 empty = self._empty_pattern(gray,'board',region)
             selected = any(self._match(gray, f'selected-board-{number}', region, .88, 32)
                            for number in range(9))
+            board.append(None)
             if empty or selected:
-                board.append(None)
                 plus = any(self._match(gray,name,(x-23,y-24,x+24,y+25),.92,30)
                            for name in ('plus','plus-variant'))
                 place_points.append((x, y) if plus else None)
             else:
-                candidates = []
-                card = self._card(frame, box, candidates=candidates)
-                board.append(card)
                 place_points.append(None)
-                if card is None:
-                    unknown_board.append(index)
-                    card_candidates[f'board:{index}'] = candidates
+                card_jobs.append(('board', index, box, False))
         shop, unknown_shop, green = [], [], []
+        has_visible_plus = any(place_points)
         for index, box in enumerate(SHOP_BOXES):
             x1, y1, x2, y2 = box
             strip = frame[y1+8:y2, x2-6:x2+3].astype(np.int16)
@@ -272,23 +344,41 @@ class BattleVision:
             empty = self._match(gray, 'empty-shop', (x1+25, y1+40, x2-20, y2-40), .92, 27)
             if not empty:
                 empty = self._empty_pattern(gray,'shop',(x1+25,y1+40,x2-20,y2-40))
-            if empty:
-                shop.append(None)
+            shop.append(None)
+            if not empty:
+                card_jobs.append(('shop', index, box, green_score > .18 and has_visible_plus))
+
+        batch = self._batch_portraits(frame, card_jobs)
+
+        def read_card(index):
+            _, _, box, selected = card_jobs[index]
+            candidates = []
+            if batch is None:
+                card = self._card(frame, box, selected=selected, candidates=candidates)
             else:
-                candidates = []
-                card = self._card(frame, box, selected=green_score > .18 and any(place_points), candidates=candidates)
-                shop.append(card)
-                if card is None:
-                    unknown_shop.append(index)
-                    card_candidates[f'shop:{index}'] = candidates
+                faces, scores, upper = batch
+                card = self._classify_card(faces[index], selected, candidates, scores[index], upper[index])
+            return card, candidates
+
+        indices = range(len(card_jobs))
+        if len(card_jobs) > 1:
+            # Match independent slots from this frame in parallel, then preserve slot order.
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                card_results = list(pool.map(read_card, indices))
+        else:
+            card_results = list(map(read_card, indices))
+        card_candidates = {}
+        for (area, index, _, _), (card, candidates) in zip(card_jobs, card_results):
+            slots, unknown = (board, unknown_board) if area == 'board' else (shop, unknown_shop)
+            slots[index] = card
+            if card is None:
+                unknown.append(index)
+                card_candidates[f'{area}:{index}'] = candidates
         selected = [index for index, score in enumerate(green) if score > .18]
-        selected_shop = selected[0] if len(selected) == 1 and any(place_points) else None
-        ready = self._match(gray, 'ready', (1048, 627, 1197, 682))
-        coins, refreshes = self.parse_numbers(ocr)
-        if refreshes is None and self._match(gray, 'refresh-one', (1168, 560, 1196, 591), .96, 15):
-            refreshes = 1
-        return BattleObservation('placement' if ready else 'prepared', tuple(board), tuple(shop),
-            tuple(unknown_board), tuple(unknown_shop), coins, round_number, refreshes,
-            selected_shop, tuple(place_points), (1118, 654) if ready else None,
-            (1115, 535) if refreshes is not None and refreshes > 0 and ready else None,
+        selected_shop = selected[0] if len(selected) == 1 and has_visible_plus else None
+        refreshes = 1 if self._match(gray, 'refresh-one', (1168, 560, 1196, 591), .96, 15) else None
+        placement = BattleObservation('placement', tuple(board), tuple(shop),
+            tuple(unknown_board), tuple(unknown_shop), None, round_number, refreshes,
+            selected_shop, tuple(place_points), (1118, 654), (1115, 535) if refreshes else None,
             card_candidates=card_candidates)
+        return self.with_numbers(placement, ocr) if ocr is not None else placement

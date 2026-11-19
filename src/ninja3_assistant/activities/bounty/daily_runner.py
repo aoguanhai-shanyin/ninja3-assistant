@@ -1,6 +1,7 @@
 """Daily bounty menus and realtime combat share one native input owner."""
 from dataclasses import asdict
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
@@ -10,15 +11,18 @@ import time
 import cv2
 
 from ninja3_assistant.activities.bounty.combat import BountyBattleState, BountyCombat, BountyCombatVision
-from ninja3_assistant.activities.bounty.daily_flow import DailyBountyFlow
+from ninja3_assistant.activities.bounty.daily_flow import BountyProgress, DailyBountyFlow
 from ninja3_assistant.activities.bounty.daily_vision import DailyBountyVision
 from ninja3_assistant.activities.daily.flow import DailyDecision
+from ninja3_assistant.activities.daily.vision import DailyScreen
 from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
 from ninja3_assistant.device.mumu import MuMu, prepare_game
-from ninja3_assistant.device.native_touch import create_native_touch, executable_path
+from ninja3_assistant.device.native_touch import TimedTap, create_native_touch, executable_path
 from ninja3_assistant.paths import project_root
 from ninja3_assistant.runtime.realtime_battle import FrameDiagnostics, RealtimeBattleKernel
+from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
+from ninja3_assistant.vision.game_update import game_update_banner, game_update_point
 
 
 def _battle_overlay(frame, vision):
@@ -28,6 +32,8 @@ def _battle_overlay(frame, vision):
         return 'invite'
     if vision.tasks_panel(frame):
         return 'bounty_tasks'
+    if vision.order_result_confirm(frame) is not None:
+        return 'result'
     for name,page,box in (
         ('result-title','result',(540,40,820,135)),
         ('grade-title','bounty_grade',(517,172,756,221)),
@@ -98,15 +104,52 @@ class _InvitationRun:
         return None
 
 
+class _OrderJoinBurst:
+    """Repeat one freshly verified S card through the shared native input owner."""
+
+    def __init__(self, kernel):
+        self.kernel = kernel
+        self.point = None
+        self.next_at = 0.
+
+    def stop(self):
+        if self.point is not None:
+            self.kernel.cancel_plan(3)
+            self.point = None
+        self.next_at = 0.
+
+    def submit(self, point):
+        now = self.kernel.clock()
+        if self.point != point:
+            self.stop()
+        captured_at = self.kernel.captured_at
+        age = now-captured_at
+        if not 0 <= age < .075:
+            self.stop()
+            return None
+        if now < self.next_at:
+            return None
+        first = math.ceil(age*1000)+2
+        deadline = min(captured_at+.14,now+.08)
+        actions = tuple(TimedTap(offset,point) for offset in range(first,first+61,30)
+                        if captured_at+(offset+15)/1000 < deadline)
+        revision = self.kernel.plan(3,actions,deadline=deadline)
+        if revision is not None:
+            self.point = point
+            self.next_at = captured_at+(actions[-1].offset_ms+30)/1000
+        return revision
+
+
 def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=True, passive_invite=True,
-                     invite_only=False, invite_resume=False, recover_in_place=False):
+                     invite_only=False, invite_resume=False, recover_in_place=False, progress=None):
     if grade not in ('D','C','B','A','S'):
         raise ValueError('expected bounty grade D/C/B/A/S')
     root = Path(sys.executable).parent if getattr(sys,'frozen',False) else project_root()/'data/runtime'
     output = root/'daily-cleanup/runs'/(time.strftime('%Y%m%d-%H%M%S')+
              f'-{time.time_ns()%1000000:06d}-bounty-{grade}')
     output.mkdir(parents=True,exist_ok=False)
-    device = native = combat = diagnostics = None
+    device = native = combat = diagnostics = ocr = burst = None
+    progress = progress if progress is not None else BountyProgress()
     in_battle = recover_in_place
     outcome = TaskOutcome.ERROR
     previous_status = None
@@ -125,13 +168,16 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                 emit('status',message)
 
         try:
+            ocr = WindowsOcr(persistent=True)
+            ocr.warmup()
             if prepare_game(folder,index,control,status) is None:
                 return TaskOutcome.STOPPED
             flow = DailyBountyFlow(kind='bounty_s' if grade == 'S' else 'bounty',
                                    grade='D' if grade == 'S' else grade,
-                                   active_invite=active_invite,passive_invite=passive_invite,clock=control.now)
+                                   active_invite=active_invite,passive_invite=passive_invite,
+                                   clock=control.now,progress=progress)
             flow.battle_seen = recover_in_place
-            vision,ocr = DailyBountyVision(grade=grade),WindowsOcr()
+            vision = DailyBountyVision(grade=grade)
             battle_vision = BountyCombatVision()
             kernel = RealtimeBattleKernel(control,movement_horizon=3.)
             device = MuMu(folder,index)
@@ -141,10 +187,12 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                 raise RuntimeError('每日悬赏需要 NinjaTouch.exe')
             kernel.attach(native)
             combat = BountyCombat(kernel)
+            burst = _OrderJoinBurst(kernel) if grade == 'S' and not invite_only else None
             control.set_release_input(native.stop_all)
             diagnostics = FrameDiagnostics()
             record({'event':'start','grade':grade,
                     'active_invite':active_invite,'passive_invite':passive_invite,
+                    'progress':progress.tracking(control.now()),
                     'timing_scope':'input_ms measures dispatch, not visible game response'})
             emit('state','running')
             status('每日悬赏记录：'+str(output))
@@ -153,15 +201,25 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
             next_menu = 0.
             inactive_since = None
             previous_menu = previous_battle = None
+            order_poll_at = None
+            order_poll_remaining = None
+            order_reference = None
+            invite_board = 'bounty_order' if grade == 'S' else 'bounty_daily'
+            safe_invite_board = False
             sequence = 0
             metrics_at = time.perf_counter()
             capture_count = recognition_count = input_count = 0
             capture_ms = recognition_ms = input_ms = menu_ocr_ms = 0.
-            while control.wait_active() and control.now()-started < 1800:
+            while control.wait_active() and (grade == 'S' or control.now()-started < 1800):
                 loop_at = time.perf_counter()
                 if generation != control.generation():
                     combat.stop()
+                    if burst:
+                        burst.stop()
+                    order_reference = None
+                    safe_invite_board = False
                     battle_vision.reset()
+                    flow.invalidate_tasks()
                     generation = control.generation()
                     next_menu = 0.
                     previous_battle = None
@@ -170,14 +228,43 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                 capture_count += 1
                 capture_ms += kernel.capture_ms
                 observed_generation = generation
+                if game_update_banner(frame):
+                    combat.stop()
+                    if burst:
+                        burst.stop()
+                    order_reference = None
+                    safe_invite_board = False
+                    result = ocr.read(frame,stop=control.stop)
+                    if (result is not None and generation == control.generation() and not control.stop.is_set()
+                            and game_update_point(DailyScreen(frame,result))):
+                        status('识别到游戏更新提示，交回调度重启客户端')
+                        record({'event':'checkpoint','page':'game_update','outcome':'scene_changed'})
+                        outcome = TaskOutcome.SCENE_CHANGED
+                        break
+                    control.stop.wait(.5)
+                    continue
                 before = time.perf_counter()
                 # Active battle uses only the bounded overlay probes. Full menu
                 # navigation is deliberately absent from the per-frame fast path.
                 page,state = _recognize_frame(frame,vision,battle_vision)
+                if page not in (invite_board,'invite'):
+                    safe_invite_board = False
+                rapid = None
+                if burst and order_reference is not None:
+                    if page == 'bounty_order' and flow.day_clock() == progress.day:
+                        rapid = vision.fast_order(frame,order_reference)
+                    if rapid is None:
+                        order_reference = None
+                        next_menu = 0.
+                    elif not (rapid.join or rapid.join_failed or rapid.join_pending or
+                              flow.order_join_failed or flow.no_owned_orders):
+                        rapid = None
                 recognition_count += 1
                 recognition_ms += (time.perf_counter()-before)*1000
                 if control.stop.is_set() or control.paused() or observed_generation != control.generation():
                     continue
+                if burst and (rapid is None or not rapid.join or flow.order_join_failed):
+                    burst.stop()
                 now = control.now()
                 if state.active:
                     inactive_since = None
@@ -212,14 +299,31 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                         status('悬赏战斗画面暂未识别，保留当前对局')
                     else:
                         combat.stop()
-                    if not unknown_grace and time.perf_counter() >= next_menu:
-                        before = time.perf_counter()
-                        result = ocr.read(frame,stop=control.stop)
-                        menu_ocr_ms += (time.perf_counter()-before)*1000
-                        next_menu = time.perf_counter()+.5
-                        if result is None or control.stop.is_set() or control.paused() or observed_generation != control.generation():
-                            continue
-                        screen = vision.observe(frame,result)
+                    if not unknown_grace and (rapid is not None or time.perf_counter() >= next_menu):
+                        if rapid is None:
+                            before = time.perf_counter()
+                            result = ocr.read(frame,stop=control.stop)
+                            menu_ocr_ms += (time.perf_counter()-before)*1000
+                            next_menu = time.perf_counter()+.5
+                            if result is None or control.stop.is_set() or control.paused() or observed_generation != control.generation():
+                                continue
+                            screen = vision.observe(frame,result)
+                        else:
+                            screen,result = rapid,{}
+                        if not invite_only and passive_invite and getattr(control,'bounty_invite_targets',None):
+                            if screen.page != 'invite':
+                                safe_invite_board = page == screen.page == invite_board and not screen.join_pending
+                                if safe_invite_board:
+                                    clear_handled_invitation(control)
+                            elif (safe_invite_board and not (flow.in_room or in_battle or flow.battle_seen) and
+                                  flow.order_join_pending_at is None and screen.invitation and
+                                  screen.invitation.grade != grade):
+                                handoff = bounty_handoff(frame,vision.common.invitations,ocr,control,
+                                                         safe=True,result=result)
+                                if handoff:
+                                    record({'event':'invitation_handoff','target':handoff.target})
+                                    outcome = handoff
+                                    break
                         checkpoint = invitation.checkpoint(screen.page,now) if invitation else (
                             TaskOutcome.SCENE_CHANGED if screen.page == 'intelligence_tasks' else None)
                         if checkpoint is not None:
@@ -254,23 +358,47 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                                                      guard=(280,0,360,85))
                         else:
                             decision = flow.step(screen,vision)
+                        if (burst and rapid is None and page == screen.page == 'bounty_order' and
+                                isinstance(screen.remaining,int) and screen.remaining > 0 and
+                                (screen.s_filter,screen.ss_filter) == ('on','off') and flow.tasks_checked and
+                                decision.action != 'retry'):
+                            order_reference = (screen.remaining,vision.order_counter(frame).copy())
                         accepts_invite = (screen.page == 'invite' and screen.invitation is not None and
                                           decision.action == 'tap' and decision.point == screen.invitation.accept)
                         if invitation and invitation.phase == 'offered' and not accepts_invite:
                             outcome = TaskOutcome.WAITING
                             break
-                        menu = (screen.page,decision.action,decision.status,decision.point)
-                        if menu != previous_menu or decision.point is not None:
+                        remaining = screen.remaining if isinstance(screen.remaining,int) else None
+                        observed_grade = screen.grade if isinstance(screen.grade,str) else None
+                        tracking = progress.tracking(now)
+                        tracking['tasks_reused'] = flow.tasks_cached is True
+                        menu = (screen.page,decision.action,decision.status,decision.point,remaining,observed_grade,tracking)
+                        order_poll = screen.page == 'bounty_order' and decision.status in (
+                            '刷新悬赏队伍列表','持续刷新，等待S级队伍')
+                        order_burst = burst and decision.status == '加入S级悬赏队伍'
+                        if burst and not order_burst:
+                            burst.stop()
+                        if order_poll:
+                            save_frame = (order_poll_at is None or now-order_poll_at >= 15 or
+                                          order_poll_remaining != remaining)
+                            if save_frame:
+                                order_poll_at,order_poll_remaining = now,remaining
+                        else:
+                            order_poll_at = None
+                            save_frame = menu != previous_menu or (decision.point is not None and not order_burst)
+                        if save_frame:
                             image = f'{sequence:04d}-{screen.page}-{decision.action}.png'
                             diagnostics.save(output/image,frame)
                             record({'event':'decision','page':screen.page,'action':decision.action,
                                     'point':decision.point,'status':decision.status,'free_kind':decision.free_kind,
-                                    'guard':decision.guard,'frame':image,'ocr':result})
+                                    'remaining':remaining,'observed_grade':observed_grade,'progress':tracking,
+                                    'guard':decision.guard,'frame':image,'ocr':result,
+                                    'join_failed':bool(screen.join_failed),'fast_order':rapid is not None})
                             sequence += 1
-                            if menu != previous_menu:
-                                last_progress = now
-                            previous_menu = menu
-                        status(decision.status)
+                        if menu != previous_menu:
+                            last_progress = now
+                        previous_menu = menu
+                        status('持续刷新，等待S级队伍' if order_poll else decision.status)
                         if decision.action in ('done','unavailable'):
                             outcome = (TaskOutcome.DAILY_DONE if decision.action == 'done' else
                                        TaskOutcome.RECOVER_IN_PLACE if in_battle or
@@ -279,7 +407,21 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                         if decision.action == 'retry':
                             outcome = TaskOutcome.WAITING
                             break
-                        if decision.point is not None:
+                        if order_burst:
+                            if rapid is not None:
+                                before = time.perf_counter()
+                                first = burst.point != decision.point
+                                revision = burst.submit(decision.point)
+                                input_count += 1
+                                input_ms += (time.perf_counter()-before)*1000
+                                if revision is not None:
+                                    last_progress = control.now()
+                                    if first:
+                                        flow.completed(decision,screen)
+                                        record({'event':'order_join_burst','point':decision.point,
+                                                'revision':revision,'remaining':remaining,
+                                                'frame_age_ms':(before-kernel.captured_at)*1000})
+                        elif decision.point is not None:
                             def act():
                                 if observed_generation != control.generation():
                                     return False
@@ -307,7 +449,8 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                                         invitation.sent(control.now())
                                     if invitation and screen.page == 'result':
                                         invitation.phase = 'settling'
-                                    record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind})
+                                    record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind,
+                                            'status':decision.status})
                                 return bool(acted)
                             before = time.perf_counter()
                             if control.run_if_active(act):
@@ -342,11 +485,11 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                 TaskOutcome.RECOVER_IN_PLACE if in_battle or (invitation and invitation.owns_match) else TaskOutcome.ERROR)
         finally:
             control.set_release_input(None)
-            for resource in (combat,native,device,diagnostics):
+            for resource in (burst,combat,native,device,diagnostics,ocr):
                 if resource is None:
                     continue
                 try:
-                    resource.stop() if resource is combat else resource.close()
+                    resource.stop() if resource in (burst,combat) else resource.close()
                 except Exception as error:
                     record({'event':'cleanup_error','message':str(error)})
                     emit('error','每日悬赏释放资源：'+str(error))

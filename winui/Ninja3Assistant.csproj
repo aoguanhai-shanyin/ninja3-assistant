@@ -77,17 +77,27 @@
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">False</PublishTrimmed>
   </PropertyGroup>
   <Target Name="CopyUnpackagedUiResources" AfterTargets="Publish">
+    <PropertyGroup Condition="'$(Ninja3WorkerPath)' != ''">
+      <_WorkerRuntime>$([System.IO.Path]::GetDirectoryName('$(Ninja3WorkerPath)'))\_internal</_WorkerRuntime>
+    </PropertyGroup>
     <ItemGroup>
       <_UiResources Include="$(TargetDir)$(AssemblyName).pri;$(TargetDir)App.xbf;$(TargetDir)MainWindow.xbf" />
       <_UiAssets Include="$(TargetDir)Assets\**\*" />
+      <_WorkerRuntimeFiles Include="$(_WorkerRuntime)\**\*" Condition="'$(_WorkerRuntime)' != ''" />
+      <_WorkerRuntimeTargets Include="@(_WorkerRuntimeFiles->'$(PublishDir)_internal\%(RecursiveDir)%(Filename)%(Extension)')" />
+      <_RemovedWorkerRuntimeFiles Include="$(PublishDir)_internal\**\*" Exclude="@(_WorkerRuntimeTargets)"
+                                  Condition="'@(_WorkerRuntimeFiles)' != ''" />
     </ItemGroup>
     <Copy SourceFiles="@(_UiResources)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_UiAssets)"
           DestinationFiles="@(_UiAssets->'$(PublishDir)Assets\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
     <Error Condition="'$(Ninja3WorkerPath)' != '' and !Exists('$(Ninja3WorkerPath)')" Text="Ninja3WorkerPath not found." />
+    <Error Condition="'$(Ninja3WorkerPath)' != '' and '@(_WorkerRuntimeFiles)' == ''" Text="Ninja3Worker _internal payload not found." />
+    <Copy SourceFiles="@(_WorkerRuntimeFiles)" DestinationFiles="@(_WorkerRuntimeTargets)" SkipUnchangedFiles="true" />
     <Copy Condition="'$(Ninja3WorkerPath)' != ''" SourceFiles="$(Ninja3WorkerPath)"
           DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <Delete Files="@(_RemovedWorkerRuntimeFiles)" />
     <Error Condition="'$(NinjaTouchPath)' != '' and !Exists('$(NinjaTouchPath)')" Text="NinjaTouchPath not found." />
     <Copy Condition="'$(NinjaTouchPath)' != ''" SourceFiles="$(NinjaTouchPath)"
           DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />

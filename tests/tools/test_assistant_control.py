@@ -139,6 +139,7 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
         self.assertEqual(state['pet_feed_reward'],'exp')
         self.assertFalse(state['activity_enabled'])
         self.assertFalse(state['weekend_enabled'])
+        self.assertFalse(state['xumi_enabled'])
         state['daily_tasks'].clear()
         self.assertEqual(self.controller.status()['daily_tasks'],list(CHORES))
 
@@ -174,7 +175,7 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
             process = SimpleNamespace(pid=123,poll=lambda:0,wait=lambda **kwargs:0,
                                       stdin=StringIO(),stdout=StringIO(),stderr=StringIO())
             options=(dict(activity_enabled=True,activity_mode='continuous',weekend_enabled=True,
-                          weekend_mode='25',daily_tasks=['rank','bounty','rank']) if enabled else {})
+                          weekend_mode='25',xumi_enabled=True,daily_tasks=['rank','bounty','rank']) if enabled else {})
             with self.subTest(enabled=enabled),patch.object(self.controller,'_prepare'), \
                     patch('tools.diagnostics.assistant_control.subprocess.Popen',return_value=process) as launch:
                 self.controller.start('run',**options)
@@ -183,15 +184,36 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
             state=self.controller.status()
             command=launch.call_args.args[0]
             self.assertEqual(state['weekend_enabled'],enabled)
+            self.assertEqual(state['xumi_enabled'],enabled)
             self.assertEqual(state['daily_tasks'],['rank','bounty'] if enabled else [])
             self.assertEqual(state['bounty_grade'],'D' if enabled else None)
             if enabled:
-                self.assertEqual(command[-8:],['--weekend-enabled','--weekend-mode','25',
+                self.assertEqual(command[-9:],['--weekend-enabled','--weekend-mode','25','--xumi-enabled',
                                              '--daily-tasks','rank','bounty','--bounty-grade','D'])
             else:
                 self.assertNotIn('--daily-tasks',command)
                 self.assertNotIn('--weekend-enabled',command)
+                self.assertNotIn('--xumi-enabled',command)
                 self.assertNotIn('--bounty-grade',command)
+
+    def test_xumi_json_starts_without_daily_chores_and_rejects_invalid_modes(self):
+        self.controller.worker = self.root/'Ninja3Worker.EXE'
+        process = SimpleNamespace(pid=123,poll=lambda:0,wait=lambda **kwargs:0,
+                                  stdin=StringIO(),stdout=StringIO(),stderr=StringIO())
+        with patch.object(self.controller,'_prepare') as prepare, \
+                patch('tools.diagnostics.assistant_control.subprocess.Popen',return_value=process) as launch:
+            for mode, enabled in (('hayabusa',True),('observe',True),('run','false')):
+                with self.subTest(mode=mode, enabled=enabled), self.assertRaises(ValueError):
+                    self.controller.command({'command':'start','mode':mode,'xumi_enabled':enabled})
+            prepare.assert_not_called()
+            launch.assert_not_called()
+            self.controller.command({'command':'start','mode':'run','xumi_enabled':True})
+            self.wait_state('stopped')
+        command = launch.call_args.args[0]
+        self.assertEqual(command, [str(self.controller.worker),'--mode','run','--folder',
+                                   str(self.root.resolve()),'--index','1','--xumi-enabled'])
+        self.assertTrue(self.controller.status()['xumi_enabled'])
+        self.assertEqual(self.controller.status()['daily_tasks'],[])
 
     def test_invalid_daily_or_weekend_requests_never_prepare_or_start(self):
         invalid=[dict(mode='run',daily_tasks='monthly'),dict(mode='run',daily_tasks=['unknown']),
@@ -305,11 +327,11 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
         self.assertEqual(message, {'command': 'start', 'mode': 'run',
                                   'activity_enabled': True, 'activity_mode': 'continuous'})
 
-    def test_start_cli_serializes_daily_and_weekend_selection(self):
+    def test_start_cli_serializes_daily_and_limited_event_selection(self):
         with patch.object(sys,'argv',['assistant_control.py','--command','start','--mode','run',
                      '--daily-tasks','monthly','bounty','rank','--bounty-grade','B',
                      '--no-bounty-passive-invite',
-                     '--weekend-enabled','--weekend-mode','25']), \
+                     '--weekend-enabled','--weekend-mode','25','--xumi-enabled']), \
                 patch('tools.diagnostics.assistant_control.urlopen',return_value=BytesIO(b'{"ok":true}')) as request, \
                 redirect_stdout(StringIO()):
             self.assertEqual(main(),0)
@@ -317,11 +339,13 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
             'command':'start','mode':'run','activity_enabled':False,'activity_mode':'daily',
             'daily_tasks':['monthly','bounty','rank'],'bounty_grade':'B',
             'bounty_passive_invite':False,
-            'weekend_enabled':True,'weekend_mode':'25'})
+            'weekend_enabled':True,'weekend_mode':'25','xumi_enabled':True})
 
     def test_daily_cli_validation_does_not_issue_a_request(self):
         for arguments in (['--command','start','--mode','observe','--daily-tasks','rank'],
                           ['--command','status','--daily-tasks','rank'],
+                          ['--command','start','--mode','observe','--xumi-enabled'],
+                          ['--command','status','--xumi-enabled'],
                           ['--command','start','--mode','run','--bounty-grade','A'],
                           ['--command','start','--mode','run','--no-bounty-active-invite'],
                           ['--command','start','--mode','run','--daily-tasks','unknown']):

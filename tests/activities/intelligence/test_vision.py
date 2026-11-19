@@ -31,9 +31,24 @@ class ActivityVisionTest(unittest.TestCase):
             image[659:714, 625:735] = 0
             self.assertNotEqual(self.vision.detect(image).kind, 'home')
 
-    def test_guide_overlay_and_other_modes_are_not_home(self):
-        for name in ('20261113-140100-event-entry.png', '20261113-140113-guide-2.png',
-                     '20261113-135959-trial-back.png', '20261113-140356-cards-01.png'):
+    def test_xumi_banner_home_still_enters_the_hall(self):
+        evidence = ROOT/'data/evidence/2026-11-19/intelligence-152-home.png'
+        if not evidence.is_file():
+            self.skipTest('requires the local home screenshot')
+        image = cv2.cvtColor(cv2.imread(str(evidence)), cv2.COLOR_BGR2RGB)
+        found = self.vision.detect(image)
+        self.assertEqual((found.kind, found.point), ('home', (864, 612)))
+
+    def test_recognizes_intelligence_guide_next_and_last_page(self):
+        for name,point in (('20261113-140100-event-entry.png',(1083,595)),
+                           ('20261113-140113-guide-2.png',(1083,595)),
+                           ('20261113-140300-guide-8.png',(640,100))):
+            with self.subTest(name=name):
+                found = self.vision.detect(frame(name))
+                self.assertEqual((found.kind,found.point),('guide',point))
+
+    def test_other_modes_are_not_home_or_guide(self):
+        for name in ('20261113-135959-trial-back.png', '20261113-140356-cards-01.png'):
             with self.subTest(name=name):
                 self.assertEqual(self.vision.detect(frame(name)).kind, 'unknown')
         self.assertEqual(self.vision.detect(np.zeros((720, 1280, 3), np.uint8)).kind, 'unknown')

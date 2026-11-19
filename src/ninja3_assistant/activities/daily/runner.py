@@ -36,8 +36,12 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
     elif kind == 'landlady_quiz':
         from ninja3_assistant.activities.daily.landlady import LandladyQuiz, question_bank_path, recover_question_ocr
         task_flow = LandladyQuiz(question_bank_path(folder,index))
+    elif kind == 'friend_rice':
+        from ninja3_assistant.activities.daily.friend_rice import FriendRice
+        task_flow = FriendRice(resources.with_name(resources.stem+'-friend-rice.json'))
     flow = DailyFlow(kind,training_finishes_at=load_deadline(resources),task_flow=task_flow)
-    vision,ocr = DailyVision(),WindowsOcr()
+    persistent_ocr = kind in ('blessing','daily_shop','friend_rice')
+    vision,ocr = DailyVision(),WindowsOcr(persistent=persistent_ocr)
     lock = threading.Lock()
     with (output/'events.jsonl').open('w',encoding='utf-8') as log:
         def record(value):
@@ -45,6 +49,8 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                 log.write(json.dumps({'time':time.time(),**value},ensure_ascii=False)+'\n')
                 log.flush()
         try:
+            if persistent_ocr and not control.stop.is_set():
+                ocr.warmup()
             if prepare_game(folder,index,control,lambda text:emit('status',text)) is None:
                 return TaskOutcome.STOPPED
             device = MuMu(folder,index)
@@ -123,6 +129,19 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                 if generation != control.generation():
                     continue
                 screen = vision.observe(frame,result)
+                if screen.page == 'game_update':
+                    status = '识别到游戏更新提示，交回调度重启客户端'
+                    record({'event':'checkpoint','page':screen.page,'status':status})
+                    emit('status',status)
+                    return TaskOutcome.SCENE_CHANGED
+                if kind == 'daily_shop' and screen.page == 'daily_shop':
+                    from ninja3_assistant.activities.daily.shop_stock import recover_coin_stock
+                    if not recover_coin_stock(screen,vision,ocr,control.stop):
+                        continue
+                    if not control.wait_active():
+                        return TaskOutcome.STOPPED
+                    if generation != control.generation():
+                        continue
                 if screen.page == 'invite':
                     handoff = bounty_handoff(frame,vision.invitations,ocr,control,
                                              safe=safe_invite,result=result)
@@ -156,7 +175,7 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                     cv2.imwrite(str(output/image),cv2.cvtColor(frame,cv2.COLOR_RGB2BGR))
                     record({'event':'decision','page':screen.page,'action':decision.action,
                             'point':decision.point,'status':decision.status,'frame':image,
-                            'ocr':result,'free_kind':decision.free_kind})
+                            'ocr':result,'free_kind':decision.free_kind,'rice_gifts':decision.rice_gifts})
                     sequence += 1
                     emit('status',decision.status)
                     previous = state
@@ -174,6 +193,8 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                     return TaskOutcome.DAILY_DONE
                 if decision.action == 'unavailable':
                     return TaskOutcome.UNAVAILABLE
+                if decision.action == 'maintenance':
+                    return TaskOutcome.MAINTENANCE
                 if decision.action == 'limited_checked':
                     flow.completed(decision,screen)
                     if {'anniversary','ten-signin'} <= flow.limited_checked:
@@ -188,6 +209,9 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                         if not vision.current_action(screen,decision,fresh):
                             record({'event':'input_rejected','reason':'button_changed_or_not_free'})
                             return
+                        if decision.rice_gifts and not task_flow.reserve(decision.rice_gifts):
+                            record({'event':'input_rejected','reason':'rice_gift_limit'})
+                            return
                         captured = time.perf_counter()
                         if decision.end:
                             native.stop_all()
@@ -201,7 +225,8 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                             control.stop.wait(.09)
                         if acted:
                             flow.completed(decision,screen)
-                            record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind})
+                            record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind,
+                                    'rice_gifts':decision.rice_gifts})
                     control.run_if_active(act)
                 control.stop.wait(.17 if screen.page.startswith('landlady-') and decision.action == 'tap' else .65)
             if control.stop.is_set():
@@ -218,4 +243,5 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                 native.close()
             if device:
                 device.close()
+            ocr.close()
             emit('finished','')

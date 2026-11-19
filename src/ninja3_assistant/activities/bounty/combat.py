@@ -38,6 +38,8 @@ class BountyCombatVision:
         assets = resource_root()/'assets/bounty-combat'
         self.boss_frame = cv2.imread(str(assets/'boss-portrait-frame.png'),0) if (assets/'boss-portrait-frame.png').is_file() else None
         self.boss_level = cv2.imread(str(assets/'boss-level-label.png'),0) if (assets/'boss-level-label.png').is_file() else None
+        red_skill = resource_root()/'assets/xumi/red-ninjutsu.png'
+        self.red_skill = cv2.imread(str(red_skill),0) if red_skill.is_file() else None
         if self.boss_frame is not None:
             y,x = np.indices(self.boss_frame.shape)
             radius = np.sqrt((x-36)**2+(y-35)**2)
@@ -82,6 +84,20 @@ class BountyCombatVision:
     def reset(self):
         self.boss_seen = False
 
+    def _red_ninjutsu_point(self, frame):
+        if self.red_skill is None:
+            return None
+        region = frame[39:85,28:84]
+        red,green,blue = region.astype(np.int16).transpose(2,0,1)
+        if ((red >= 120) & (red-green >= 45) & (red-blue >= 45)).mean() < .4:
+            return None
+        gray = cv2.cvtColor(region,cv2.COLOR_RGB2GRAY)
+        _,score,_,(x,y) = cv2.minMaxLoc(cv2.matchTemplate(gray,self.red_skill,cv2.TM_CCOEFF_NORMED))
+        h,w = self.red_skill.shape
+        if score >= .94 and np.abs(gray[y:y+h,x:x+w].astype(np.int16)-self.red_skill).mean() <= 28:
+            return (55,60)
+        return None
+
     def detect(self, frame, *, battle_allowed=True):
         if not battle_allowed:
             self.reset()
@@ -101,7 +117,8 @@ class BountyCombatVision:
                 for template,(x1,y1,x2,y2) in zip(self.ground_controls,
                     ((80,550,310,715),(1010,550,1190,715))))
         boss_signal = self.boss_portrait(gray) or self.boss_bar(frame)
-        point = self.opening._ninjutsu_point(gray) if self.boss_seen or boss_signal else None
+        point = ((self._red_ninjutsu_point(frame) or self.opening._ninjutsu_point(gray))
+                 if self.boss_seen or boss_signal else None)
         # The Boss portrait can arrive while a control is still obscured.
         # Its fixed border+Lv layout and a visible skill HUD suffice; do not
         # wait for both movement controls or for the coloured health fill.
@@ -124,6 +141,7 @@ class BountyCombat:
         self.kernel.movement_horizon = 3.
         self.moving = False
         self.skills = set()
+        self.ninjutsu_point = None
         self.last_ninjutsu = self.last_weapon = float('-inf')
         self.generation = kernel.control.generation()
 
@@ -136,6 +154,7 @@ class BountyCombat:
         for finger in self.skills:
             self.kernel.cancel_plan(finger)
         self.skills.clear()
+        self.ninjutsu_point = None
 
     def stop(self):
         self._stop_movement()
@@ -152,6 +171,12 @@ class BountyCombat:
             return '等待悬赏战斗画面'
         if state.boss_active:
             self._stop_movement()
+            if state.ninjutsu_point is not None and state.ninjutsu_point != self.ninjutsu_point:
+                if 3 in self.skills:
+                    self.kernel.cancel_plan(3)
+                    self.skills.discard(3)
+                self.ninjutsu_point = state.ninjutsu_point
+                self.last_ninjutsu = float('-inf')
             if state.ninjutsu_point is not None and now-self.last_ninjutsu >= .2:
                 # PLAN times refer to capture, not dispatch. Begin just after
                 # the current frame age instead of adding a fixed 30ms delay.

@@ -2,6 +2,7 @@
 from contextlib import closing
 import json
 import random
+import re
 import sqlite3
 import unicodedata
 
@@ -18,6 +19,56 @@ def normalize(text):
 
 def question_key(question, options):
     return normalize(question), json.dumps(sorted(map(normalize, options)), ensure_ascii=False)
+
+
+_BRACKETS = str.maketrans('【〖〔(】〗〕)', '[[[[]]]]')
+_TITLES = re.compile(r'(\[[^\[\]]+\])')
+
+
+def _ocr_text(text):
+    """Normalize observed OCR variants for lookup without changing stored keys."""
+    text = normalize(text).translate(_BRACKETS)
+    text = re.sub(r'(?<=[\u3400-\u9fff])[.・](?=[\u3400-\u9fff])', '·', text)
+    text = re.sub(r'(?<=[0-9几])遒(?=闪电|$)', '道', text)
+    return (text.replace('以下祁个', '以下哪个').replace('哪个忍木', '哪个忍术')
+            .replace('是属干', '是属于'))
+
+
+def _title_ocr_match(observed, expected):
+    """Allow one observed glyph error inside a bracketed name; the rest must agree."""
+    observed_parts, expected_parts = _TITLES.split(observed), _TITLES.split(expected)
+    if len(observed_parts) != len(expected_parts):
+        return False
+    differences = [(i, got, want) for i, (got, want) in enumerate(zip(observed_parts, expected_parts))
+                   if got != want]
+    if len(differences) != 1 or not differences[0][0] % 2:
+        return False
+    _, got, want = differences[0]
+    got, want = got[1:-1], want[1:-1]
+    if len(got) < 3:
+        return False
+    # The recorded frames omit 诡 or read 光 as 先 in the named item.
+    return any(got == want[:i] + replacement + want[i+1:]
+               for i, char in enumerate(want)
+               for expected_glyph, replacement in (('诡', ''), ('光', '先'))
+               if char == expected_glyph)
+
+
+def _ocr_hint(question, options, baseline):
+    observed = _ocr_text(question)
+    candidates = {}
+    for text, answer in baseline:
+        candidates.setdefault(_ocr_text(text), set()).add(_ocr_text(answer))
+    answers = candidates.get(observed)
+    if answers is None:
+        near = [answers for text, answers in candidates.items() if _title_ocr_match(observed, text)]
+        if len(near) != 1:
+            return None
+        answers = near[0]
+    if len(answers) != 1:
+        return None
+    visible = [option for option in options if _ocr_text(option) in answers]
+    return visible[0] if len(visible) == 1 else None
 
 
 class QuizBank:
@@ -51,23 +102,25 @@ class QuizBank:
 
     def choose(self, question, options):
         records = {}
-        baseline = set()
+        baseline = []
+        key = question_key(question, options)
         if self.path.is_file():
-            key = question_key(question, options)
             with closing(self.connect()) as connection:
                 connection.execute('BEGIN')
                 records = dict(connection.execute('''
                     SELECT answer, correct FROM answers WHERE question = ? AND options = ?
                 ''', key))
-                baseline = {answer for answer, in connection.execute('''
-                    SELECT answer FROM baseline_answers WHERE question = ?
-                ''', (key[0],))}
+                baseline = connection.execute('SELECT question, answer FROM baseline_answers').fetchall()
         confirmed = next((option for option in options if records.get(normalize(option)) == 1), None)
         if confirmed is not None:
             return confirmed
-        visible_hints = [option for option in options if normalize(option) in baseline]
+        exact = {answer for text, answer in baseline if text == key[0]}
+        visible_hints = [option for option in options if normalize(option) in exact]
         if len(visible_hints) == 1 and normalize(visible_hints[0]) not in records:
             return visible_hints[0]
+        hint = _ocr_hint(key[0], options, baseline) if baseline else None
+        if hint is not None and normalize(hint) not in records:
+            return hint
         untried = [option for option in options if normalize(option) not in records]
         return random.choice(untried) if untried else None
 

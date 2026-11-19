@@ -1,21 +1,68 @@
 """Daily bounty menu decisions; combat and touch execution stay in the runner."""
+from dataclasses import dataclass, field
+from datetime import date
 import time
 
 from ninja3_assistant.activities.daily.flow import DailyDecision
+from ninja3_assistant.activities.intelligence.flow import daily_key
+
+
+HALL_SWIPES_PER_DIRECTION = 3
+TASK_PANEL_RECHECK_SECONDS = 180
+EMPTY_ORDERS_RECHECK_SECONDS = 120
+ORDER_REFRESH_MIN_SECONDS = 1.
+
+
+@dataclass
+class BountyProgress:
+    """Confirmed observations shared by A/S attempts in one Worker."""
+    day: date | None = None
+    free_checked: bool = False
+    confirmed_grade: str | None = None
+    tasks_at: float | None = None
+    task_states: dict = field(default_factory=dict)
+    no_orders_until: float | None = None
+    regular_remaining: int | None = None
+    order_remaining: int | None = None
+    order_after_regular: bool = False
+
+    def reset_day(self, day):
+        if day == self.day:
+            return False
+        self.day = day
+        self.free_checked = False
+        self.confirmed_grade = self.tasks_at = self.no_orders_until = None
+        self.regular_remaining = self.order_remaining = None
+        self.task_states.clear()
+        return True
+
+    def forget_tasks(self):
+        self.tasks_at = None
+        self.task_states.clear()
+
+    def tracking(self, now):
+        return {'free_checked':self.free_checked,'confirmed_grade':self.confirmed_grade,
+                'checked_tasks':dict(self.task_states),
+                'regular_remaining':self.regular_remaining,'order_remaining':self.order_remaining,
+                'reuse_tasks':self.tasks_at is not None and now-self.tasks_at < TASK_PANEL_RECHECK_SECONDS,
+                'reuse_empty_orders':self.no_orders_until is not None and now < self.no_orders_until}
 
 
 class DailyBountyFlow:
     def __init__(self, kind='bounty', grade='D', *, active_invite=True, passive_invite=True,
-                 clock=time.monotonic):
+                 clock=time.monotonic, progress=None, day_clock=daily_key):
         if kind not in ('bounty','bounty_s') or grade not in ('D','C','B','A'):
             raise ValueError('expected a daily bounty kind and grade D/C/B/A')
         self.kind,self.grade = kind,grade
         self.active_invite = active_invite
         self.passive_invite = passive_invite
-        self.free_checked = False
+        self.progress = progress if progress is not None else BountyProgress()
+        self.day_clock = day_clock
+        self.progress.reset_day(self.day_clock())
+        self.free_checked = self.progress.free_checked
         self.free_attempted = False
         self.free_baseline = None
-        self.confirmed_grade = None
+        self.confirmed_grade = self.progress.confirmed_grade
         self.room_trusted = False
         self.battle_seen = False
         self.clock = clock
@@ -29,21 +76,51 @@ class DailyBountyFlow:
         self.invited_names = set()
         self.try_quick_join = False
         self.quick_join_at = None
-        self.no_owned_orders = False
+        self.board_refreshed = False
+        self.order_refresh_at = None
+        self.order_join_failed = False
+        self.order_join_pending_at = None
+        self.no_owned_orders = self.progress.no_orders_until is not None and self.clock() < self.progress.no_orders_until
         self.order_quota = None
-        self.tasks_checked = False
-        self.task_states = {}
+        self.tasks_cached = self.progress.tasks_at is not None and self.clock()-self.progress.tasks_at < TASK_PANEL_RECHECK_SECONDS
+        self.tasks_checked = self.tasks_cached
+        self.task_states = dict(self.progress.task_states) if self.tasks_cached else {}
+        self.hall_swipes = 0
 
     @staticmethod
     def tap(point, status, **kwargs):
         return DailyDecision('tap',point,status,**kwargs)
 
+    def invalidate_tasks(self):
+        self.tasks_checked = self.tasks_cached = False
+        self.task_states = {}
+        self.progress.forget_tasks()
+
     def step(self, screen, vision):
         page = screen.page
+        if self.progress.reset_day(self.day_clock()):
+            self.free_checked = self.free_attempted = self.no_owned_orders = False
+            self.free_baseline = self.confirmed_grade = None
+            self.order_join_failed = False
+            self.order_join_pending_at = None
+            self.invalidate_tasks()
+        tasks_expired = (self.progress.tasks_at is not None and
+                         self.clock()-self.progress.tasks_at >= TASK_PANEL_RECHECK_SECONDS)
+        order_search = (self.kind == 'bounty_s' and page == 'bounty_order' and
+                        self.no_owned_orders and screen.remaining != 0)
+        if ((tasks_expired and not order_search) or
+                (self.tasks_cached and page in ('bounty_daily','bounty_order') and screen.remaining == 0)):
+            self.invalidate_tasks()
+        if self.progress.no_orders_until is not None and self.clock() >= self.progress.no_orders_until:
+            self.progress.no_orders_until = None
         if page in ('home','hall','bounty_hub','bounty_daily','bounty_order','result'):
             self.invited_grade = None
             if self.invite_room_trusted:
                 self.room_trusted,self.invite_room_trusted = False,False
+        if page in ('bounty_hub','bounty_daily','bounty_order'):
+            self.hall_swipes = 0
+        if page != 'bounty_order':
+            self.order_join_pending_at = None
         if page not in ('bounty_room','bounty_recruit'):
             self.room_since = None
         if page == 'invite':
@@ -66,20 +143,28 @@ class DailyBountyFlow:
                 return self.tap(screen.confirm,'确认悬赏结算，返回后复查剩余次数') if screen.confirm else DailyDecision(status='等待悬赏结算按钮')
             return DailyDecision('unavailable',status='未确认当前结算属于本次悬赏，保留画面')
         if page == 'reward':
-            self.tasks_checked = False
+            self.invalidate_tasks()
             return self.tap(screen.confirm,'确认悬赏奖励') if screen.confirm else DailyDecision(status='等待奖励确定按钮')
         if page == 'bounty_tasks':
+            self.invalidate_tasks()
             self.task_states = screen.task_states
             if screen.task_claim:
                 return self.tap(screen.task_claim,'领取悬赏每日任务奖励',guard=(800,235,970,425))
             self.tasks_checked = True
+            if set(self.task_states) == {'friend','family'} and set(self.task_states.values()) <= {'pending','claimed'}:
+                self.progress.tasks_at = self.clock()
+                self.progress.task_states = dict(self.task_states)
             return self.tap((1025,155),'关闭悬赏每日任务面板',guard=(995,125,1060,185))
         if page == 'home':
             return self.tap((865,600),'进入集会所处理每日悬赏')
         if page == 'hall':
             if screen.entry:
                 return self.tap(screen.entry,'进入悬赏令')
-            return DailyDecision('swipe',(280,400),'寻找集会所的悬赏令入口',(1080,400))
+            if self.hall_swipes >= 2*HALL_SWIPES_PER_DIRECTION:
+                return DailyDecision('retry',status='集会所未找到悬赏令入口，稍后重试')
+            if self.hall_swipes < HALL_SWIPES_PER_DIRECTION:
+                return DailyDecision('swipe',(1080,400),'向右查找集会所的悬赏令入口',(280,400))
+            return DailyDecision('swipe',(280,400),'向左查找集会所的悬赏令入口',(1080,400))
         if page == 'bounty_hub':
             if not self.tasks_checked:
                 return self.tap((155,675),'检查悬赏每日任务',guard=(20,630,280,710))
@@ -100,7 +185,7 @@ class DailyBountyFlow:
             if self.kind != 'bounty':
                 return self.tap(screen.close,'关闭每日次数窗口') if screen.close else DailyDecision(status='等待次数窗口关闭按钮')
             if screen.free_exhausted:
-                self.free_checked = True
+                self.free_checked = self.progress.free_checked = True
                 return self.tap(screen.close,'免费次数已使用，不购买付费次数') if screen.close else DailyDecision(status='等待次数窗口关闭按钮')
             if screen.free_claim and not self.free_attempted:
                 return self.tap(screen.free_claim,'领取明确免费的每日悬赏次数',free_kind='bounty',guard=screen.free_guard)
@@ -108,19 +193,26 @@ class DailyBountyFlow:
         if page == 'bounty_daily':
             if self.kind != 'bounty':
                 return self.tap((65,50),'返回悬赏分类，继续S级悬赏')
+            if screen.grade is not None:
+                self.confirmed_grade = self.progress.confirmed_grade = screen.grade
+            if screen.remaining is not None:
+                if self.free_attempted and self.free_baseline is not None and screen.remaining > self.free_baseline:
+                    self.free_checked = self.progress.free_checked = True
+                if self.free_checked:
+                    self.progress.regular_remaining = screen.remaining
             if not self.tasks_checked:
                 return self.tap((330,670),'检查悬赏每日任务',guard=(260,635,410,710))
             if screen.join_failed:
                 return DailyDecision('retry',status='当前没有'+self.grade+'级队伍，稍后重试')
             if screen.remaining is None:
                 return DailyDecision(status='等待确认每日悬赏剩余次数')
-            if self.free_attempted and self.free_baseline is not None and screen.remaining > self.free_baseline:
-                self.free_checked = True
             if not self.free_checked:
                 return self.tap((380,172),'检查每日悬赏免费次数')
             if screen.remaining == 0:
                 if self.task_states == {'friend':'claimed','family':'claimed'}:
                     return DailyDecision('done',status='每日悬赏次数和每日任务奖励已清理')
+                if self.progress.order_after_regular and self.progress.order_remaining != 0:
+                    return DailyDecision('retry',status='A级每日悬赏次数已用完，继续S级悬赏')
                 if set(self.task_states) != {'friend','family'} or 'unknown' in self.task_states.values():
                     return DailyDecision('retry',status='悬赏次数已清理，但每日任务状态未确认，稍后重试')
             if self.confirmed_grade != self.grade or (screen.grade is not None and screen.grade != self.grade):
@@ -133,10 +225,16 @@ class DailyBountyFlow:
                         return DailyDecision('retry',status='当前没有'+self.grade+'级队伍，稍后重试')
                     return DailyDecision(status='等待快捷加入目标等级悬赏队伍')
                 return self.tap((1120,670),'快捷加入'+self.grade+'级每日悬赏队伍')
+            if screen.remaining and screen.refresh and not self.board_refreshed:
+                return self.tap(screen.refresh,'刷新悬赏队伍列表')
             return self.tap((875,670),'创建'+self.grade+'级每日悬赏队伍')
         if page == 'bounty_order':
             if self.kind != 'bounty_s':
                 return self.tap((65,50),'返回悬赏分类，继续每日悬赏')
+            if self.progress.order_after_regular and self.progress.regular_remaining != 0:
+                return DailyDecision('retry',status='等待A级每日悬赏清完今日次数')
+            if screen.remaining is not None:
+                self.progress.order_remaining = screen.remaining
             if not self.tasks_checked:
                 return self.tap((65,50),'返回悬赏分类检查每日任务')
             if screen.remaining is None:
@@ -152,12 +250,28 @@ class DailyBountyFlow:
                 return self.tap((978,171),'关闭SS+悬赏筛选')
             if (screen.s_filter,screen.ss_filter) != ('on','off'):
                 return DailyDecision(status='等待确认只选择S级悬赏')
+            if screen.join_pending:
+                self.order_join_pending_at = self.clock()
+            if (self.order_join_pending_at is not None and
+                    self.clock()-self.order_join_pending_at < 1.):
+                return DailyDecision(status='已加入S级队伍，等待进入房间')
+            self.order_join_pending_at = None
+            can_refresh = screen.refresh and (self.order_refresh_at is None or
+                                             self.clock()-self.order_refresh_at >= ORDER_REFRESH_MIN_SECONDS)
+            if screen.join_failed or self.order_join_failed:
+                self.order_join_failed = True
+                if can_refresh:
+                    return self.tap(screen.refresh,'刷新悬赏队伍列表')
+                return DailyDecision(status='队伍已开战或解散，等待刷新')
             if screen.join:
                 return self.tap(screen.join,'加入S级悬赏队伍')
             if self.no_owned_orders:
-                return DailyDecision('retry',status='未持有S级召令，暂未找到S级队伍，稍后重试')
+                if can_refresh:
+                    return self.tap(screen.refresh,'刷新悬赏队伍列表')
+                return DailyDecision(status='持续刷新，等待S级队伍')
             return self.tap((1115,670),'打开我的S级召令悬赏')
         if page == 'bounty_own_empty':
+            self.progress.no_orders_until = self.clock()+EMPTY_ORDERS_RECHECK_SECONDS
             return self.tap((1115,670),'未持有召令，返回队伍列表寻找其他队伍')
         if page == 'bounty_create':
             if self.kind == 'bounty_s' and not self.order_quota:
@@ -217,6 +331,7 @@ class DailyBountyFlow:
                 return DailyDecision('unavailable',status='未确认当前队伍属于所选悬赏等级')
             if self.room_since is None:
                 self.room_since = self.clock()
+                self.try_quick_join,self.quick_join_at = False,None
             if screen.minimum_players:
                 if self.active_invite and self.room_owned and self.recruit_stage == 'open' and screen.invite_open:
                     return self.tap(screen.invite_open,'打开悬赏队伍邀请列表',guard=(520,300,755,405))
@@ -224,13 +339,17 @@ class DailyBountyFlow:
                     if self.clock()-self.recruit_at < 3:
                         return DailyDecision(status='等待邀请列表打开')
                     self.recruit_stage = 'done'
-                if self.room_owned and self.clock()-self.room_since >= 20:
+                if self.room_owned and self.clock()-self.room_since >= 45:
                     return self.tap((65,50),'离开等待过久的自建悬赏队伍，尝试加入其他队伍')
+                if not self.room_owned and self.clock()-self.room_since >= 60:
+                    return self.tap((65,50),'已等候一分钟，离开仍未凑齐人数的悬赏队伍')
                 return DailyDecision(status='悬赏队伍至少需要二人，等待其他玩家加入')
             if screen.start:
                 return self.tap(screen.start,'开始目标等级悬赏战斗')
             if screen.ready:
                 return self.tap(screen.ready,'悬赏队伍准备')
+            if not self.room_owned and self.clock()-self.room_since >= 60:
+                return self.tap((65,50),'已等候一分钟，离开仍未开战的悬赏队伍')
             return DailyDecision(status='悬赏队伍已准备，等待开战')
         if getattr(screen,'back',None):
             return self.tap(screen.back,'返回主页，继续每日悬赏')
@@ -239,6 +358,8 @@ class DailyBountyFlow:
         return DailyDecision(status='等待识别每日悬赏页面')
 
     def completed(self, decision, screen):
+        if screen.page == 'hall' and decision.action == 'swipe':
+            self.hall_swipes += 1
         if screen.page == 'bounty_grade' and screen.grade == self.grade and decision.status.startswith('确认每日悬赏等级为'):
             self.confirmed_grade = self.grade
         if decision.status == '检查每日悬赏免费次数':
@@ -265,8 +386,15 @@ class DailyBountyFlow:
             self.room_trusted,self.room_owned = True,False
             self.in_room = True
             self.quick_join_at = self.clock()
+        if decision.status == '刷新悬赏队伍列表':
+            if screen.page == 'bounty_order':
+                self.order_refresh_at = self.clock()
+                self.order_join_failed = False
+            else:
+                self.board_refreshed = True
         if decision.status == '确认离开等待中的悬赏队伍':
             self.try_quick_join = True
+            self.quick_join_at = None
             self.room_trusted,self.room_owned = False,False
             self.in_room = False
         if decision.status.startswith('接受') and decision.status.endswith('级悬赏邀请'):
@@ -280,4 +408,9 @@ class DailyBountyFlow:
             if not decision.status.startswith(('加入','创建','快捷加入')):
                 self.in_room = False
         if screen.page == 'result' and decision.status.startswith('确认悬赏结算'):
-            self.tasks_checked = False
+            self.invalidate_tasks()
+            self.no_owned_orders = False
+            self.order_join_failed = False
+            self.progress.no_orders_until = None
+            self.try_quick_join,self.quick_join_at = False,None
+            self.board_refreshed = False

@@ -1,9 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import Mock, patch
 
-from ninja3_assistant.activities.intelligence.flow import CHINA
-from ninja3_assistant.scheduling.activity_task import ActivityTask, IntelligenceTask, WeekendTask
+from ninja3_assistant.activities.intelligence.flow import CHINA, daily_key
+from ninja3_assistant.scheduling.activity_task import ActivityTask, IntelligenceTask, WeekendTask, XumiTask, selected_tasks
 from ninja3_assistant.runtime.runner import RunControl
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome as O
 from ninja3_assistant.scheduling.task_scheduler import run_tasks
@@ -25,6 +25,61 @@ class FakeTask(ActivityTask):
 
 
 class PlannerTest(unittest.TestCase):
+    def test_selected_s_waits_for_confirmed_a_quota_and_new_day_resets_order(self):
+        now = datetime(2026,11,19,14,tzinfo=CHINA)
+        tasks = selected_tasks(daily_tasks=('bounty','bounty_s'),bounty_grade='A')
+        plan = TaskPlan(tasks,now)
+        regular,summons = plan.tasks
+        progress = regular.activity._bounty_progress
+        progress.reset_day(daily_key(now))
+        progress.regular_remaining = 2
+        plan.complete(regular,O.WAITING,now)
+        plan.refresh(now)
+        self.assertFalse(summons.ready)
+
+        progress.regular_remaining = 0
+        plan.refresh(now)
+        self.assertFalse(summons.ready)
+        progress.free_checked = True
+        plan.refresh(now)
+        self.assertTrue(summons.ready)
+        self.assertFalse(regular.daily_done)
+
+        plan.refresh(now+timedelta(hours=15))
+        self.assertFalse(summons.ready)
+
+    def test_s_alone_can_start_without_a_task(self):
+        now = datetime(2026,11,19,14,tzinfo=CHINA)
+        plan = TaskPlan(selected_tasks(daily_tasks=('bounty_s',),bounty_grade='A'),now)
+        plan.refresh(now)
+        self.assertTrue(plan.tasks[0].ready)
+
+    def test_s_invitation_can_handoff_while_s_active_cleanup_waits_for_a(self):
+        now = datetime(2026,11,19,14,tzinfo=CHINA)
+        plan = TaskPlan(selected_tasks(daily_tasks=('bounty','bounty_s'),bounty_grade='A'),now)
+        control = RunControl()
+        regular,summons = (item.activity for item in plan.tasks)
+        with patch.object(regular,'run') as run_a, patch.object(summons,'run') as run_s:
+            run_s.side_effect = lambda *args,**kwargs: control.request_stop() or O.STOPPED
+            navigate = Mock(return_value=InvitationHandoff('daily_bounty_s'))
+            run_tasks('f',1,control,Mock(),plan=plan,clock=lambda:now,navigate=navigate)
+            run_a.assert_not_called()
+            self.assertEqual(run_s.call_args.kwargs['mode'],'invite')
+        self.assertFalse(plan.tasks[1].ready)
+
+    def test_maintenance_keeps_the_task_pending_and_delays_retry(self):
+        now = datetime(2026, 11, 19, 10, tzinfo=CHINA)
+        plan = TaskPlan([FakeTask('prayer', [], []), FakeTask('other', [], [])], now)
+        item, other = plan.tasks
+        plan.complete(item, O.MAINTENANCE, now)
+        self.assertFalse(item.daily_done)
+        self.assertFalse(item.blocked)
+        plan.refresh(now + timedelta(seconds=15))
+        self.assertFalse(item.ready)
+        self.assertTrue(other.ready)
+        plan.refresh(now + timedelta(minutes=5))
+        self.assertTrue(item.ready)
+
     def test_invite_interrupt_uses_enabled_bounty_and_resumes_without_changing_quota(self):
         calls = []
         control = RunControl()
@@ -369,6 +424,22 @@ class PlannerTest(unittest.TestCase):
         ready = sorted((item for item in plan.tasks if item.ready),key=lambda item:item.priority)
         self.assertEqual([item.activity.name for item in ready],['failed','extra'])
 
+    def test_xumi_round_gives_older_daily_retries_a_turn(self):
+        now = datetime(2026,11,19,12,tzinfo=CHINA)
+        plan = TaskPlan([FakeTask('daily_bounty',[],[]),XumiTask()],now)
+        bounty,xumi = plan.tasks
+        plan.complete(bounty,O.WAITING,now)
+        plan.refresh(now)
+        self.assertFalse(bounty.ready)
+        self.assertTrue(xumi.ready)
+
+        settled = now+timedelta(minutes=2)
+        plan.complete(xumi,O.MATCH_DONE,settled)
+        plan.refresh(settled)
+        ready = sorted((item for item in plan.tasks if item.ready),key=lambda item:item.priority)
+        self.assertEqual([item.activity.name for item in ready],['daily_bounty','xumi'])
+        self.assertFalse(xumi.daily_done)
+
     def test_paused_scheduler_does_not_navigate_or_start_next_task(self):
         calls = []
         control = RunControl()
@@ -398,6 +469,31 @@ class PlannerTest(unittest.TestCase):
             with self.subTest(task=task.name), patch(module, return_value=O.DAILY_DONE) as runner:
                 self.assertIs(task.run('f', 1, control, emit, mode='daily'), O.DAILY_DONE)
                 runner.assert_called_once_with('f', 1, control, emit, mode='daily', checkpoint=True)
+
+    def test_xumi_uses_china_date_bounds_and_defers_opening_to_the_scene(self):
+        task = XumiTask()
+        begin = datetime(2026, 11, 19, tzinfo=CHINA)
+        end = datetime(2026, 12, 10, tzinfo=CHINA)
+        self.assertFalse(task.open(begin - timedelta(seconds=1)))
+        self.assertTrue(task.open(begin.astimezone(timezone.utc)))
+        self.assertTrue(task.open(end - timedelta(seconds=1)))
+        self.assertFalse(task.open(end))
+
+        control, emit = RunControl(), Mock()
+        with patch('ninja3_assistant.activities.xumi.runner.run_xumi', return_value=O.WAITING) as runner, \
+                patch('ninja3_assistant.scheduling.activity_task.datetime') as clock:
+            clock.now.return_value = begin
+            self.assertIs(task.run('f', 152, control, emit, mode='daily'), O.WAITING)
+            clock.now.return_value = begin+timedelta(hours=4,minutes=59)
+            self.assertIs(task.run('f', 152, control, emit, mode='daily'), O.WAITING)
+            clock.now.return_value = begin+timedelta(hours=5)
+            self.assertIs(task.run('f', 152, control, emit, mode='daily'), O.WAITING)
+            clock.now.return_value = end
+            self.assertIs(task.run('f', 152, control, emit, mode='daily'), O.UNAVAILABLE)
+        first,resumed,reset = runner.call_args_list
+        self.assertTrue(all(call.args == ('f', 152, control, emit) for call in (first,resumed,reset)))
+        self.assertIs(first.kwargs['progress'],resumed.kwargs['progress'])
+        self.assertIsNot(first.kwargs['progress'],reset.kwargs['progress'])
 
 
 if __name__ == '__main__':

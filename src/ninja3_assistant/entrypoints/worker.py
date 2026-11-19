@@ -22,6 +22,7 @@ def main():
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
     parser.add_argument('--weekend-enabled', action='store_true')
     parser.add_argument('--weekend-mode', choices=('daily', '25'), default='daily')
+    parser.add_argument('--xumi-enabled', action='store_true')
     parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
     parser.add_argument('--bounty-grade',choices=('D','C','B','A'),default=None)
     parser.add_argument('--no-bounty-active-invite',dest='bounty_active_invite',action='store_false',
@@ -47,6 +48,8 @@ def main():
         parser.error('activity is available only in run mode')
     if args.weekend_enabled and args.mode != 'run':
         parser.error('weekend is available only in run mode')
+    if args.xumi_enabled and args.mode != 'run':
+        parser.error('xumi is available only in run mode')
     if args.daily_tasks and args.mode != 'run':
         parser.error('daily chores are available only in run mode')
     if args.bounty_grade is not None and (args.mode != 'run' or 'bounty' not in args.daily_tasks):
@@ -96,11 +99,12 @@ def main():
         from ninja3_assistant.combat.hayabusa.trial import run_hayabusa
         run_hayabusa(args.folder, args.index, control, emit,
                      observe_only=args.mode == 'hayabusa-debug' or args.observe_only)
-    elif args.weekend_enabled or args.activity_enabled or args.daily_tasks:
+    elif args.weekend_enabled or args.activity_enabled or args.xumi_enabled or args.daily_tasks:
         from ninja3_assistant.scheduling.activity_task import selected_tasks
         from ninja3_assistant.scheduling.task_scheduler import run_tasks
         tasks = selected_tasks(activity_mode=args.activity_mode if args.activity_enabled else None,
                                weekend_mode=args.weekend_mode if args.weekend_enabled else None,
+                               xumi_enabled=args.xumi_enabled,
                                daily_tasks=args.daily_tasks,bounty_grade=args.bounty_grade or 'D',
                                pet_feed_reward=args.pet_feed_reward or DEFAULT_PET_FEED_REWARD,
                                bounty_active_invite=args.bounty_active_invite,

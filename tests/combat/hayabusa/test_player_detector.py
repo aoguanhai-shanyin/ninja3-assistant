@@ -1,4 +1,5 @@
 from ninja3_assistant.paths import project_root
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -102,6 +103,20 @@ class HayabusaPlayerDetectorTest(unittest.TestCase):
         self.write_spec()
         with self.assertRaisesRegex(ValueError, 'SHA256'):
             HayabusaPlayerDetector(self.model, use_gpu=False)
+
+    def test_session_factory_preserves_gpu_requirement_and_explicit_cpu(self):
+        self.model.write_bytes(b'test player')
+        self.spec['onnx_sha256'] = hashlib.sha256(b'test player').hexdigest()
+        self.write_spec()
+        for use_gpu, backend in ((True, 'Windows ML'), (False, 'CPU')):
+            with self.subTest(use_gpu=use_gpu), patch('ninja3_assistant.vision.winml.model_session',
+                    return_value=(Session(None), backend)) as create:
+                detector = HayabusaPlayerDetector(self.model, use_gpu=use_gpu)
+                self.assertTrue(detector.backend.endswith(backend))
+                self.assertEqual(create.call_args.args, (self.model,))
+                self.assertEqual(create.call_args.kwargs['use_gpu'], use_gpu)
+                self.assertEqual(create.call_args.kwargs['require_gpu'], use_gpu)
+                self.assertEqual(create.call_args.kwargs['options'].intra_op_num_threads, 1)
 
 
 class PlayerBodyLocatorTest(unittest.TestCase):

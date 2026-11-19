@@ -133,6 +133,11 @@
       "sha256": "39dd6beca268f38a7714f297140fcc1e7005190f168313a8f81ba6028314c563"
     },
     {
+      "path": "bounty-daily/invite-slot.png",
+      "bytes": 1645,
+      "sha256": "9ae54af7bf161922ca9d0f80ea233cceb0765c0f4a6e36cfc37621cb39a0db72"
+    },
+    {
       "path": "bounty-daily/join-daily.png",
       "bytes": 942,
       "sha256": "bededbe88a3a3bf026a4267969b571a47e80e0225ffdf8b0ca176397f231798a"
@@ -161,6 +166,21 @@
       "path": "bounty-daily/order-locked.png",
       "bytes": 37959,
       "sha256": "7d45be90e7bcec8a9f8138543448c9c990f5e7f1b171da2e00ba2504441e9b21"
+    },
+    {
+      "path": "bounty-daily/order-result-title.png",
+      "bytes": 13226,
+      "sha256": "ce14703bf547f13446d3c133ce0d5cd6da679c66aa42ebb69d45b446a610f851"
+    },
+    {
+      "path": "bounty-daily/order-join-started.png",
+      "bytes": 22763,
+      "sha256": "d9e4d4a0b02f8a47adbee377f2651855d7ba2e625da58ff1e22afca0379adc88"
+    },
+    {
+      "path": "bounty-daily/order-join-success.png",
+      "bytes": 5874,
+      "sha256": "d678133ae621908b96a80eb3b2aeff8c1d93e42fd533d3040360ecea037b57ee"
     },
     {
       "path": "bounty-daily/order-title.png",
@@ -236,6 +256,18 @@
       "path": "daily-cleanup/bounty-c.png",
       "bytes": 15523,
       "sha256": "12cc4bddd11941ed661f5bbfb8f135bcf88d3e9cc63ee648d4f8fc069c9c5fa1"
+    },
+    {
+      "path": "daily-cleanup/arena-previous-coins-label.png",
+      "bytes": 2449,
+      "sha256": "689ff7104702fcd1b263ca56e79a926669af43be5198dcb383b2fefdd36a5965",
+      "source": "data/runtime/assistant-control/winml-152-arena-next.png crop (590, 421, 688, 458)"
+    },
+    {
+      "path": "daily-cleanup/arena-previous-coins-title.png",
+      "bytes": 7363,
+      "sha256": "2fd8bfb105acc0249fd20dffad00d08db73810082c58d22a5ce661fcb44597fb",
+      "source": "data/runtime/assistant-control/winml-152-arena-next.png crop (478, 91, 803, 136)"
     },
     {
       "path": "daily-cleanup/bounty-d.png",
@@ -338,6 +370,11 @@
       "sha256": "974750990454c26091ef480e6b9f7d40a72ec563d257a1b4f2d3af862588d579"
     },
     {
+      "path": "daily-cleanup/home-monthly.png",
+      "bytes": 1270,
+      "sha256": "25471a3c75cd7feba5bb608eef7141e8e046296fad587d3df1e115dc040a169d"
+    },
+    {
       "path": "daily-cleanup/home-thanks.png",
       "bytes": 3168,
       "sha256": "a50f658195474411f125b150eb2c867d8f2f39f57b5073963eb486013a5a7346"
@@ -346,6 +383,56 @@
       "path": "daily-cleanup/home.png",
       "bytes": 7309,
       "sha256": "414217260e94ef855566934e93e4888f2ece33fc4cd7a36060fb15b608194bf0"
+    },
+    {
+      "path": "daily-cleanup/friend-guide.png",
+      "bytes": 22802,
+      "sha256": "4c47a7433d78cb922ddd94fb7a5567207224398a0a54365738cb76b313dbed14"
+    },
+    {
+      "path": "daily-cleanup/friend-home.png",
+      "bytes": 3889,
+      "sha256": "03bfb4e8661c22759935ae26dda789f046ff52453f67e6c2748f089dc3f3ec68"
+    },
+    {
+      "path": "daily-cleanup/friend-inbox-entry.png",
+      "bytes": 5055,
+      "sha256": "6cd2eb61b5a85bf7739e1be983813348e6dfd1c141aabd58b2fd0dfe9cfb521d"
+    },
+    {
+      "path": "daily-cleanup/friend-list.png",
+      "bytes": 5799,
+      "sha256": "81006347313ce6e80e790fe18d60e263d188e74438be1ffb8b747a0e36a82141"
+    },
+    {
+      "path": "daily-cleanup/friend-rice-claim.png",
+      "bytes": 6290,
+      "sha256": "e10fa1cf93b3a68708d2e09f3524e0b9026a7a5375dff04c24bebeff4af25133"
+    },
+    {
+      "path": "daily-cleanup/friend-rice-collect.png",
+      "bytes": 5111,
+      "sha256": "e86c617a3f13d6f487089246863754c449ebca64d500346872001674fa95ada8"
+    },
+    {
+      "path": "daily-cleanup/friend-rice-envelope.png",
+      "bytes": 8160,
+      "sha256": "76287486f68c538489c5737528f9bd4baa12fa5675ebea2248599a473fbfabbe"
+    },
+    {
+      "path": "daily-cleanup/friend-rice-return.png",
+      "bytes": 5118,
+      "sha256": "823de7159353f49717cb8c336451e2de59cc4019e2d768c8403e7a55192b85bc"
+    },
+    {
+      "path": "daily-cleanup/friend-rice-title.png",
+      "bytes": 8595,
+      "sha256": "c2e7b59752d411add7ab35c5570d645ecc710367f1a7874dbcdaad9ba53e8b5f"
+    },
+    {
+      "path": "daily-cleanup/friend-row-gift.png",
+      "bytes": 8594,
+      "sha256": "cbcba8122791c69fe3328c09ded9e4271f64dd26b29f4db0951850e9a20c9fff"
     },
     {
       "path": "daily-cleanup/house-complete.png",
@@ -386,6 +473,12 @@
       "path": "daily-cleanup/monthly.png",
       "bytes": 52710,
       "sha256": "d115e4fd1babb4d9da878d8e7836f3f34fef1bb2a25fbf1907d38f85af4a469a"
+    },
+    {
+      "path": "daily-cleanup/pet-exp-reward.png",
+      "bytes": 1654,
+      "sha256": "03b5ec0c0163d0a1814b56519bb41f059216121bef9a20e19191d834193d2866",
+      "source": "data/runtime/daily-cleanup/runs/20261119-115110-740100-pet_feed/0004-pet-routes-swipe.png crop (268, 631, 318, 674)"
     },
     {
       "path": "daily-cleanup/prayer.png",
@@ -461,6 +554,12 @@
       "path": "daily-cleanup/vault.png",
       "bytes": 60988,
       "sha256": "4fb71381f1c9c5ecdf2802cdedea324e2d94fdbfbab8f702d42a078e77f34023"
+    },
+    {
+      "path": "daily-cleanup/weapon-entry.png",
+      "bytes": 2083,
+      "sha256": "b854e317392b67be26a97dee399318391dd74fcd6a5cfb05d42fbcafe08dd349",
+      "source": "data/runtime/daily-cleanup/runs/20261119-105200-879100-weapon/0005-summon-tap.png crop (155, 534, 217, 576)"
     },
     {
       "path": "daily-cleanup/weapon-free.png",
@@ -1501,6 +1600,234 @@
       "path": "weekend-rope/sources.json",
       "bytes": 331,
       "sha256": "51b1d211588aa000c6cdd587769fba246b6551ba1af067b3f8fa26653d493cd3"
+    },
+    {
+      "path": "xumi/daqian-entry.png",
+      "bytes": 1524,
+      "sha256": "a1bc84a7b53a09b17fa0065f7125a13cbe1c26cff1172d998c3a65c99900ea80",
+      "source": "data/evidence/2026-11-19/xumi-152/008-lobby.png crop (975, 518, 1039, 550)"
+    },
+    {
+      "path": "xumi/fangcun-entry.png",
+      "bytes": 1400,
+      "sha256": "2bf49890f4869fc0cffcff1a20d3ff829b77cb8abfb84652e2868d1add437b35",
+      "source": "data/evidence/2026-11-19/xumi-152/008-lobby.png crop (242, 517, 306, 549)"
+    },
+    {
+      "path": "xumi/fangcun-setup.png",
+      "bytes": 5215,
+      "sha256": "796a867d0ae7d99aa77578835d6b75b13abc46806c5a69f85e9e6df5cd10c61d",
+      "source": "data/evidence/2026-11-19/xumi-152/011-system.png crop (94, 16, 300, 73)"
+    },
+    {
+      "path": "xumi/hall-entry.png",
+      "bytes": 16404,
+      "sha256": "4aef1333e85f98dd23c4ba4ea42fa749a8eb84226989955765ae02b34bcd3d63",
+      "source": "data/evidence/2026-11-19/xumi-152/001-entry.png crop (596, 125, 854, 220)"
+    },
+    {
+      "path": "xumi/lobby-daily.png",
+      "bytes": 1785,
+      "sha256": "ba13b81dd4bdd311b8304b1ce085efa505c995c709c4daff7d7266ef20ccf880",
+      "source": "data/evidence/2026-11-19/xumi-152/008-lobby.png crop (1060, 77, 1148, 102)"
+    },
+    {
+      "path": "xumi/lobby-overlay.png",
+      "bytes": 5008,
+      "sha256": "aedf73949bfd832ee6f1526beb577e152caa0c60b80b2b2b4078d963acaa7880",
+      "source": "data/evidence/2026-11-19/xumi-152/009-daily.png crop (96, 17, 301, 72)"
+    },
+    {
+      "path": "xumi/lobby-title.png",
+      "bytes": 5705,
+      "sha256": "2fbffe2b9c4ad3a0f4f1ef5b6128aa8b71b086dbdd8cb907d728c915733c01b6",
+      "source": "data/evidence/2026-11-19/xumi-152/008-lobby.png crop (96, 17, 301, 72)"
+    },
+    {
+      "path": "xumi/roster-fixed.png",
+      "bytes": 3402,
+      "sha256": "f0d276e579c18e23eb1c0fdf829bb81f3478da73254d59b6bce431d0210fec94",
+      "source": "data/evidence/2026-11-19/xumi-152/013-system-roster.png crop (536, 111, 745, 142)"
+    },
+    {
+      "path": "xumi/setup-start.png",
+      "bytes": 3681,
+      "sha256": "4b83492dce6d153b3397ec211a75d8043a85a63ac1b9739820f015d3d32239f1",
+      "source": "data/evidence/2026-11-19/xumi-152/011-system.png crop (1015, 612, 1170, 656)"
+    },
+    {
+      "path": "xumi/tasks-close.png",
+      "bytes": 1668,
+      "sha256": "c401699d6a3ca79873e9d1240781e9c39f9ff97b9b709449d84e754624ad7b71",
+      "source": "data/evidence/2026-11-19/xumi-152/009-daily.png crop (1051, 94, 1106, 142)"
+    },
+    {
+      "path": "xumi/tasks-title.png",
+      "bytes": 2926,
+      "sha256": "be5af9079c888d73cdba38472f7d2fc90617f7f54840300ed1439a996fe7273a",
+      "source": "data/evidence/2026-11-19/xumi-152/009-daily.png crop (572, 99, 706, 139)"
+    },
+    {
+      "path": "xumi/team-overlay.png",
+      "bytes": 6117,
+      "sha256": "c24e1d5cf9e597a8535267177e103cfa091682ba3bee9c41af1cfb1970fb6ff8",
+      "source": "data/evidence/2026-11-19/xumi-152/013-system-roster.png crop (104, 5, 308, 66)"
+    },
+    {
+      "path": "xumi/team-skills.png",
+      "bytes": 2414,
+      "sha256": "60c0848d39e73b5cb0b391eb2b34bb279ee1baa7fade4aefabac803d636d8c12",
+      "source": "data/evidence/2026-11-19/xumi-152/012-system-team.png crop (305, 596, 425, 633)"
+    },
+    {
+      "path": "xumi/team-title.png",
+      "bytes": 6364,
+      "sha256": "6684ec7f36689191a51b86fa16cd529c5f4ac678eaeb836521e04f4868e3735b",
+      "source": "data/evidence/2026-11-19/xumi-152/012-system-team.png crop (104, 5, 308, 66)"
+    },
+    {
+      "path": "xumi/daqian-setup.png",
+      "bytes": 4887,
+      "sha256": "f2d3684b68d3a09a7d4c9063155149ba13838140891414a35f9a75f5a45ee1aa",
+      "source": "data/evidence/2026-11-19/xumi-152/018-own.png crop (94, 16, 300, 73)"
+    },
+    {
+      "path": "xumi/roster-own.png",
+      "bytes": 3023,
+      "sha256": "1d523e2ac484eb39264012115f9a3b4a4183aa0b0856c67b53c8d9aa68250fee",
+      "source": "data/evidence/2026-11-19/xumi-152/020-own-roster.png crop (473, 115, 627, 147)"
+    },
+    {
+      "path": "xumi/roster-own-discard.png",
+      "bytes": 2940,
+      "sha256": "6bd682f37d42b6d425a99f8f4149c816a53d8b773cfa625ff71211e81230d4f7",
+      "source": "data/evidence/2026-11-19/xumi-152/020-own-roster.png crop (312, 577, 441, 618)"
+    },
+    {
+      "path": "xumi/result-complete.png",
+      "bytes": 14904,
+      "sha256": "3777f85aff31691df81474edb5f53c02c9050dbf8551e572e3b7a774b27ae2dc",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (230, 169, 407, 290)"
+    },
+    {
+      "path": "xumi/result-next.png",
+      "bytes": 3625,
+      "sha256": "5666490521a3d4d799028031c46ae21787db0fefaf41384f6fc8e464a703f66d",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (900, 615, 1044, 656)"
+    },
+    {
+      "path": "xumi/result-total.png",
+      "bytes": 1582,
+      "sha256": "dde853d116dc4eedcd6b6f4cd895d3363dc98761cdbc4dde320b0c7d3c25aec7",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (95, 403, 189, 432)"
+    },
+    {
+      "path": "xumi/result-unplayed.png",
+      "bytes": 1441,
+      "sha256": "f8304886900691d34719fafda0ee1ea959226d93784bfbca24dd9feb611a92f4",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (450, 365, 522, 394)"
+    },
+    {
+      "path": "xumi/result-return.png",
+      "bytes": 5042,
+      "sha256": "f53591fdad169dcb2d74fd0c923aa064ea31df6f174619a2834670732b5bf2d1",
+      "source": "data/evidence/2026-11-19/xumi-152/025-fangcun-final.png crop (784, 613, 993, 656)"
+    },
+    {
+      "path": "xumi/equipment-save.png",
+      "bytes": 1716,
+      "sha256": "cc7e5b29d1f4161bf0c4f07931b0d9b8f494b89b1f58641d49cd521aac6c6166",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (1065, 659, 1160, 701)"
+    },
+    {
+      "path": "xumi/equipment-title.png",
+      "bytes": 5571,
+      "sha256": "cb0007932eae4a7ab82e3decfb7cf3d7b484aa76ead09dfd515d465a97e72594",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (94, 6, 309, 69)"
+    },
+    {
+      "path": "xumi/start-failed.png",
+      "bytes": 2491,
+      "sha256": "804a4bf58a42d8d5666c9aec8a22e953709a13665bbc559e377d2385bf1490d7",
+      "source": "data/evidence/2026-11-19/xumi-152/027-own-start-response.png crop (374, 243, 484, 272)"
+    },
+    {
+      "path": "xumi/start-no-weapon.png",
+      "bytes": 4125,
+      "sha256": "e8831fdba1ad258f6094610cfb73107c8d1e0dacce5406333f2a3704d9e90b5c",
+      "source": "data/evidence/2026-11-19/xumi-152/027-own-start-response.png crop (742, 243, 907, 272)"
+    },
+    {
+      "path": "xumi/equipment-equip.png",
+      "bytes": 1122,
+      "sha256": "59b64457b95395dc0c98a859459cb927339a3dbce5692be53c7d312f443c9c66",
+      "source": "data/evidence/2026-11-19/xumi-152/031-own-weapon-selected.png crop (1101, 555, 1167, 588)"
+    },
+    {
+      "path": "xumi/equipment-cancel.png",
+      "bytes": 1200,
+      "sha256": "a875163bb94646e348fefdb148c7d99e6d0e3086eedcc36d648b29794f2f5f93",
+      "source": "data/evidence/2026-11-19/xumi-152/031-own-weapon-selected.png crop (1101, 633, 1167, 669)"
+    },
+    {
+      "path": "xumi/equipment-confirm-message.png",
+      "bytes": 5251,
+      "sha256": "897219383a894f885f528a031c2b542d7d366c6a804a1ede99223494d4f28ca3",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (471, 351, 800, 390)"
+    },
+    {
+      "path": "xumi/equipment-confirm-save.png",
+      "bytes": 1751,
+      "sha256": "a3b26ac00f66ba7f38447222d93d9d109afc7e10d0cc4ff5bb9810b197ea1cc4",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (768, 511, 850, 550)"
+    },
+    {
+      "path": "xumi/equipment-confirm-title.png",
+      "bytes": 1414,
+      "sha256": "87b889e65fca1dfe1ca9960d735fe781eff2aac7dc54afdcf35a0f3f616075f4",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (603, 262, 678, 302)"
+    },
+    {
+      "path": "xumi/equipment-title-dim.png",
+      "bytes": 4375,
+      "sha256": "3c74ab0c90d4ef6a35c47c20f3809c95097b222d19c60244afc2c7f3107e9fc7",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (94, 6, 309, 69)"
+    },
+    {
+      "path": "xumi/equipment-team-1.png",
+      "bytes": 282,
+      "sha256": "d63880d9bb68946961332d999007bf23cf1a0ad24ae0bc3e0fac88d20b9ac972",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (819, 76, 836, 97)"
+    },
+    {
+      "path": "xumi/equipment-team-2.png",
+      "bytes": 320,
+      "sha256": "9a41b78bb740e3212de37bf0974c0dde5f1dcb98566df86f1beeddcde0a2cb5d",
+      "source": "data/evidence/2026-11-19/xumi-152/053-own-team2-gear.png crop (819, 76, 836, 97)"
+    },
+    {
+      "path": "xumi/equipment-team-label.png",
+      "bytes": 1777,
+      "sha256": "7ddce9a729f0a09cb5e21ba678224abdc7da3264b3755e3285398ba9e77312b5",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (836, 76, 934, 98)"
+    },
+    {
+      "path": "xumi/equipment-support.png",
+      "bytes": 1314,
+      "sha256": "6d0d9d38b66a89125c0db86736d40db89a9232b675910c7c6a26904e360ff1e4",
+      "source": "data/evidence/2026-11-19/xumi-152/053-own-team2-gear.png crop (95, 522, 158, 548)"
+    },
+    {
+      "path": "xumi/red-ninjutsu.png",
+      "bytes": 1891,
+      "sha256": "bb5404fb2d03c36fe641c1b24924fa045b06a9d5e02a94c171e08a203a841e59",
+      "source": "data/evidence/2026-11-19/xumi-152/daqian-red-ninjutsu-boss2.png crop (28, 39, 84, 85)"
+    },
+    {
+      "path": "xumi/team-score-confirm-message.png",
+      "bytes": 4880,
+      "sha256": "383de45c63ac57e3a41537c77034e8de5a2947ef54afb45a77d6277d2ec5e24b",
+      "source": "data/evidence/2026-11-19/xumi-152/054-fangcun-score-confirm.png crop (535, 349, 823, 391)"
     }
   ]
 }

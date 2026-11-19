@@ -90,6 +90,8 @@ class ActivityFlow:
             return ActivityDecision(status='等待活动页面更新')
         if screen.kind == 'reward' and screen.point:
             return ActivityDecision('confirm_reward', screen.point, '确认活动任务奖励')
+        if screen.kind == 'guide' and screen.point:
+            return ActivityDecision('guide', screen.point, '继续情报模拟战玩法说明')
         if screen.kind in ('login', 'home', 'hall', 'network_retry'):
             if screen.kind == self.last_action and now-self.last_action_at < 8:
                 return ActivityDecision(status='等待游戏页面切换')

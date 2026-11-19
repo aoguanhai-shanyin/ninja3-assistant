@@ -36,6 +36,52 @@ def question(prefix='第1/10向'):
 
 
 class ArenaRewardTests(unittest.TestCase):
+    def test_previous_currency_requires_all_visual_anchors_without_ocr(self):
+        overlay = screen()
+        positions = {'arena-previous-coins-title': (640, 110), 'arena-previous-coins-label': (640, 439),
+                     'confirm': (638, 646)}
+        vision = Mock()
+        vision.match.side_effect = lambda frame, name, *args, **kwargs: positions.get(name)
+        overlay.page, overlay.point = arena_page(overlay, vision)
+        self.assertEqual((overlay.page, overlay.point), ('arena-currency', (638, 646)))
+        reward = ArenaReward()
+        decision = reward.step(overlay, vision)
+        self.assertEqual((decision.action, decision.point, decision.status),
+                         ('tap', (638, 646), '确认上次未领取竞技币'))
+        reward.completed(decision, overlay)
+        self.assertFalse(reward.finished)
+        self.assertFalse(reward.claimed)
+        for name in tuple(positions):
+            point = positions.pop(name)
+            with self.subTest(missing=name):
+                self.assertIsNone(arena_page(overlay, vision))
+            positions[name] = point
+
+    def test_previous_results_and_trophy_dismiss_without_completing_either_task(self):
+        overlays = (
+            ('arena-history', '关闭竞技场上次成绩', (639, 662),
+             (('上次成绩', 221, 65, 120), ('白银组', 580, 62, 130), ('确定', 605, 652, 68))),
+            ('arena-trophy', '关闭竞技场奖杯结算', (639, 618),
+             (('奖杯结算', 605, 226, 121), ('白银组', 555, 418, 78),
+              ('第29名', 712, 418, 81), ('确定', 605, 608, 68))),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            reward = ArenaReward()
+            quiz = LandladyQuiz(Path(directory) / 'quiz.sqlite3')
+            for page, status, point, words in overlays:
+                with self.subTest(page=page):
+                    overlay = screen(*words)
+                    self.assertEqual(arena_page(overlay), (page, point))
+                    overlay.page, overlay.point = page, point
+                    for flow in (reward, quiz):
+                        decision = flow.step(overlay, None)
+                        self.assertEqual((decision.action, decision.point, decision.status), ('tap', point, status))
+                    for omitted in range(len(words)):
+                        self.assertIsNone(arena_page(screen(*(word for i, word in enumerate(words) if i != omitted))))
+            self.assertFalse(reward.finished)
+            self.assertFalse(reward.claimed)
+            self.assertFalse(quiz.finished)
+
     def test_unranked_lobby_exits_without_starting_a_match(self):
         lobby = screen(('老板娘i司答', 1044, 80, 92), ('竟技商店', 1180, 80, 92),
                        ('50名玩家共同参加小组赛，赢取荣誉和奖励！', 320, 436, 645),

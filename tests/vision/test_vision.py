@@ -1,7 +1,7 @@
 from ninja3_assistant.paths import project_root
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 import cv2
 import numpy as np
@@ -9,6 +9,27 @@ from ninja3_assistant.activities.bounty.flow import Flow
 from ninja3_assistant.vision.vision import Vision
 
 EVIDENCE = project_root().parent / 'android-icon-clicker/build/evidence'
+
+
+class RankGpuWarmupTest(unittest.TestCase):
+    def test_pending_gpu_keeps_rank_detection_available(self):
+        module = 'ninja3_assistant.vision.vision'
+        cpu, gpu = Mock(), Mock()
+        cpu.run.return_value = [0.]
+        with patch(module+'._rank_session', side_effect=[(cpu, 'CPU'), (gpu, 'GPU')]) as session, \
+                patch(module+'.Thread') as thread:
+            vision = Vision(prewarm=True)
+            vision.use_prepared_gpu()
+            self.assertEqual(vision.backend, 'CPU')
+            self.assertTrue(vision.rank_s(np.zeros((75, 110), np.uint8), 0, 0))
+            session.assert_called_once_with(False)
+            thread.call_args.kwargs['target']()
+            self.assertEqual(vision.backend, 'CPU')
+            vision.use_prepared_gpu()
+            self.assertEqual(vision.backend, 'GPU')
+            self.assertIs(vision.session, gpu)
+            gpu.run.assert_called_once()
+
 
 @unittest.skipUnless((EVIDENCE / 'bounty/19-app-main.png').is_file(), 'local captured evidence unavailable')
 class VisionTest(unittest.TestCase):

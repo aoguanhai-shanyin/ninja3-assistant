@@ -1,5 +1,6 @@
 from ninja3_assistant.paths import project_root
 import unittest
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
@@ -11,6 +12,40 @@ from ninja3_assistant.combat.hayabusa.vision import HayabusaScreen, HayabusaSegm
 ROOT = project_root()
 STUDY = ROOT/'data/hayabusa-video-study'
 FIXTURES = ROOT/'tests/fixtures/hayabusa'
+
+
+class HayabusaSegmenterBackendTest(unittest.TestCase):
+    def test_gpu_uses_winml_factory_and_cpu_replay_uses_color_rules(self):
+        session = object()
+        with patch('ninja3_assistant.vision.winml.model_session', return_value=(session, 'Windows ML')) as create:
+            self.assertIsNone(HayabusaSegmenter(use_gpu=False).session)
+            create.assert_not_called()
+            segmenter = HayabusaSegmenter()
+            self.assertIs(segmenter.session, session)
+            self.assertEqual(segmenter.backend, 'Windows ML')
+            self.assertEqual(create.call_args.args[0].name, 'hayabusa-colors.onnx')
+            self.assertTrue(create.call_args.kwargs['require_gpu'])
+
+    def test_warmup_uses_live_model_dimensions_without_updating_trackers(self):
+        attack, player = Mock(backend='attack'), Mock(backend='player')
+        vision = HayabusaVision(detector=attack, player_detector=player, recognize_boards=False)
+        vision.last_time = 123.0
+        vision.player_locator.previous = ((10, 20, 30, 40), 123.0)
+        vision.warmup()
+        attack.predict.assert_called_once()
+        player.predict.assert_called_once()
+        frame = attack.predict.call_args.args[0]
+        self.assertIs(frame, player.predict.call_args.args[0])
+        self.assertEqual(frame.shape, (720, 1280, 3))
+        self.assertEqual(frame.dtype, np.uint8)
+        self.assertEqual(vision.last_time, 123.0)
+        self.assertEqual(vision.player_locator.previous, ((10, 20, 30, 40), 123.0))
+
+        segmenter = Mock(backend='segmenter')
+        vision = HayabusaVision(segmenter=segmenter, recognize_boards=False)
+        vision.warmup()
+        segmenter.masks.assert_called_once()
+        self.assertEqual(segmenter.masks.call_args.args[0].shape, (250, 640, 3))
 
 
 class HayabusaVisionTest(unittest.TestCase):

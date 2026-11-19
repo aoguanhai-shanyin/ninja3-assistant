@@ -37,6 +37,7 @@ class AssistantController:
         self.state, self.mode = 'idle', None
         self.activity_enabled, self.activity_mode = False, 'daily'
         self.weekend_enabled, self.weekend_mode = False, 'daily'
+        self.xumi_enabled = False
         self.daily_tasks, self.bounty_grade = [], None
         self.bounty_active_invite = self.bounty_passive_invite = True
         self.pet_feed_reward = None
@@ -49,6 +50,7 @@ class AssistantController:
             return {'state': self.state, 'mode': self.mode, 'folder': str(self.folder), 'index': self.index,
                     'activity_enabled': self.activity_enabled, 'activity_mode': self.activity_mode,
                     'weekend_enabled': self.weekend_enabled, 'weekend_mode': self.weekend_mode,
+                    'xumi_enabled': self.xumi_enabled,
                     'daily_tasks':list(self.daily_tasks), 'bounty_grade':self.bounty_grade,
                     'bounty_active_invite':self.bounty_active_invite,
                     'bounty_passive_invite':self.bounty_passive_invite,
@@ -117,7 +119,8 @@ class AssistantController:
         return info
 
     def start(self, mode='hayabusa', *, activity_enabled=False, activity_mode='daily',hide_game_window=False,
-              weekend_enabled=False, weekend_mode='daily', daily_tasks=(), bounty_grade=None, pet_feed_reward=None,
+              weekend_enabled=False, weekend_mode='daily', xumi_enabled=False, daily_tasks=(),
+              bounty_grade=None, pet_feed_reward=None,
               bounty_active_invite=True, bounty_passive_invite=True):
         if mode not in ('hayabusa', 'observe', 'run'):
             raise ValueError('mode must be hayabusa, observe, or run')
@@ -135,6 +138,10 @@ class AssistantController:
             raise ValueError('weekend_mode must be daily or 25')
         if weekend_enabled and mode != 'run':
             raise ValueError('weekend is available only in run mode')
+        if not isinstance(xumi_enabled, bool):
+            raise ValueError('xumi_enabled must be a boolean')
+        if xumi_enabled and mode != 'run':
+            raise ValueError('xumi is available only in run mode')
         if not isinstance(daily_tasks,(list,tuple)) or any(
                 not isinstance(kind,str) or kind not in CHORES for kind in daily_tasks):
             raise ValueError('daily_tasks must be a list of known daily chores')
@@ -161,6 +168,7 @@ class AssistantController:
             self.state, self.mode = 'starting', mode
             self.activity_enabled, self.activity_mode = activity_enabled, activity_mode
             self.weekend_enabled, self.weekend_mode = weekend_enabled, weekend_mode
+            self.xumi_enabled = xumi_enabled
             self.daily_tasks = list(dict.fromkeys(daily_tasks))
             self.bounty_grade = bounty_grade or ('D' if 'bounty' in self.daily_tasks else None)
             self.bounty_active_invite = bounty_active_invite
@@ -205,6 +213,8 @@ class AssistantController:
                     command += ['--activity-enabled', '--activity-mode', self.activity_mode]
                 if self.weekend_enabled:
                     command += ['--weekend-enabled', '--weekend-mode', self.weekend_mode]
+                if self.xumi_enabled:
+                    command.append('--xumi-enabled')
                 if self.daily_tasks:
                     command += ['--daily-tasks',*self.daily_tasks]
                 if self.bounty_grade is not None:
@@ -350,6 +360,7 @@ class AssistantController:
                               hide_game_window=message.get('hide_game_window',False),
                               weekend_enabled=message.get('weekend_enabled',False),
                               weekend_mode=message.get('weekend_mode','daily'),
+                              xumi_enabled=message.get('xumi_enabled', False),
                               daily_tasks=message.get('daily_tasks',()),
                               bounty_grade=message.get('bounty_grade'),
                               bounty_active_invite=message.get('bounty_active_invite',True),
@@ -423,6 +434,7 @@ def main():
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
     parser.add_argument('--weekend-enabled',action='store_true')
     parser.add_argument('--weekend-mode',choices=('daily','25'),default='daily')
+    parser.add_argument('--xumi-enabled', action='store_true')
     parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
     parser.add_argument('--bounty-grade',choices=('D','C','B','A'))
     parser.add_argument('--no-bounty-active-invite',dest='bounty_active_invite',action='store_false')
@@ -441,6 +453,8 @@ def main():
         parser.error('activity requires --command start --mode run')
     if args.weekend_enabled and (args.command != 'start' or args.mode != 'run'):
         parser.error('weekend requires --command start --mode run')
+    if args.xumi_enabled and (args.command != 'start' or args.mode != 'run'):
+        parser.error('xumi requires --command start --mode run')
     if args.daily_tasks and (args.command != 'start' or args.mode != 'run'):
         parser.error('daily chores require --command start --mode run')
     if args.bounty_grade is not None and (args.command != 'start' or args.mode != 'run' or
@@ -469,6 +483,8 @@ def main():
             message.update(activity_enabled=args.activity_enabled, activity_mode=args.activity_mode)
             if args.weekend_enabled:
                 message.update(weekend_enabled=True,weekend_mode=args.weekend_mode)
+            if args.xumi_enabled:
+                message['xumi_enabled'] = True
             if args.daily_tasks:
                 message['daily_tasks'] = args.daily_tasks
             if args.bounty_grade is not None:

@@ -83,7 +83,7 @@ class HomeVisionTest(unittest.TestCase):
                 ]})
                 self.assertEqual(screen.home_points['limited'],point)
                 self.assertEqual(screen.home_points['house'],(145,226))
-                self.assertEqual(screen.home_points['monthly'],(50,311))
+                self.assertNotIn('monthly',screen.home_points)
                 self.assertEqual(screen.home_points['shop'],(590,681))
 
     def test_unreadable_limited_entry_has_no_fixed_coordinate_fallback(self):

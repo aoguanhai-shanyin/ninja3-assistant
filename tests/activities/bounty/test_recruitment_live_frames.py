@@ -10,6 +10,25 @@ from ninja3_assistant.paths import project_root
 
 
 class ClanRecruitmentFramesTest(unittest.TestCase):
+    def test_152_opens_invites_without_recognizing_the_caption(self):
+        folder = project_root()/'data/runtime/daily-cleanup/runs/20261119-134910-075600-bounty-A'
+        path = folder/'0019-bounty_room-wait.png'
+        if not path.is_file():
+            self.skipTest('requires the local 152 bounty replay')
+        vision = DailyBountyVision(grade='A')
+        frame = cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB)
+        screen = vision.observe(frame,{'words':[]})
+        self.assertEqual((screen.page,screen.minimum_players),('bounty_room',True))
+        flow = DailyBountyFlow('bounty','A')
+        flow.room_owned = flow.room_trusted = True  # The immediately preceding action created the A room.
+        decision = flow.step(screen,vision)
+        self.assertEqual(decision.status,'打开悬赏队伍邀请列表')
+        self.assertTrue(vision.current_action(screen,decision,frame))
+        unavailable = frame.copy()
+        unavailable[300:376,595:685] = 0
+        self.assertIsNone(vision.observe(unavailable,{'words':[]}).invite_open)
+        self.assertFalse(vision.current_action(screen,decision,unavailable))
+
     def test_send_invitation_once_and_wait_for_teammate(self):
         folder = project_root()/'data/evidence/2026-11-17/daily-exploration'
         vision = DailyBountyVision()

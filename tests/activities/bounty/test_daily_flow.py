@@ -1,10 +1,15 @@
+from datetime import datetime, timedelta
 import unittest
 from types import SimpleNamespace
 
 import numpy as np
 
-from ninja3_assistant.activities.bounty.daily_flow import DailyBountyFlow
+from ninja3_assistant.activities.bounty.daily_flow import (
+    BountyProgress, DailyBountyFlow, EMPTY_ORDERS_RECHECK_SECONDS, ORDER_REFRESH_MIN_SECONDS, TASK_PANEL_RECHECK_SECONDS,
+)
 from ninja3_assistant.activities.bounty.daily_vision import DailyBountyScreen, DailyBountyVision
+from ninja3_assistant.activities.intelligence.flow import CHINA, daily_key
+from ninja3_assistant.scheduling.activity_task import selected_tasks
 
 
 def screen(page, **fields):
@@ -19,6 +24,123 @@ def checked_flow(*args, **kwargs):
 
 
 class DailyBountyFlowTest(unittest.TestCase):
+    def test_retries_reuse_only_confirmed_checks_and_revalidate_visible_grade(self):
+        progress=BountyProgress()
+        first=DailyBountyFlow('bounty','A',progress=progress)
+        first.step(screen('bounty_free',free_exhausted=True),None)
+        first.step(screen('bounty_tasks',task_states={'friend':'claimed','family':'pending'}),None)
+        listing=screen('bounty_daily',remaining=3,grade='A')
+        self.assertEqual(first.step(listing,None).point,(875,670))
+        first.try_quick_join=True
+        first.quick_join_at=1.
+        first.room_trusted=first.room_owned=first.in_room=first.free_attempted=True
+        first.invited_names.add('队友')
+
+        resumed=DailyBountyFlow('bounty','A',progress=progress)
+        self.assertTrue(resumed.tasks_cached)
+        self.assertFalse(any((resumed.room_trusted,resumed.room_owned,resumed.in_room,
+                              resumed.try_quick_join,resumed.free_attempted,resumed.invited_names)))
+        self.assertIsNone(resumed.quick_join_at)
+        self.assertEqual(resumed.step(screen('bounty_daily',remaining=3),None).point,(875,670))
+        self.assertEqual(resumed.step(screen('bounty_daily',remaining=3,grade='B'),None).point,(730,670))
+        # An unverified or newly zero count never becomes a completed task through cache reuse.
+        self.assertEqual(resumed.step(screen('bounty_daily',remaining=None),None).action,'wait')
+        self.assertEqual(resumed.step(screen('bounty_daily',remaining=0,grade='A'),None).point,(330,670))
+        self.assertFalse(resumed.tasks_cached)
+
+    def test_shared_checks_expire_or_are_invalidated_by_a_confirmed_settlement(self):
+        now=[0.]
+        progress=BountyProgress()
+        regular=DailyBountyFlow('bounty','A',progress=progress,clock=lambda:now[0])
+        pending={'friend':'pending','family':'claimed'}
+        regular.step(screen('bounty_tasks',task_states=pending),None)
+        s=DailyBountyFlow('bounty_s',progress=progress,clock=lambda:now[0])
+        order=screen('bounty_order',remaining=2,s_filter='on',ss_filter='off',refresh=(1146,171))
+        self.assertEqual(s.step(order,None).point,(1115,670))
+        empty=screen('bounty_own_empty')
+        s.completed(s.step(empty,None),empty)
+        resumed=DailyBountyFlow('bounty_s',progress=progress,clock=lambda:now[0])
+        refresh=resumed.step(order,None)
+        self.assertEqual(refresh.point,(1146,171))
+        resumed.completed(refresh,order)
+        self.assertEqual(resumed.step(order,None).action,'wait')
+        now[0]=EMPTY_ORDERS_RECHECK_SECONDS
+        self.assertEqual(resumed.step(order,None).point,(1146,171))
+        fresh=DailyBountyFlow('bounty_s',progress=progress,clock=lambda:now[0])
+        self.assertEqual(fresh.step(order,None).point,(1115,670))
+        now[0]=TASK_PANEL_RECHECK_SECONDS
+        self.assertEqual(resumed.step(order,None).point,(1146,171))
+        self.assertEqual(fresh.step(order,None).point,(65,50))
+
+        regular.step(screen('bounty_tasks',task_states=pending),None)
+        result=screen('result',grade='A',confirm=(640,680))
+        regular.completed(regular.step(result,None),result)
+        self.assertFalse(DailyBountyFlow('bounty_s',progress=progress,clock=lambda:now[0]).tasks_checked)
+
+    def test_bounty_progress_resets_at_five_in_beijing(self):
+        wall=[datetime(2026,11,20,4,59,59,tzinfo=CHINA)]
+        progress=BountyProgress()
+        day=lambda:daily_key(wall[0])
+        before=DailyBountyFlow('bounty','A',progress=progress,day_clock=day)
+        before.step(screen('bounty_free',free_exhausted=True),None)
+        before.step(screen('bounty_tasks',task_states={'friend':'claimed','family':'claimed'}),None)
+        before.step(screen('bounty_daily',remaining=3,grade='A'),None)
+        before.step(screen('bounty_own_empty'),None)
+        wall[0]+=timedelta(seconds=1)
+        self.assertEqual(before.step(screen('bounty_hub'),None).point,(155,675))
+        self.assertFalse(before.free_checked)
+        self.assertEqual(progress.tracking(1),{'free_checked':False,'confirmed_grade':None,
+            'checked_tasks':{},'regular_remaining':None,'order_remaining':None,
+            'reuse_tasks':False,'reuse_empty_orders':False})
+
+    def test_a_exhaustion_hands_off_to_s_only_with_a_confirmed_current_day_quota(self):
+        now=[datetime(2026,11,20,4,59,59,tzinfo=CHINA)]
+        regular,order=selected_tasks(daily_tasks=('bounty','bounty_s'),bounty_grade='A')
+        flow=checked_flow('bounty','A',progress=regular._bounty_progress,day_clock=lambda:daily_key(now[0]))
+        flow.task_states['friend']='pending'
+        board=screen('bounty_daily',remaining=0,grade='A')
+        self.assertEqual(flow.step(board,None).point,(380,172))
+        self.assertFalse(regular.bounty_quota_exhausted(now[0]))
+        flow.step(screen('bounty_free',free_exhausted=True),None)
+        self.assertEqual(flow.step(screen('bounty_daily',remaining=2,grade='A'),None).point,(875,670))
+        self.assertFalse(regular.bounty_quota_exhausted(now[0]))
+        self.assertEqual(flow.step(board,None).status,'A级每日悬赏次数已用完，继续S级悬赏')
+        self.assertTrue(regular.bounty_quota_exhausted(now[0]))
+
+        search=checked_flow('bounty_s',progress=order._bounty_progress,day_clock=lambda:daily_key(now[0]))
+        s_board=screen('bounty_order',remaining=2,s_filter='on',ss_filter='off',join=(400,300))
+        self.assertEqual(search.step(s_board,None).point,(400,300))
+        now[0]+=timedelta(seconds=1)
+        # A battle already in progress can still settle; only the next S board search waits for A.
+        self.assertEqual(search.step(screen('battle'),None).action,'battle')
+        self.assertEqual(search.step(screen('result',grade='S',confirm=(640,680)),None).point,(640,680))
+        self.assertEqual(search.step(s_board,None).status,'等待A级每日悬赏清完今日次数')
+        self.assertFalse(regular.bounty_quota_exhausted(now[0]))
+
+    def test_s_passive_invitation_can_play_before_a_scheduled_quota_is_empty(self):
+        flow=DailyBountyFlow('bounty_s',progress=BountyProgress(order_after_regular=True))
+        invite=screen('invite',point=(470,525),
+                      invitation=SimpleNamespace(source='family',grade='S',accept=(810,525)))
+        accept=flow.step(invite,None)
+        self.assertEqual(accept.point,(810,525))
+        flow.completed(accept,invite)
+        self.assertEqual(flow.step(screen('bounty_room',grade='S',ready=(1100,660)),None).point,(1100,660))
+        self.assertEqual(flow.step(screen('battle'),None).action,'battle')
+        self.assertEqual(flow.step(screen('result',grade='S',confirm=(640,680)),None).point,(640,680))
+
+    def test_hall_search_checks_both_sides_then_retries_without_marking_complete(self):
+        flow=DailyBountyFlow('bounty','A')
+        hall=screen('hall')
+        for start,end in [((1080,400),(280,400))]*3 + [((280,400),(1080,400))]*3:
+            decision=flow.step(hall,None)
+            self.assertEqual((decision.action,decision.point,decision.end),('swipe',start,end))
+            self.assertEqual(flow.step(hall,None),decision)
+            flow.completed(decision,hall)
+        decision=flow.step(hall,None)
+        self.assertEqual(decision.action,'retry')
+        self.assertIsNone(decision.point)
+        self.assertEqual(flow.step(screen('hall',entry=(1045,161)),None).point,(1045,161))
+
     def test_daily_tasks_are_checked_and_only_completed_when_both_are_claimed(self):
         flow=DailyBountyFlow('bounty','A')
         self.assertEqual(flow.step(screen('bounty_hub'),None).point,(155,675))
@@ -219,13 +341,52 @@ class DailyBountyFlowTest(unittest.TestCase):
         self.assertEqual(decision.action,'unavailable')
         self.assertIn('尚未通过等级测试',decision.status)
 
-    def test_empty_owned_orders_return_to_search_then_retry_without_buying(self):
-        flow=checked_flow('bounty_s')
+    def test_empty_owned_orders_keep_refreshing_and_prioritize_a_visible_s_team(self):
+        now=[0.]
+        flow=checked_flow('bounty_s',clock=lambda:now[0])
         owned=screen('bounty_own_empty')
         back=flow.step(owned,None);flow.completed(back,owned)
         self.assertEqual(back.point,(1115,670))
-        listing=screen('bounty_order',remaining=3,s_filter='on',ss_filter='off')
-        self.assertEqual(flow.step(listing,None).action,'retry')
+        listing=screen('bounty_order',remaining=3,s_filter='on',ss_filter='off',refresh=(1146,171))
+        refresh=flow.step(listing,None)
+        self.assertEqual(refresh.point,(1146,171))
+        flow.completed(refresh,listing)
+        self.assertEqual(flow.step(listing,None).action,'wait')
+        listing.join=(390,300)
+        self.assertEqual(flow.step(listing,None).point,(390,300))
+        listing.join=None
+        listing.refresh=None
+        now[0]=ORDER_REFRESH_MIN_SECONDS
+        self.assertEqual(flow.step(listing,None).action,'wait')
+        listing.refresh=(1146,171)
+        self.assertEqual(flow.step(listing,None).point,(1146,171))
+
+    def test_s_failure_refreshes_when_enabled_even_if_toast_disappears_and_old_plus_remains(self):
+        now=[0.]
+        flow=checked_flow('bounty_s',clock=lambda:now[0])
+        listing=screen('bounty_order',remaining=2,s_filter='on',ss_filter='off',join=(401,307))
+        self.assertEqual(flow.step(listing,None).point,(401,307))
+        listing.join_failed=True
+        self.assertEqual(flow.step(listing,None).action,'wait')
+        listing.join_failed=False
+        listing.refresh=(1146,171)
+        refresh=flow.step(listing,None)
+        self.assertEqual(refresh.point,(1146,171))
+        flow.completed(refresh,listing)
+        listing.join=(771,307)
+        self.assertEqual(flow.step(listing,None).point,(771,307))
+
+    def test_s_success_waits_for_room_after_the_toast_clears(self):
+        now=[0.]
+        flow=checked_flow('bounty_s',clock=lambda:now[0])
+        listing=screen('bounty_order',remaining=2,s_filter='on',ss_filter='off',join=(401,307),
+                       join_pending=True,refresh=(1146,171))
+        self.assertEqual(flow.step(listing,None).action,'wait')
+        listing.join_pending=False
+        now[0]=.5
+        self.assertEqual(flow.step(listing,None).action,'wait')
+        now[0]=1.
+        self.assertEqual(flow.step(listing,None).point,(401,307))
 
     def test_failed_quick_join_is_retried_by_the_planner(self):
         flow=checked_flow('bounty','D')
@@ -244,6 +405,37 @@ class DailyBountyFlowTest(unittest.TestCase):
         now[0]=6
         self.assertEqual(flow.step(listing,None).action,'retry')
 
+    def test_settlement_restarts_matching_when_three_rewards_remain(self):
+        now=[0]
+        flow=checked_flow('bounty','A',clock=lambda:now[0])
+        flow.free_checked=True;flow.confirmed_grade='A';flow.try_quick_join=True
+        listing=screen('bounty_daily',remaining=4,grade='A',refresh=(1151,171))
+        flow.completed(flow.step(listing,None),listing)
+        now[0]=70
+        result=screen('result',grade='A',confirm=(640,680))
+        flow.completed(flow.step(result,None),result)
+        self.assertEqual(flow.step(listing,None).point,(330,670))
+        flow.step(screen('bounty_tasks',task_states=flow.task_states),None)
+        listing.remaining=3
+        refresh=flow.step(listing,None)
+        self.assertEqual(refresh.point,(1151,171))
+        flow.completed(refresh,listing)
+        self.assertEqual(flow.step(listing,None).point,(875,670))
+
+    def test_expired_joined_room_can_try_a_fresh_quick_join(self):
+        now=[0]
+        flow=checked_flow('bounty','A',clock=lambda:now[0])
+        flow.free_checked=True;flow.confirmed_grade='A';flow.try_quick_join=True
+        listing=screen('bounty_daily',remaining=4,grade='A')
+        flow.completed(flow.step(listing,None),listing)
+        room=screen('bounty_room',grade='A')
+        flow.step(room,None)
+        now[0]=60
+        self.assertEqual(flow.step(room,None).point,(65,50))
+        leave=screen('bounty_leave')
+        flow.completed(flow.step(leave,None),leave)
+        self.assertEqual(flow.step(listing,None).point,(1120,670))
+
     def test_empty_created_room_waits_then_leaves_without_inviting_friends(self):
         now=[0]
         flow=checked_flow('bounty','D',clock=lambda:now[0])
@@ -252,7 +444,9 @@ class DailyBountyFlowTest(unittest.TestCase):
         create=flow.step(listing,None);flow.completed(create,listing)
         room=screen('bounty_room',grade='D',minimum_players=True)
         self.assertEqual(flow.step(room,None).action,'wait')
-        now[0]=21
+        now[0]=44
+        self.assertEqual(flow.step(room,None).action,'wait')
+        now[0]=45
         leave=flow.step(room,None)
         self.assertEqual(leave.point,(65,50))
         confirm=flow.step(screen('bounty_leave'),None);flow.completed(confirm,screen('bounty_leave'))
@@ -280,7 +474,9 @@ class DailyBountyFlowTest(unittest.TestCase):
         close=flow.step(family,None);flow.completed(close,family)
         self.assertIn('等待队友加入',close.status)
         self.assertEqual(flow.step(room,None).action,'wait')
-        now[0]=21
+        now[0]=44
+        self.assertEqual(flow.step(room,None).action,'wait')
+        now[0]=45
         self.assertEqual(flow.step(room,None).point,(65,50))
 
     def test_joined_room_does_not_send_outgoing_invitations(self):
@@ -290,6 +486,20 @@ class DailyBountyFlowTest(unittest.TestCase):
         self.assertEqual(flow.step(room,None).action,'wait')
         panel=screen('bounty_recruit',recruit_tab='friend',recruit_candidates=[('好友甲',(1210,135))])
         self.assertEqual(flow.step(panel,None).action,'wait')
+
+    def test_joined_room_waits_a_minute_and_prioritizes_start(self):
+        for minimum_players in (True,False):
+            with self.subTest(minimum_players=minimum_players):
+                now=[0]
+                flow=checked_flow('bounty','A',clock=lambda:now[0])
+                room=screen('bounty_room',grade='A',minimum_players=minimum_players)
+                self.assertEqual(flow.step(room,None).action,'wait')
+                now[0]=59
+                self.assertEqual(flow.step(room,None).action,'wait')
+                now[0]=60
+                self.assertEqual(flow.step(room,None).point,(65,50))
+                start=screen('bounty_room',grade='A',start=(1090,660))
+                self.assertEqual(flow.step(start,None).point,(1090,660))
 
     def test_recruit_open_timeout_does_not_repeat_the_tap(self):
         now=[0]

@@ -1,4 +1,4 @@
-"""Build fixed RGB comparisons for DirectML; this is not model training."""
+"""Build an ONNX graph for fixed RGB comparisons."""
 from ninja3_assistant.paths import project_root
 
 import numpy as np

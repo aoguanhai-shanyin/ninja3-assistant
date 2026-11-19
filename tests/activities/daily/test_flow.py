@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import numpy as np
 
 from ninja3_assistant.activities.daily.flow import DailyFlow
+from ninja3_assistant.activities.daily.shop_stock import recover_coin_stock
 from ninja3_assistant.activities.daily.vision import DailyScreen
 
 
@@ -72,6 +73,13 @@ class DailyFlowTest(unittest.TestCase):
         self.assertEqual(decision.action,'done')
         self.assertIsNone(decision.point)
 
+    def test_silver_vault_accepts_observed_cooldown_ocr_error_without_tapping(self):
+        flow=DailyFlow('weapon')
+        s=screen('weapon',[('下次晚费:]7小时09分',[674,579,210,28])])
+        decision=flow.step(s,self.vision())
+        self.assertEqual(decision.action,'done')
+        self.assertIsNone(decision.point)
+
     def test_reward_confirmation_does_not_press_the_paid_repeat_button(self):
         s=screen('reward',[('确定',[425,653,60,30]),('60再炼化1次',[710,650,230,35])])
         decision=DailyFlow('curse').step(s,self.vision())
@@ -87,6 +95,33 @@ class DailyFlowTest(unittest.TestCase):
     def test_unknown_stock_does_not_count_as_a_completed_purchase(self):
         s=screen('daily_shop',[('神龙之血',[530,110,100,30])])
         self.assertEqual(DailyFlow('daily_shop').step(s,self.vision()).action,'wait')
+
+    def test_bare_positive_stock_or_a_zero_outside_the_stock_line_is_unconfirmed(self):
+        v=self.vision();v.coin.side_effect=lambda _,box:box == (292,580,472,630)
+        for words in ([('剩余次数:1',[310,427,119,19])],
+                      [('剩余次数:',[310,427,94,19]),('0',[404,590,11,15])]):
+            with self.subTest(words=words):
+                decision=DailyFlow('daily_shop').step(screen('daily_shop',words),v)
+                self.assertEqual(decision.action,'wait')
+
+    def test_zoomed_stock_recovers_the_coin_slot_from_merged_digits(self):
+        s=screen('daily_shop',[('火锤剩余次数:忉',[310,427,119,19]),
+                               ('碎片剩余次数:1/1',[758,425,120,19])])
+        v=self.vision();v.coin.side_effect=lambda _,box:box == (292,580,472,630)
+        engine=Mock();engine.read.return_value={'text':'剩余次数：1 / 1'}
+        self.assertTrue(recover_coin_stock(s,v,engine,None))
+        engine.read.assert_called_once()
+        self.assertEqual(engine.read.call_args.args[0].shape,(198,710,3))
+        self.assertEqual(DailyFlow('daily_shop').step(s,v).point,(372,510))
+
+    def test_zoomed_stock_without_a_valid_fraction_keeps_waiting(self):
+        v=self.vision();v.coin.side_effect=lambda _,box:box == (292,580,472,630)
+        for text,action in (('剩余次数:忉','wait'),('剩余次数:2/1','wait'),('剩余次数:0/1','done')):
+            with self.subTest(text=text):
+                s=screen('daily_shop',[('火锤剩余次数:忉',[310,427,119,19])])
+                engine=Mock();engine.read.return_value={'text':text}
+                self.assertTrue(recover_coin_stock(s,v,engine,None))
+                self.assertEqual(DailyFlow('daily_shop').step(s,v).action,action)
 
     def test_monthly_signin_stops_at_twenty_five(self):
         s=screen('monthly',[('本月累计签到25次',[500,240,230,30])])

@@ -71,7 +71,7 @@ class SceneRig:
         rig = self
 
         class Scene:
-            def __init__(self, *, clock):
+            def __init__(self, *, clock, prewarm):
                 rig.scene_clock = clock
             step = staticmethod(rig.scene_step)
             def reset(self):
@@ -121,7 +121,8 @@ class SceneRig:
 
         with patch('ninja3_assistant.runtime.runner.prepare_game', return_value=False), \
                 patch('ninja3_assistant.runtime.runner.create_native_touch', return_value=self.native), \
-                patch('ninja3_assistant.runtime.runner.Vision', Detector), patch('ninja3_assistant.runtime.runner.MuMu', return_value=Device()), \
+                patch('ninja3_assistant.runtime.runner.Vision', side_effect=lambda **_: Detector()), \
+                patch('ninja3_assistant.runtime.runner.MuMu', return_value=Device()), \
                 patch('ninja3_assistant.runtime.runner.Flow', Flow), patch('ninja3_assistant.runtime.runner.HayabusaScene', Scene):
             run_flow('test', 0, self.control, collect)
 

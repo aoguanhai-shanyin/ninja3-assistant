@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
         public string ActivityMode { get; set; } = "daily";
         public bool WeekendEnabled { get; set; }
         public string WeekendMode { get; set; } = "daily";
+        public bool XumiEnabled { get; set; }
         public bool HideGameWindow { get; set; }
         public bool DailyEnabled { get; set; }
         public string[] DailyTasks { get; set; } = ["monthly", "limited", "blessing", "weapon", "curse", "bounty_shop", "daily_shop", "village", "house", "bounty", "bounty_s", "rank", .. NewDailyTasks];
@@ -63,6 +64,9 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ActivityTabs.SelectionChanged += ActivityTabs_SelectionChanged;
+        ActivityTabs.SelectedItem = IntelligenceTab;
+        WeekendTabs.SelectedItem = WeekendTab;
         InitializeVideoDebug();
         AppWindow.Resize(new SizeInt32(1080, 760));
         Closed += Window_Closed;
@@ -103,6 +107,7 @@ public sealed partial class MainWindow : Window
         WeekendEnabledSwitch.IsOn = settings.WeekendEnabled;
         WeekendModeBox.SelectedIndex = settings.WeekendMode == "25" ? 1 : 0;
         WeekendModeBox.IsEnabled = settings.WeekendEnabled;
+        XumiEnabledSwitch.IsOn = settings.XumiEnabled;
         HideGameWindowSwitch.IsOn = settings.HideGameWindow;
         DailyEnabledSwitch.IsOn = settings.DailyEnabled;
         var dailyTasks = settings.DailyTasks ?? [];
@@ -157,6 +162,7 @@ public sealed partial class MainWindow : Window
         settings.ActivityMode = ActivityModeBox.SelectedIndex == 1 ? "continuous" : "daily";
         settings.WeekendEnabled = WeekendEnabledSwitch.IsOn;
         settings.WeekendMode = WeekendModeBox.SelectedIndex == 1 ? "25" : "daily";
+        settings.XumiEnabled = XumiEnabledSwitch.IsOn;
         settings.HideGameWindow = HideGameWindowSwitch.IsOn;
         settings.DailyEnabled = DailyEnabledSwitch.IsOn;
         settings.DailyTasks = DailyOptionsPanel.Children.OfType<CheckBox>()
@@ -357,6 +363,9 @@ public sealed partial class MainWindow : Window
                 info.ArgumentList.Add("--weekend-mode");
                 info.ArgumentList.Add(settings.WeekendMode);
             }
+
+            if (mode == "run" && settings.XumiEnabled)
+                info.ArgumentList.Add("--xumi-enabled");
             if (mode == "run" && settings.DailyEnabled)
             {
                 info.ArgumentList.Add("--daily-tasks");
@@ -565,6 +574,7 @@ public sealed partial class MainWindow : Window
         JoinIntervalBox.IsEnabled = available;
         ActivityEnabledSwitch.IsEnabled = available;
         WeekendEnabledSwitch.IsEnabled = available;
+        XumiEnabledSwitch.IsEnabled = available;
         WeekendModeBox.IsEnabled = available && WeekendEnabledSwitch.IsOn;
         ActivityModeBox.IsEnabled = available && ActivityEnabledSwitch.IsOn;
         DailyEnabledSwitch.IsEnabled = available;
@@ -605,6 +615,12 @@ public sealed partial class MainWindow : Window
     {
         if (ActivityModeBox is not null)
             ActivityModeBox.IsEnabled = ActivityEnabledSwitch.IsOn && _worker is null && !_scanning && !VideoDebugBusy;
+    }
+
+    private void ActivityTabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        IntelligenceOptions.Visibility = sender.SelectedItem == IntelligenceTab ? Visibility.Visible : Visibility.Collapsed;
+        XumiOptions.Visibility = sender.SelectedItem == XumiTab ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void WeekendEnabled_Toggled(object sender, RoutedEventArgs e)

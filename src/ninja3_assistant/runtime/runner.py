@@ -95,10 +95,13 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
     try:
         if not 20 <= join_interval_ms <= 1000:
             raise ValueError('抢队点击间隔须在 20 到 1000 毫秒之间')
+        if control.stop.is_set():
+            return
+        scene = HayabusaScene(clock=control.now, prewarm=True)
         launched = prepare_game(folder, index, control, status)
         if launched is None:
             return
-        vision = Vision()
+        vision = Vision(prewarm=True)
         emit('backend', vision.backend)
         if control.stop.is_set():
             return
@@ -116,7 +119,6 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
             return
         flow = Flow()
         flow.entering = launched
-        scene = HayabusaScene(clock=control.now)
         opening = OpeningActions()
         native = create_native_touch(folder, index, control.stop, emit)
         if native is not None:
@@ -281,9 +283,9 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
                     scene.release()
                     opening.reset()
                     scene_owned = False
-                    if current_backend != vision.backend:
-                        current_backend = vision.backend
-                        emit('backend', current_backend)
+                if current_backend != vision.backend:
+                    current_backend = vision.backend
+                    emit('backend', current_backend)
                 decision = flow.step(screen, control.now())
                 if flow.successful_kills > reported_kills:
                     emit('kill', flow.successful_kills - reported_kills)

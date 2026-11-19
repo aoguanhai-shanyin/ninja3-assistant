@@ -9,11 +9,38 @@ NO_REWARD = r'(?:已经?|均已|全部已|已全部)领取|暂无(?:可领取的
 TOP_LEFT = (90, 0, 430, 105)
 MENU_CARD = (275, 105, 605, 250)
 RANK_STRIPE = (140, 410, 875, 480)
+HISTORY_TITLE = (210, 52, 360, 106)
+HISTORY_BUTTON = (530, 632, 750, 699)
+TROPHY_TITLE = (580, 208, 752, 275)
+TROPHY_BUTTON = (535, 588, 755, 650)
+CURRENCY_BUTTON = (525, 604, 756, 682)
 BACK = (60, 50)
 RULES_CLOSE = (1150, 510)
 
 
+def previous_currency_point(frame, vision):
+    # Full-frame OCR can be blank on this animated reward notice.
+    if (vision is not None and
+            vision.match(frame, 'arena-previous-coins-title', (451, 74, 829, 150), threshold=.94) and
+            vision.match(frame, 'arena-previous-coins-label', (571, 406, 715, 473), threshold=.94)):
+        return vision.match(frame, 'confirm', CURRENCY_BUTTON)
+    return None
+
+
 def observe(screen, vision=None):
+    if point := previous_currency_point(screen.frame, vision):
+        return 'arena-currency', point
+    if (screen.hits('奖杯结算', TROPHY_TITLE) and
+            screen.hits(r'[\u3400-\u9fff]{2,4}[组組]', (540, 399, 680, 454)) and
+            screen.hits(r'第\d{1,3}名', (690, 399, 827, 454))):
+        confirm = screen.hits('确定', TROPHY_BUTTON)
+        if len(confirm) == 1:
+            return 'arena-trophy', confirm[0].point
+    if (screen.hits('上次成绩', HISTORY_TITLE) and
+            screen.hits(r'[\u3400-\u9fff]{2,4}[组組]', (570, 49, 726, 108))):
+        confirm = screen.hits('确定', HISTORY_BUTTON)
+        if len(confirm) == 1:
+            return 'arena-history', confirm[0].point
     if screen.hits('排名奖励规则', (645, 130, 1050, 240)):
         return 'arena-rules', RULES_CLOSE
     if (screen.hits(r'(?:竞技场|排名|每日|每周|分组)结算', (200, 25, 1080, 260)) and
@@ -48,6 +75,12 @@ def menu_entry(screen, vision):
 
 
 def navigate(screen, vision):
+    if screen.page == 'arena-history' and screen.point:
+        return tap(screen.point, '关闭竞技场上次成绩', HISTORY_BUTTON)
+    if screen.page == 'arena-trophy' and screen.point:
+        return tap(screen.point, '关闭竞技场奖杯结算', TROPHY_BUTTON)
+    if screen.page == 'arena-currency' and screen.point:
+        return tap(screen.point, '确认上次未领取竞技币', CURRENCY_BUTTON)
     if screen.page == 'home':
         hits = screen.hits(rf'{ARENA_TITLE}|决[斗鬥]场', (970, 525, 1280, 700))
         point = hits[0].point if hits else (1110, 625)

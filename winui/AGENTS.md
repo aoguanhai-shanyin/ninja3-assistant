@@ -25,7 +25,7 @@
 
 ## Worker 协议
 
-- 运行组件为同一发布目录下的 `Ninja3Worker.exe`；参数与 `src/ninja3_assistant/entrypoints/worker.py` 保持一致。
+- Worker 由同一发布目录下的 `Ninja3Worker.exe` 和配套 `_internal/` 组成。参数与 `src/ninja3_assistant/entrypoints/worker.py` 保持一致。
 - 标准输入按行发送 JSON 控制命令，包括 `pause`、`resume`、`stop`；标准输出按行读取 `event`、`value` 事件，诊断信息与事件解析区分处理。
 - 修改事件、参数或状态含义时同时更新 Python 端和相关测试；不能只改界面让状态看似成功。
 

@@ -4,6 +4,7 @@ from ninja3_assistant.paths import resource_root
 import cv2
 import numpy as np
 
+from ninja3_assistant.activities.daily.vision import DailyVision
 from ninja3_assistant.activities.intelligence.flow import ActivityScreen
 from ninja3_assistant.activities.intelligence.battle_vision import BattleVision
 from ninja3_assistant.activities.intelligence.tasks import TaskVision
@@ -13,11 +14,11 @@ ROOT = resource_root()
 
 
 class ActivityVision:
-    def __init__(self):
-        self.navigation = Vision()
-        self.battle = BattleVision()
+    def __init__(self, *, use_winml=False):
+        self.navigation = Vision(use_gpu=False)
+        self.daily_navigation = DailyVision()
+        self.battle = BattleVision(use_winml=use_winml)
         self.tasks = TaskVision()
-        self.backend = self.navigation.backend
         self.templates = {}
         for name in ('hall-title', 'home-title', 'start', 'navigation-home', 'navigation-home-summon'):
             template = cv2.imread(str(ROOT/'assets/intelligence'/f'{name}.png'), 0)
@@ -25,7 +26,11 @@ class ActivityVision:
                 raise RuntimeError('找不到情报模拟战识别图片：'+name)
             self.templates[name] = template
 
-    def match(self, gray, name, area, threshold=.94):
+    @property
+    def backend(self):
+        return self.battle.backend
+
+    def match(self, gray, name, area, threshold=.94, max_error=22):
         x, y, w, h = area
         template = self.templates[name]
         region = gray[y:y+h, x:x+w]
@@ -33,7 +38,7 @@ class ActivityVision:
             return False
         _, score, _, at = cv2.minMaxLoc(cv2.matchTemplate(region, template, cv2.TM_CCOEFF_NORMED))
         patch = region[at[1]:at[1]+template.shape[0], at[0]:at[0]+template.shape[1]]
-        return score >= threshold and np.abs(patch.astype(np.int16)-template).mean() < 22
+        return score >= threshold and (max_error is None or np.abs(patch.astype(np.int16)-template).mean() < max_error)
 
     def detect(self, frame, ocr=None):
         if frame.shape != (720, 1280, 3):
@@ -48,6 +53,9 @@ class ActivityVision:
         task = self.tasks.detect(frame, ocr)
         if task.kind in ('tasks', 'reward'):
             return self.task_screen(task)
+        if (self.daily_navigation.guide_chrome(frame) and
+                self.match(gray, 'home-title', (70, 0, 400, 110), threshold=.98, max_error=None)):
+            return ActivityScreen('guide', self.daily_navigation.guide_point(frame))
         if (self.match(gray, 'home-title', (70, 0, 400, 110)) and
                 self.match(gray, 'start', (480, 520, 330, 90))):
             return ActivityScreen('event_home')
@@ -68,6 +76,8 @@ class ActivityVision:
             return ActivityScreen('hall_search')
         if nav.network_error and nav.network_retry:
             return ActivityScreen('network_retry', nav.network_retry)
+        if self.daily_navigation.home(frame):
+            return ActivityScreen('home', (864, 612))
         return ActivityScreen()
 
     @staticmethod

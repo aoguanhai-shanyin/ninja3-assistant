@@ -34,23 +34,13 @@ class HayabusaDetector:
             if hashlib.sha256(model.read_bytes()).hexdigest() != spec['onnx_sha256']:
                 raise ValueError('隼白检测模型与描述文件的 SHA256 不匹配')
             import onnxruntime as ort
+            from ninja3_assistant.vision.winml import model_session
             options = ort.SessionOptions()
             options.enable_mem_pattern = False
             options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
             options.intra_op_num_threads = 1
-            providers = ['CPUExecutionProvider']
-            self.backend = 'YOLO11n ONNX / CPU'
-            if use_gpu:
-                from ninja3_assistant.device.dxgi_adapters import adapters
-                available = [item for item in adapters() if item[2] != 0x1414]
-                if 'DmlExecutionProvider' not in ort.get_available_providers() or not available:
-                    raise RuntimeError('隼白检测模型需要 DirectML GPU；离线回放可指定 CPU')
-                index, name, _, _ = max(available, key=lambda item: item[3])
-                providers.insert(0, ('DmlExecutionProvider', {'device_id': index}))
-                self.backend = 'YOLO11n ONNX / ' + name
-            session = ort.InferenceSession(str(model), sess_options=options, providers=providers)
-            if use_gpu and session.get_providers()[0] != 'DmlExecutionProvider':
-                raise RuntimeError('隼白检测模型的 DirectML 初始化失败')
+            session, backend = model_session(model, use_gpu=use_gpu, require_gpu=use_gpu, options=options)
+            self.backend = 'YOLO11n ONNX / ' + backend
         self.session = session
         inputs = session.get_inputs()
         if len(inputs) != 1 or inputs[0].shape != [1, 3, 640, 640] or inputs[0].type != 'tensor(float)':

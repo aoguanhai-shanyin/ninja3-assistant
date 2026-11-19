@@ -10,6 +10,7 @@ _REWARD_PREVIEW = (239, 595, 347, 704)
 _START_BUTTON = (995, 610, 1250, 690)
 _CLAIM = '领取巡逻奖励'
 _START = '开始通灵兽巡逻'
+_SELECT = '选择巡逻路线 '
 _SCROLL = '寻找通灵兽巡逻路线'
 
 
@@ -47,14 +48,22 @@ def _home_patrol_running(screen):
 def _empty_food_slot(frame, label):
     # The unfilled extra-food slot shows a solid white plus on grey.
     y = label.point[1] + 63
-    white = frame[y-20:y+21, 1186:1227].min(axis=2) > 225
-    return white.mean(axis=0).max() > .8 and white.mean(axis=1).max() > .8
+    white = frame[y-36:y+37, 1186:1227].min(axis=2) > 225
+    columns, rows = white.sum(axis=0), white.sum(axis=1)
+    x, y = columns.argmax(), rows.argmax()
+    return columns[x] >= 33 and rows[y] >= 33 and white[y, x]
+
+
+def extra_food_still_empty(screen, fresh):
+    extra = screen.hits('[额額]外食物', _EXTRA_FOOD)
+    return bool(extra and _empty_food_slot(fresh, extra[0]))
 
 
 class PetFeed:
     def __init__(self, reward):
         self.route = _ROUTES[reward]
         self.claim_sent = False
+        self.route_sent = False
         self.start_sent = False
         self.scrolls = 0
 
@@ -95,18 +104,25 @@ class PetFeed:
         if screen.hits('兵粮丸不足', (320, 240, 980, 560)):
             return DailyDecision('unavailable', status='特制兵粮丸不足')
 
+        extra = screen.hits('[额額]外食物', _EXTRA_FOOD)
         route = screen.hits(self.route, _ROUTE_NAMES)
+        if not route and self.route_sent and self.route == '雾之湖' and extra:
+            # The selected row moves up and its first character can sit under the floating chest.
+            y = extra[0].point[1]
+            if (screen.hits('2小时', (473, y+40, 575, y+105)) and
+                    vision.match(screen.frame, 'pet-exp-reward', _REWARD_PREVIEW, threshold=.96)):
+                route = screen.hits('之湖', (40, y+12, 135, y+73))
         if not route:
             if self.scrolls < 2:
                 start, end = ((620, 225), (620, 530)) if self.route == '忍村' else ((620, 530), (620, 230))
                 return DailyDecision('swipe', start, _SCROLL, end, guard=_TITLE)
             return DailyDecision('unavailable', status=f'未找到可选的巡逻路线 {self.route}')
-        x, y = route[0].point
-        extra = screen.hits('[额額]外食物', _EXTRA_FOOD)
+        _, y = route[0].point
         if not extra or not 12 <= y-extra[0].point[1] <= 72:
             if screen.hits('未解锁|解锁后', (0, y-35, 1250, y+75)):
                 return DailyDecision('unavailable', status=f'巡逻路线 {self.route} 尚未解锁')
-            return DailyDecision('tap', (x, y), f'选择巡逻路线 {self.route}',
+            # The floating chest can intercept taps over the left route name.
+            return DailyDecision('tap', (620, y+20), _SELECT+self.route,
                                  guard=(0, y-25, 140, y+25))
         if not _empty_food_slot(screen.frame, extra[0]):
             return DailyDecision(status='等待确认额外食物栏为空')
@@ -118,6 +134,8 @@ class PetFeed:
     def completed(self, decision, screen):
         if decision.status == _CLAIM:
             self.claim_sent = True
+        elif decision.status == _SELECT+self.route:
+            self.route_sent = True
         elif decision.status == _START:
             self.start_sent = True
         elif decision.status == _SCROLL:

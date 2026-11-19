@@ -1,4 +1,5 @@
 from ninja3_assistant.paths import project_root
+from concurrent.futures import Future
 from pathlib import Path
 import tempfile
 import unittest
@@ -42,6 +43,28 @@ class HayabusaSceneTest(unittest.TestCase):
                 self.assertTrue(scene.step(frame, 1.1).claimed)
             self.assertTrue(scene.owned)
             self.assertEqual(scene.clicks, 0)
+            scene.close()
+
+    def test_pending_gpu_holds_actions_until_a_fresh_frame(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch('ninja3_assistant.combat.hayabusa.scene.HayabusaVision') as engine:
+            vision = engine.return_value
+            vision.backend = 'test'
+            vision.detect.return_value = (HayabusaScreen(), [])
+            scene = HayabusaScene(record_root=directory)
+            scene._vision_ready = Future()
+            frame = np.zeros((720, 1280, 3), np.uint8)
+            with patch.object(scene, '_eligible', return_value=True):
+                waiting = scene.step(frame, 1)
+            self.assertTrue(waiting.claimed)
+            self.assertTrue(waiting.active)
+            self.assertTrue(waiting.stalled)
+            self.assertIsNone(waiting.action)
+            vision.detect.assert_not_called()
+            scene._vision_ready.set_result(vision)
+            fresh = np.ones_like(frame)
+            self.assertFalse(scene.step(fresh, 1.1).stalled)
+            vision.detect.assert_called_once_with(fresh, 1.1)
             scene.close()
 
     def test_pause_preserves_but_leaving_battle_clears_input_and_recipe_state(self):

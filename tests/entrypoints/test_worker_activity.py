@@ -70,6 +70,19 @@ class WorkerActivityTest(unittest.TestCase):
         self.assertEqual(tasks[0].pet_feed_reward,'hammers')
         self.assertIn('强化锤',tasks[0].label)
 
+    def test_friend_rice_is_an_independently_selected_daily_task(self):
+        with patch.object(sys,'argv',['worker.py','--mode','run','--folder','selected','--index','1',
+                         '--daily-tasks','friend_rice']),patch.object(sys,'stdout',io.StringIO()),\
+             patch('ninja3_assistant.entrypoints.worker.threading.Thread'),\
+             patch('ninja3_assistant.scheduling.task_scheduler.run_tasks') as run:
+            worker.main()
+        task, = run.call_args.kwargs['tasks']
+        self.assertEqual(task.name,'daily_friend_rice')
+        control = Mock()
+        with patch('ninja3_assistant.activities.daily.runner.run_daily') as daily:
+            task.run('selected',1,control,Mock(),mode='daily')
+        self.assertEqual(daily.call_args.args[:4],('friend_rice','selected',1,control))
+
     def test_window_flag_reaches_task_control_and_defaults_to_visible(self):
         for extra,expected in (([],False),(['--hide-game-window'],True)):
             with self.subTest(hidden=expected),patch.object(sys,'argv',[
@@ -117,26 +130,37 @@ class WorkerActivityTest(unittest.TestCase):
     def test_multiple_activities_reach_one_planner(self):
         with patch.object(sys, 'argv', ['worker.py', '--mode', 'run', '--folder', 'selected',
                          '--index', '1', '--activity-enabled', '--activity-mode', 'continuous',
-                         '--weekend-enabled', '--weekend-mode', '25']), \
+                         '--weekend-enabled', '--weekend-mode', '25', '--xumi-enabled']), \
                 patch.object(sys, 'stdout', io.StringIO()), patch('ninja3_assistant.entrypoints.worker.threading.Thread'), \
                 patch('ninja3_assistant.scheduling.task_scheduler.run_tasks') as planner, patch('ninja3_assistant.entrypoints.worker.run_flow') as flow:
             worker.main()
         self.assertEqual([(t.name, t.extra_mode) for t in planner.call_args.kwargs['tasks']],
-                         [('intelligence', 'continuous'), ('weekend', '25')])
+                         [('intelligence', 'continuous'), ('weekend', '25'), ('xumi', None)])
         flow.assert_not_called()
 
+    def test_xumi_opt_in_runs_without_enabling_another_activity(self):
+        with patch.object(sys, 'argv', ['worker.py', '--mode', 'run', '--folder', 'selected',
+                                       '--index', '152', '--xumi-enabled']), \
+                patch.object(sys, 'stdout', io.StringIO()), \
+                patch('ninja3_assistant.entrypoints.worker.threading.Thread'), \
+                patch('ninja3_assistant.scheduling.task_scheduler.run_tasks') as planner:
+            worker.main()
+        self.assertEqual(planner.call_args.args[:2], ('selected', 152))
+        task, = planner.call_args.kwargs['tasks']
+        self.assertEqual((task.name, task.label, task.extra_mode), ('xumi', '须弥幻境', None))
+
     def test_other_modes_reject_activity_before_creating_a_command_thread(self):
-        for mode in ('probe', 'hayabusa', 'hayabusa-debug', 'hayabusa-video'):
-            with self.subTest(mode=mode), \
-                    patch.object(sys, 'argv', ['worker.py', '--mode', mode, '--folder', 'f', '--index', '1',
-                                               '--video', 'v.mp4', '--activity-enabled']
-                                 if mode == 'hayabusa-video' else
-                                 ['worker.py', '--mode', mode, '--folder', 'f', '--index', '1', '--activity-enabled']), \
-                    patch.object(sys, 'stderr', io.StringIO()), \
-                    patch('ninja3_assistant.entrypoints.worker.threading.Thread') as thread, self.assertRaises(SystemExit) as error:
-                worker.main()
-            self.assertEqual(error.exception.code, 2)
-            thread.assert_not_called()
+        for flag in ('--activity-enabled', '--xumi-enabled'):
+            for mode in ('probe', 'hayabusa', 'hayabusa-debug', 'hayabusa-video'):
+                extra = ['--video', 'v.mp4'] if mode == 'hayabusa-video' else []
+                with self.subTest(mode=mode, flag=flag), \
+                        patch.object(sys, 'argv', ['worker.py', '--mode', mode, '--folder', 'f', '--index', '1',
+                                                   *extra, flag]), \
+                        patch.object(sys, 'stderr', io.StringIO()), \
+                        patch('ninja3_assistant.entrypoints.worker.threading.Thread') as thread, self.assertRaises(SystemExit) as error:
+                    worker.main()
+                self.assertEqual(error.exception.code, 2)
+                thread.assert_not_called()
 
 
 if __name__ == '__main__':

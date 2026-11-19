@@ -17,6 +17,9 @@ class RunnerTest(unittest.TestCase):
         native = patch('ninja3_assistant.runtime.runner.create_native_touch',return_value=None)
         native.start()
         self.addCleanup(native.stop)
+        warmup = patch('ninja3_assistant.combat.hayabusa.scene.Thread')
+        warmup.start()
+        self.addCleanup(warmup.stop)
 
     def test_new_game_waits_for_display_before_capturing(self):
         class Device:
@@ -40,7 +43,7 @@ class RunnerTest(unittest.TestCase):
         self.startup.return_value = True
         device = Device()
         events = []
-        with patch('ninja3_assistant.runtime.runner.Vision', Detector), patch('ninja3_assistant.runtime.runner.MuMu', side_effect=[RuntimeError('not ready'), device]), \
+        with patch('ninja3_assistant.runtime.runner.Vision', side_effect=lambda **_: Detector()), patch('ninja3_assistant.runtime.runner.MuMu', side_effect=[RuntimeError('not ready'), device]), \
                 patch('ninja3_assistant.runtime.runner.Flow', StopFlow):
             run_flow('test', 0, RunControl(), lambda kind, value: events.append((kind, value)))
         self.assertTrue(device.closed)
@@ -119,7 +122,7 @@ class RunnerTest(unittest.TestCase):
 
         control = RunControl()
         control.pause()
-        with patch('ninja3_assistant.runtime.runner.Vision', Detector), patch('ninja3_assistant.runtime.runner.MuMu', create_device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
+        with patch('ninja3_assistant.runtime.runner.Vision', side_effect=lambda **_: Detector()), patch('ninja3_assistant.runtime.runner.MuMu', create_device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
             thread = threading.Thread(target=run_flow, args=('test', 0, control, lambda k, v: events.append((k, v))))
             thread.start()
             try:
@@ -212,7 +215,7 @@ class RunnerTest(unittest.TestCase):
                 pass
 
         device = Device()
-        with patch('ninja3_assistant.runtime.runner.Vision', Detector), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
+        with patch('ninja3_assistant.runtime.runner.Vision', side_effect=lambda **_: Detector()), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
             run_flow('test', 0, control, lambda *_: None, join_interval_ms=30)
         self.assertEqual(device.count, 2)
 
@@ -274,7 +277,7 @@ class RunnerTest(unittest.TestCase):
                 self.done = True
 
         device = Device()
-        with patch('ninja3_assistant.runtime.runner.Vision', Detector), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
+        with patch('ninja3_assistant.runtime.runner.Vision', side_effect=lambda **_: Detector()), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
             run_flow('test', 0, RunControl(), lambda *_: None)
         self.assertEqual(device.presses, [((1100, 660), .07)])
 

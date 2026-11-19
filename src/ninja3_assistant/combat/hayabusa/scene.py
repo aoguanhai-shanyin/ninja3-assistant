@@ -1,11 +1,13 @@
 """Automatic Hayabusa scene; shared by the assistant and manual diagnostics."""
 from ninja3_assistant.paths import project_root
 from collections import Counter, deque
+from concurrent.futures import Future
 from dataclasses import asdict, dataclass
 import json
 import os
 from pathlib import Path
 import sys
+from threading import Thread
 import time
 
 import cv2
@@ -35,12 +37,13 @@ class SceneDecision:
 
 
 class HayabusaScene:
-    def __init__(self, *, clock=None, debug=False, record_root=None, policy=None):
+    def __init__(self, *, clock=None, debug=False, record_root=None, policy=None, prewarm=False):
         cv2.setNumThreads(1)
         self.clock = clock
         self.debug = debug
         self.record_root = Path(record_root) if record_root is not None else RECORDINGS
         self.vision = None
+        self._vision_ready = None
         self.policy = policy
         self.owned = False
         self.log = self.stream = self.pending_record = None
@@ -67,16 +70,29 @@ class HayabusaScene:
             if template is None:
                 raise RuntimeError('缺少隼白场景识别模板：'+name)
             self.gates[name] = template
-        if debug:
+        if prewarm:
+            self._vision_ready = Future()
+            Thread(target=self._warm_vision, name='hayabusa-warmup', daemon=True).start()
+        elif debug:
             self._initialize()
 
     @property
     def backend(self):
         return self.vision.backend if self.vision is not None else None
 
+    def _warm_vision(self):
+        try:
+            vision = HayabusaVision()
+            vision.warmup()
+        except Exception as error:
+            self._vision_ready.set_exception(error)
+        else:
+            self._vision_ready.set_result(vision)
+
     def _initialize(self):
         if self.vision is None:
-            self.vision = HayabusaVision()
+            self.vision = (self._vision_ready.result() if self._vision_ready is not None
+                           else HayabusaVision())
             if self.policy is None:
                 self.policy = HayabusaPolicy()
 
@@ -109,6 +125,8 @@ class HayabusaScene:
             if not self._eligible(frame):
                 return None
             self.owned = True
+        if self._vision_ready is not None and not self._vision_ready.done():
+            return SceneDecision(active=self.owned, stalled=True, status='正在预热隼白识别')
         self._initialize()
         self._flush()
         before = time.perf_counter()

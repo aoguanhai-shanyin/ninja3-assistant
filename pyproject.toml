@@ -20,3 +20,11 @@ include = ["ninja3_assistant*"]
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# Start with syntax, name resolution, and other correctness diagnostics.
+select = ["E9", "F"]
+ignore = ["F401", "F841"]

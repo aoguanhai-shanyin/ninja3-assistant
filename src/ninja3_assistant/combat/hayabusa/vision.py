@@ -63,19 +63,12 @@ class HayabusaSegmenter:
         if not use_gpu:
             return
         import onnxruntime as ort
-        from ninja3_assistant.device.dxgi_adapters import adapters
-        available = [item for item in adapters() if item[2] != 0x1414]
-        if 'DmlExecutionProvider' not in ort.get_available_providers() or not available:
-            raise RuntimeError('隼白战斗实验需要 DirectML GPU；离线回放可指定 CPU')
-        index, self.backend, _, _ = max(available, key=lambda item: item[3])
+        from ninja3_assistant.vision.winml import model_session
         options = ort.SessionOptions()
         options.enable_mem_pattern = False
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         options.intra_op_num_threads = 1
-        self.session = ort.InferenceSession(str(ASSETS/'hayabusa-colors.onnx'),
-            sess_options=options, providers=[('DmlExecutionProvider', {'device_id': index}), 'CPUExecutionProvider'])
-        if self.session.get_providers()[0] != 'DmlExecutionProvider':
-            raise RuntimeError('隼白 GPU 分割初始化失败')
+        self.session, self.backend = model_session(ASSETS/'hayabusa-colors.onnx', require_gpu=True, options=options)
 
     def masks(self, field):
         if self.session is None:
@@ -139,6 +132,17 @@ class HayabusaVision:
             cv2.getRotationMatrix2D((15, 15), angle, 1), (30, 30))
             for i in range(1, 6) for angle in range(30, 360, 30)]
         self.reset()
+
+    def warmup(self):
+        """Run the selected models at their live input sizes without tracking a scene."""
+        if self.detector is None and self.segmenter is not None:
+            self.segmenter.masks(np.zeros((250, 640, 3), dtype=np.uint8))
+        if self.detector is not None or self.player_locator is not None:
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+            if self.detector is not None:
+                self.detector.predict(frame)
+            if self.player_locator is not None:
+                self.player_locator.detector.predict(frame)
 
     def reset(self):
         self.tracks = {}

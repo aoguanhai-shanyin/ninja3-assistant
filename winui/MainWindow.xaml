@@ -137,12 +137,58 @@
                     </Grid>
 
                     <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="限时活动" FontSize="21" FontWeight="SemiBold" />
+                            <SelectorBar x:Name="ActivityTabs" AutomationProperties.Name="限时活动">
+                                <SelectorBarItem x:Name="IntelligenceTab" Text="情报模拟战" />
+                                <SelectorBarItem x:Name="XumiTab" Text="须弥幻境" />
+                            </SelectorBar>
+                            <Grid>
+                                <StackPanel x:Name="IntelligenceOptions" Spacing="10">
+                                    <ToggleSwitch x:Name="ActivityEnabledSwitch" AutomationProperties.Name="启用情报模拟战"
+                                                  OffContent="关闭" OnContent="开启" Toggled="ActivityEnabled_Toggled" />
+                                    <ComboBox x:Name="ActivityModeBox" Header="任务结束方式" SelectedIndex="0" IsEnabled="False">
+                                        <ComboBoxItem Content="完成日常后停止" Tag="daily" />
+                                        <ComboBoxItem Content="持续对战" Tag="continuous" />
+                                    </ComboBox>
+                                    <TextBlock Text="自动购牌、对战、结算并领取三项日常奖励。" Foreground="#B9C5D9" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel x:Name="XumiOptions" Spacing="10" Visibility="Collapsed">
+                                    <ToggleSwitch x:Name="XumiEnabledSwitch" AutomationProperties.Name="启用须弥幻境"
+                                                  OffContent="关闭" OnContent="开启" />
+                                    <TextBlock Text="完成方寸和大千试炼的当日日常并领取奖励后停止。" Foreground="#B9C5D9" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="可同时开启多个活动，助手按计划依次执行。"
+                                       Foreground="#91A1BC" FontSize="12" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="周末活动" FontSize="21" FontWeight="SemiBold" />
+                            <SelectorBar x:Name="WeekendTabs" AutomationProperties.Name="周末活动">
+                                <SelectorBarItem x:Name="WeekendTab" Text="同屏竞速" />
+                            </SelectorBar>
+                            <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="WeekendEnabledSwitch" AutomationProperties.Name="启用同屏竞速"
+                                              OffContent="关闭" OnContent="开启" Toggled="WeekendEnabled_Toggled" />
+                                <ComboBox x:Name="WeekendModeBox" Header="任务结束方式" SelectedIndex="0" IsEnabled="False">
+                                    <ComboBoxItem Content="完成每日任务后停止" />
+                                    <ComboBoxItem Content="完成每日最多25场积分比赛" />
+                                </ComboBox>
+                                <TextBlock Text="周末开放。测试功能支持识别前方障碍和使用道具卡。" Foreground="#B9C5D9" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
                         <StackPanel Spacing="14">
                             <ToggleSwitch x:Name="DailyEnabledSwitch" Header="每日清理" OffContent="关闭" OnContent="开启" Toggled="DailyEnabled_Toggled" />
                             <ContentControl x:Name="DailyOptionsControl" IsEnabled="False" HorizontalContentAlignment="Stretch">
                             <Grid x:Name="DailyOptionsPanel" ColumnSpacing="24" RowSpacing="4">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                 <CheckBox Content="每月日签到（最多25天）" Tag="monthly" IsChecked="True" />
                                 <CheckBox Grid.Row="1" Content="限时签到" Tag="limited" IsChecked="True" />
                                 <CheckBox Grid.Row="2" Content="家族免费祈福" Tag="blessing" IsChecked="True" />
@@ -167,7 +213,8 @@
                                 </ComboBox>
                                 <CheckBox Grid.Row="8" Content="竞技场奖励领取" Tag="arena_reward" IsChecked="True" />
                                 <CheckBox Grid.Row="8" Grid.Column="1" Content="老板娘答题" Tag="landlady_quiz" IsChecked="True" />
-                                <StackPanel Grid.Row="9" Grid.ColumnSpan="2" Spacing="6" Margin="0,12,0,0">
+                                <CheckBox Grid.Row="9" Grid.ColumnSpan="2" Content="好友饭团领取与赠送" Tag="friend_rice" />
+                                <StackPanel Grid.Row="10" Grid.ColumnSpan="2" Spacing="6" Margin="0,12,0,0">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <TextBlock Text="悬赏等级" Foreground="#B9C5D9" />
                                         <TextBlock x:Name="BountyGradeText" Text="D" Foreground="#A5B3FF" FontWeight="SemiBold" />
@@ -204,16 +251,6 @@
                     </Border>
                     <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
                         <StackPanel Spacing="14">
-                            <ToggleSwitch x:Name="WeekendEnabledSwitch" Header="周末活动 · 同屏竞速" OffContent="关闭" OnContent="开启" Toggled="WeekendEnabled_Toggled" />
-                            <ComboBox x:Name="WeekendModeBox" Header="任务结束方式" SelectedIndex="0" IsEnabled="False">
-                                <ComboBoxItem Content="完成每日任务后停止" />
-                                <ComboBoxItem Content="完成每日最多25场积分比赛" />
-                            </ComboBox>
-                            <TextBlock Text="测试功能：起跳2次→下滑循环；正向识别前方障碍并释放道具卡。活动轮换时不会进入其他玩法。" TextWrapping="Wrap" Foreground="#B9C5D9" />
-                        </StackPanel>
-                    </Border>
-                    <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
-                        <StackPanel Spacing="14">
                             <TextBlock Text="自动助手  /  场景识别" Foreground="#A5B3FF" FontSize="12" FontWeight="SemiBold" />
                             <TextBlock Text="自动识别当前场景" FontSize="21" FontWeight="SemiBold" />
                             <TextBlock Text="逆袭 S：刷新、抢队、准备和结算；隼白战斗：识别攻击后按板子流程躲避。" Foreground="#B9C5D9" TextWrapping="Wrap" />
@@ -224,20 +261,6 @@
                                 <TextBlock Text="毫秒" VerticalAlignment="Center" Foreground="#B9C5D9" />
                             </StackPanel>
                             <TextBlock Text="每次点击后立即识别画面；停止任务后可修改。" Foreground="#91A1BC" FontSize="12" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
-
-                    <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
-                        <StackPanel Spacing="14">
-                            <TextBlock Text="限时活动  /  情报模拟战" Foreground="#A5B3FF" FontSize="12" FontWeight="SemiBold" />
-                            <ToggleSwitch x:Name="ActivityEnabledSwitch" Header="情报模拟战" OffContent="关闭" OnContent="开启"
-                                          Toggled="ActivityEnabled_Toggled" />
-                            <TextBlock Text="自动检查并领取三项日常，自动购牌、准备和结算。可完成日常后停止或持续对战；积分随实际对战结果变化。" Foreground="#B9C5D9" TextWrapping="Wrap" />
-                            <ComboBox x:Name="ActivityModeBox" Header="任务结束方式" SelectedIndex="0" IsEnabled="False" MinWidth="230">
-                                <ComboBoxItem Content="完成日常后停止" Tag="daily" />
-                                <ComboBoxItem Content="持续对战" Tag="continuous" />
-                            </ComboBox>
-                            <TextBlock Text="可同时开启多个活动：优先完成各活动日常，再打满场次或持续对战；活动未开放时先执行其他任务。停止后可修改选项。" Foreground="#91A1BC" FontSize="12" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
 

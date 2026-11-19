@@ -91,6 +91,16 @@ class BountyCombatTest(unittest.TestCase):
         self.combat.update(BountyBattleState(),self.now)
         self.assertEqual({c.args[0] for c in self.driver.cancel_plan.call_args_list},{3,4})
 
+    def test_confirmed_change_replaces_the_old_ninjutsu_point(self):
+        self.combat.update(BountyBattleState(True,False,True,True,(70,330)),self.now)
+        self.next_frame()
+        self.combat.update(BountyBattleState(True,False,True,True),self.now)
+        self.driver.cancel_plan.assert_not_called()
+        self.next_frame()
+        self.combat.update(BountyBattleState(True,False,True,True,(55,60)),self.now)
+        self.driver.cancel_plan.assert_called_once_with(3)
+        self.assertTrue(all(action.point == (55,60) for action in self.driver.plan.call_args.args[1]))
+
     def test_stale_capture_pause_and_stop_cannot_dispatch_more_actions(self):
         state = BountyBattleState(True,True,False,True,(55,60))
         self.now += .3

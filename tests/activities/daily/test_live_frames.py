@@ -22,6 +22,18 @@ class DailyMenuReplayTest(unittest.TestCase):
         image=cv2.cvtColor(cv2.imread(str(DATA/(stem+'.png'))),cv2.COLOR_BGR2RGB)
         return self.vision.observe(image,record['ocr'])
 
+    def test_blessing_maintenance_feedback_keeps_free_attempt_pending(self):
+        run = '20261119-101620-385400-blessing'
+        free = self.runtime_screen(run, '0004-prayer-tap.png')
+        denied = self.runtime_screen(run, '0005-prayer-wait.png')
+        flow = DailyFlow('blessing')
+        attempt = flow.step(free, self.vision)
+        self.assertEqual(attempt.free_kind, 'blessing')
+        flow.completed(attempt, free)
+        outcome = flow.step(denied, self.vision)
+        self.assertEqual(outcome.action, 'maintenance')
+        self.assertIsNone(outcome.point)
+
     def test_login_recovers_missing_switch_caption_without_guessing_other_pages(self):
         s=self.runtime_screen('20261117-094029-108500-limited','0001-unknown-wait.png')
         self.assertNotIn('点击切换',s.text())
@@ -199,6 +211,63 @@ class DailyMenuReplayTest(unittest.TestCase):
                 self.assertTrue(self.vision.current_action(guide,decision,guide.frame))
                 self.assertFalse(self.vision.current_action(guide,decision,normal.frame))
 
+    def test_pet_patrol_route_is_tapped_away_from_the_floating_chest(self):
+        from ninja3_assistant.activities.daily.pet_feed import PetFeed
+
+        flow=PetFeed('exp')
+        route=self.runtime_screen('20261119-113733-089300-pet_feed','0005-pet-routes-tap.png')
+        choose=flow.step(route,self.vision)
+        self.assertEqual(choose.point,(620,254))
+        self.assertEqual(choose.status,'选择巡逻路线 雾之湖')
+        self.assertTrue(self.vision.current_action(route,choose,route.frame))
+        flow.completed(choose,route)
+        self.assertFalse(flow.start_sent)
+
+        selected=self.runtime_screen('20261118-113729-974700-pet_feed','0003-pet-routes-tap.png')
+        self.assertEqual(flow.step(selected,self.vision).status,'开始通灵兽巡逻')
+
+    def test_pet_patrol_confirms_occluded_lake_after_selection_with_exp_and_empty_food(self):
+        from ninja3_assistant.activities.daily.pet_feed import PetFeed
+
+        run='20261119-115110-740100-pet_feed'
+        flow=PetFeed('exp')
+        unselected=self.runtime_screen(run,'0003-pet-routes-tap.png')
+        choose=flow.step(unselected,self.vision)
+        self.assertEqual(choose.status,'选择巡逻路线 雾之湖')
+        selected=self.runtime_screen(run,'0004-pet-routes-swipe.png')
+        self.assertFalse(selected.hits('雾之湖',(0,135,135,555)))
+        self.assertNotEqual(flow.step(selected,self.vision).status,'开始通灵兽巡逻')
+        flow.completed(choose,unselected)
+
+        for frame in ('0004-pet-routes-swipe.png','0005-pet-routes-swipe.png','0006-pet-routes-unavailable.png'):
+            with self.subTest(frame=frame):
+                selected=self.runtime_screen(run,frame)
+                start=flow.step(selected,self.vision)
+                self.assertEqual(start.status,'开始通灵兽巡逻')
+                self.assertIn(start.point,((1128,640),(1122,652)))
+                self.assertTrue(self.vision.current_action(selected,start,selected.frame))
+                no_plus=selected.frame.copy()
+                no_plus[194:263,1186:1227]=0
+                self.assertFalse(self.vision.current_action(selected,start,no_plus))
+
+        wrong_reward=selected.frame.copy()
+        wrong_reward[595:704,239:347]=unselected.frame[595:704,239:347]
+        selected=self.vision.observe(wrong_reward,selected.ocr)
+        self.assertNotEqual(flow.step(selected,self.vision).status,'开始通灵兽巡逻')
+
+    def test_weapon_entry_scrolls_past_new_banner_and_requires_the_silver_thumbnail(self):
+        flow=DailyFlow('weapon')
+        visible=self.runtime_screen('20261119-105200-879100-weapon','0005-summon-tap.png')
+        route=flow.step(visible,self.vision)
+        self.assertEqual((route.action,route.point),('tap',(186,555)))
+        hidden=self.runtime_screen('20261119-112808-058300-weapon','0006-vault-tap.png')
+        self.assertFalse(self.vision.current_action(visible,route,hidden.frame))
+        for _ in range(3):
+            scroll=flow.step(hidden,self.vision)
+            self.assertEqual((scroll.action,scroll.point,scroll.end),('swipe',(150,545),(150,325)))
+            flow.completed(scroll,hidden)
+        self.assertEqual(flow.step(hidden,self.vision).action,'wait')
+
     def test_ten_day_signin_entry_tracks_unlocked_bottom_options(self):
         points=[]
         for stem in ('084625-summon','172320-summon-guide-dismiss'):
@@ -347,6 +416,34 @@ class DailyMenuReplayTest(unittest.TestCase):
         remaining=self.runtime_screen('20261116-105658-073000-daily_shop','0004-daily_shop-wait.png')
         self.assertEqual(flow.step(remaining,self.vision).point,(610,510))
 
+    def test_daily_store_b_booklet_needs_the_selected_item_and_a_fresh_coin_icon(self):
+        run='20261119-105341-552200-daily_shop'
+        flow=DailyFlow('daily_shop')
+        shop=self.runtime_screen(run,'0016-daily_shop-tap.png')
+        choose=flow.step(shop,self.vision)
+        self.assertEqual(choose.point,(846,240))
+        flow.completed(choose,shop)
+        self.assertEqual(flow.pending_item,'booklet')
+        dialog=self.runtime_screen(run,'0020-unknown-wait.png')
+        self.assertEqual(dialog.page,'bounty_dialog')
+        decision=flow.step(dialog,self.vision)
+        self.assertEqual(decision.point,(640,668))
+        self.assertTrue(self.vision.current_action(dialog,decision,dialog.frame))
+        no_coin=dialog.frame.copy()
+        no_coin[653:679,534:560]=no_coin[653:679,570:571]
+        self.assertFalse(self.vision.current_action(dialog,decision,no_coin))
+        for item in ('C级','ninbi'):
+            flow.pending_item=item
+            self.assertEqual(flow.step(dialog,self.vision).action,'unavailable')
+
+    def test_daily_store_sold_out_zero_survives_a_missing_denominator(self):
+        run='20261119-112210-050900-daily_shop'
+        for number in range(14,18):
+            with self.subTest(frame=number):
+                stock=self.runtime_screen(run,f'{number:04d}-daily_shop-wait.png')
+                self.assertEqual(stock.text((267,410,477,456)),'剩余次数:0')
+                self.assertEqual(DailyFlow('daily_shop').step(stock,self.vision).action,'done')
+
     def test_monthly_scan_scrolls_back_towards_the_current_day(self):
         s=self.runtime_screen('20261116-105209-568400-monthly','0008-monthly-unavailable.png')
         decision=DailyFlow('monthly').step(s,self.vision)
@@ -362,6 +459,24 @@ class DailyMenuReplayTest(unittest.TestCase):
         s=self.runtime_screen('20261116-110925-891600-village','0004-trial-wait.png')
         self.assertEqual(self.vision.food(s),4)
         self.assertEqual(DailyFlow('village').step(s,self.vision).action,'unavailable')
+
+    def test_selected_trial_exhaustion_footer_recovers_omitted_zero(self):
+        run='20261119-102127-852500-village'
+        for image in ('0003-trial-tap.png','0004-trial-wait.png','0005-trial-wait.png','0006-trial-wait.png'):
+            with self.subTest(image=image):
+                screen=self.runtime_screen(run,image)
+                flow=DailyFlow('village')
+                self.assertEqual(flow.step(screen,self.vision).point,(464,360))
+                self.assertEqual(flow.visited_stages,{48,49,50})
+                self.assertFalse(self.vision.trial_selected(screen,464))
+
+        missing_border=screen.frame.copy()
+        missing_border[312:494,804:817]=0
+        screen=self.vision.observe(missing_border,screen.ocr)
+        flow=DailyFlow('village')
+        flow.stage=48
+        self.assertEqual(flow.step(screen,self.vision).action,'wait')
+        self.assertNotIn(48,flow.visited_stages)
 
     def test_house_receipt_continue_and_countdown_are_distinct(self):
         for stem,action in (('095937-house-loaded','tap'),('100018-house-reward-done','tap'),

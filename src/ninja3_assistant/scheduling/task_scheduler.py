@@ -9,7 +9,7 @@ from ninja3_assistant.scheduling.invitation_handoff import InvitationHandoff
 
 
 SAFE_CHECKPOINTS = (TaskOutcome.DAILY_DONE, TaskOutcome.MATCH_DONE, TaskOutcome.LIMIT_REACHED,
-                    TaskOutcome.WAITING, TaskOutcome.DEFERRED_TODAY, TaskOutcome.UNAVAILABLE,
+                    TaskOutcome.WAITING, TaskOutcome.DEFERRED_TODAY, TaskOutcome.MAINTENANCE, TaskOutcome.UNAVAILABLE,
                     TaskOutcome.SCENE_CHANGED)
 
 
