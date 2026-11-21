@@ -1537,6 +1537,11 @@
       "sha256": "deddf96582ab8debb91b564fe58abc3b370bb1209ce698e9b749cb945cc91203"
     },
     {
+      "path": "weekend-race/summary-return-current.png",
+      "bytes": 1572,
+      "sha256": "f63b63d08bbc8380e484e5402d342162ebb06a05f3720baa1b68d5201bdc433b"
+    },
+    {
       "path": "weekend-race/tasks-current.png",
       "bytes": 6335,
       "sha256": "74a23f9e1b60ef644170114579f4b6cccb9a5b3bf03bfdecf7c4ac15ce05bd61"
@@ -1608,8 +1613,8 @@
     },
     {
       "path": "weekend-race/sources.json",
-      "bytes": 1911,
-      "sha256": "dcf7693b918e55f48ba893bdeb90b7042225acc5bffa4a343896be4bdbe2636a"
+      "bytes": 2071,
+      "sha256": "30a7577f721ae07f243cc6fb02d5d4a0e0c371b7d7bc542ef1a03ae2f99345db"
     },
     {
       "path": "weekend-race/standings.png",

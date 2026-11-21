@@ -214,7 +214,8 @@ class MenuVision:
         if intelligence.kind == 'battle':
             return page('intelligence', 'battle', intelligence, True)
         weekend = self.weekend.detect(frame, gray)
-        if weekend in ('dash', 'race', 'respawn', 'ready', 'finish', 'result', 'standings', 'reward'):
+        if weekend in ('dash', 'race', 'respawn', 'ready', 'finish', 'result',
+                       'standings', 'summary', 'reward'):
             return page('weekend', weekend, blocking=True)
         xumi = self.xumi.scene(frame)
         if xumi.kind not in ('home', 'hall', 'unknown'):

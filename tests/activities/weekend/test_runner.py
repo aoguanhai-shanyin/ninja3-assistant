@@ -446,6 +446,9 @@ class WeekendRaceTest(unittest.TestCase):
         ready = current_frame('24-start-match.png')
         self.assertEqual(vision.detect(ready), 'ready')
         self.assertEqual(vision.detect(current_frame('result-flow-01/005.png')), 'result')
+        self.assertEqual(vision.detect(current_frame('26-restart-scene.png')), 'summary')
+        self.assertEqual(vision.detect(current_frame('restart-return/005.png')), 'result')
+        self.assertEqual(vision.detect(current_frame('tasks-claim/007.png')), 'reward')
 
     def test_current_race_marker_confirms_battle_without_old_distance_board(self):
         vision = RaceVision()

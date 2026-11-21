@@ -42,7 +42,9 @@ CURRENT_TASKS_REGION = (500, 70, 300, 100)
 CURRENT_CLAIM_REGION = (1000, 640, 200, 80)
 CURRENT_CLAIMED_REGION = (940, 120, 240, 540)
 CURRENT_MARKER_REGION = (850, 0, 160, 90)
+CURRENT_SUMMARY_REGION = (580, 620, 140, 90)
 ENTER_ACTIVITY = (1065, 635)
+SUMMARY_RETURN = (640, 667)
 OPEN_TASKS_CURRENT = (990, 50)
 CLOSE_TASKS_CURRENT = (1160, 105)
 START_MATCH_CURRENT = (990, 675)
@@ -51,6 +53,7 @@ MAX_DAILY_MATCHES = 25
 CURRENT_TEMPLATES = frozenset({
     'entry-current', 'intro-go', 'start-current', 'tasks-current',
     'claim-all-current', 'claimed-current', 'race-marker-current',
+    'summary-return-current',
 })
 
 
@@ -98,6 +101,7 @@ class RaceVision:
                 return False
             raise RuntimeError(f'缺少周末活动识别模板：{name}')
         threshold = (.77 if name == 'match' else .70 if name == 'start-current'
+                     else .90 if name == 'summary-return-current'
                      else .78 if name in CURRENT_TEMPLATES else .93)
         return cv2.minMaxLoc(cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED))[1] >= threshold
 
@@ -135,6 +139,8 @@ class RaceVision:
             return 'result'
         if self.match(frame, 'standings', (1190,145,90,65)):
             return 'standings'
+        if self.match(frame, 'summary-return-current', CURRENT_SUMMARY_REGION):
+            return 'summary'
         if gray is None:
             gray = cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY)
         mask = cv2.inRange(gray,200,255)
@@ -553,6 +559,11 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                         action, message = PageAction('open_result', (640, 680)), '比赛结束，继续查看结算'
                     elif kind == 'standings':
                         message = '等待成绩展示完成，不发送战斗动作'
+                    elif kind == 'summary':
+                        action = PageAction('confirm_summary', SUMMARY_RETURN,
+                                            guard=lambda fresh: vision.match(
+                                                fresh, 'summary-return-current', CURRENT_SUMMARY_REGION))
+                        message = '确认赛后轨迹，继续查看结算'
                     elif kind == 'invite':
                         message = '拒绝队友邀请'
                         if decline := vision.invitations.detect(gray):
