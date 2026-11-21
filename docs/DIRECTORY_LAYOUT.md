@@ -9,11 +9,11 @@ src/ninja3_assistant/
   game_ui/               游戏页面模型、操作执行、菜单导航图
   runtime/               运行控制、实时战斗内核、输入调度
   device/                MuMu SDK、原生触控、宏与设备能力
-  vision/                通用场景、邀请与 GPU 分割
+  vision/                统一 WinML 模板匹配、通用场景、邀请与 GPU 分割
   activities/
     bounty/              悬赏流程
     intelligence/        情报模拟战
-    weekend/             多人竞速、障碍与绳索
+    weekend/             周末竞速（多人 / 同屏）与正向避障（识别走 vision/template_match）
   combat/
     boss/                通用 Boss 策略与诊断
     hayabusa/            隼白识别、策略与录像调试

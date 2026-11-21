@@ -38,8 +38,22 @@ class IntelligenceTask(ActivityTask):
 
 
 class WeekendTask(ActivityTask):
-    def __init__(self, mode):
-        super().__init__('weekend', '多人竞速', '25' if mode == '25' else None, ((9, 23),))
+    """One weekend rotation. Both rotations share the runner and the catalog.
+
+    ``mode`` is the goal: ``daily`` stops when the tasks are claimed, a number
+    4..25 stops after that many matches, and ``unlimited`` keeps racing. The
+    goal is the second phase, so it only becomes ``extra_mode`` once the dailies
+    are done; before that the task runs in ``daily`` mode.
+    """
+
+    LABELS = {'multiplayer': '多人竞速', 'samescreen': '同屏竞速'}
+
+    def __init__(self, mode, activity='multiplayer'):
+        if activity not in self.LABELS:
+            raise ValueError('周末活动应为 multiplayer 或 samescreen')
+        super().__init__('weekend', self.LABELS[activity],
+                         None if mode == 'daily' else mode, ((9, 23),))
+        self.activity = activity
         self._progress_day = None
         self._progress = None
 
@@ -52,7 +66,7 @@ class WeekendTask(ActivityTask):
             self._progress = WeekendProgress()
         self._progress.refresh(day)
         return run_weekend(folder, index, control, emit, mode=mode, checkpoint=True,
-                           progress=self._progress)
+                           progress=self._progress, activity=self.activity)
 
 
 class XumiTask(ActivityTask):
@@ -141,7 +155,8 @@ class DailyTask(ActivityTask):
         return run_daily(self.kind,folder,index,control,forward)
 
 
-def selected_tasks(*, activity_mode=None, weekend_mode=None, xumi_enabled=False, daily_tasks=(), bounty_grade='D',
+def selected_tasks(*, activity_mode=None, weekend_mode=None, weekend_activity='multiplayer',
+                   xumi_enabled=False, daily_tasks=(), bounty_grade='D',
                    pet_feed_reward=DEFAULT_PET_FEED_REWARD, bounty_active_invite=True,
                    bounty_passive_invite=True, abyss_enabled=False):
     daily_tasks = tuple(dict.fromkeys(daily_tasks))
@@ -156,7 +171,7 @@ def selected_tasks(*, activity_mode=None, weekend_mode=None, xumi_enabled=False,
     if activity_mode is not None:
         tasks.append(IntelligenceTask(activity_mode))
     if weekend_mode is not None:
-        tasks.append(WeekendTask(weekend_mode))
+        tasks.append(WeekendTask(weekend_mode, weekend_activity))
     if xumi_enabled:
         tasks.append(XumiTask())
     if abyss_enabled:

@@ -22,7 +22,13 @@ def main():
     parser.add_argument('--activity-enabled', action='store_true')
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
     parser.add_argument('--weekend-enabled', action='store_true')
-    parser.add_argument('--weekend-mode', choices=('daily', '25'), default='daily')
+    # This week's rotation has no 25-match cap, so the goal is a choice: the
+    # dailies need 4 races, anything up to 25 may be asked for, and "unlimited"
+    # races until stopped. Must match weekend.runner.WEEKEND_MODES.
+    parser.add_argument('--weekend-mode', choices=('daily', 'unlimited',
+                                                   *(str(n) for n in range(4, 26))), default='daily')
+    parser.add_argument('--weekend-activity', choices=('multiplayer', 'samescreen'),
+                        default='multiplayer')
     parser.add_argument('--xumi-enabled', action='store_true')
     parser.add_argument('--abyss-enabled', action='store_true')
     parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
@@ -117,6 +123,7 @@ def run_selected(args, emit):
         from ninja3_assistant.scheduling.task_scheduler import run_tasks
         tasks = selected_tasks(activity_mode=args.activity_mode if args.activity_enabled else None,
                                weekend_mode=args.weekend_mode if args.weekend_enabled else None,
+                               weekend_activity=args.weekend_activity,
                                xumi_enabled=args.xumi_enabled,
                                abyss_enabled=args.abyss_enabled,
                                daily_tasks=args.daily_tasks,bounty_grade=args.bounty_grade or 'D',

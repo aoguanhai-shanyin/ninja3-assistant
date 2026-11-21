@@ -158,6 +158,16 @@
       "sha256": "1ac239a30e8ec3e1a5a01c32a343135b6f0699af4a84c61527f88c173928a678"
     },
     {
+      "path": "bounty-daily/order-join-started.png",
+      "bytes": 22763,
+      "sha256": "d9e4d4a0b02f8a47adbee377f2651855d7ba2e625da58ff1e22afca0379adc88"
+    },
+    {
+      "path": "bounty-daily/order-join-success.png",
+      "bytes": 5874,
+      "sha256": "d678133ae621908b96a80eb3b2aeff8c1d93e42fd533d3040360ecea037b57ee"
+    },
+    {
       "path": "bounty-daily/order-locked-title.png",
       "bytes": 25263,
       "sha256": "a3c3ed351872d9b41e6bb80a27c53893b4353e1af5f0f204d9751f76bc5d3234"
@@ -171,16 +181,6 @@
       "path": "bounty-daily/order-result-title.png",
       "bytes": 13226,
       "sha256": "ce14703bf547f13446d3c133ce0d5cd6da679c66aa42ebb69d45b446a610f851"
-    },
-    {
-      "path": "bounty-daily/order-join-started.png",
-      "bytes": 22763,
-      "sha256": "d9e4d4a0b02f8a47adbee377f2651855d7ba2e625da58ff1e22afca0379adc88"
-    },
-    {
-      "path": "bounty-daily/order-join-success.png",
-      "bytes": 5874,
-      "sha256": "d678133ae621908b96a80eb3b2aeff8c1d93e42fd533d3040360ecea037b57ee"
     },
     {
       "path": "bounty-daily/order-title.png",
@@ -248,16 +248,6 @@
       "sha256": "e27b325a86974e0fb721fa0843b21da730296e10d7fd00a263e0ca4de993e78e"
     },
     {
-      "path": "daily-cleanup/blessing-free.png",
-      "bytes": 5000,
-      "sha256": "5aee47371ad6a0c1bdda34ad72598fdc01dce3be59c3366a55c8bb8c96fcbdb6"
-    },
-    {
-      "path": "daily-cleanup/bounty-c.png",
-      "bytes": 15523,
-      "sha256": "12cc4bddd11941ed661f5bbfb8f135bcf88d3e9cc63ee648d4f8fc069c9c5fa1"
-    },
-    {
       "path": "daily-cleanup/arena-previous-coins-label.png",
       "bytes": 2449,
       "sha256": "689ff7104702fcd1b263ca56e79a926669af43be5198dcb383b2fefdd36a5965",
@@ -268,6 +258,16 @@
       "bytes": 7363,
       "sha256": "2fd8bfb105acc0249fd20dffad00d08db73810082c58d22a5ce661fcb44597fb",
       "source": "data/runtime/assistant-control/winml-152-arena-next.png crop (478, 91, 803, 136)"
+    },
+    {
+      "path": "daily-cleanup/blessing-free.png",
+      "bytes": 5000,
+      "sha256": "5aee47371ad6a0c1bdda34ad72598fdc01dce3be59c3366a55c8bb8c96fcbdb6"
+    },
+    {
+      "path": "daily-cleanup/bounty-c.png",
+      "bytes": 15523,
+      "sha256": "12cc4bddd11941ed661f5bbfb8f135bcf88d3e9cc63ee648d4f8fc069c9c5fa1"
     },
     {
       "path": "daily-cleanup/bounty-d.png",
@@ -355,36 +355,6 @@
       "sha256": "f638a0738bc67d9a4e6543e4ed933d46c2dff1c1eae7e9ace870d0b3d9add7de"
     },
     {
-      "path": "daily-cleanup/guide-next.png",
-      "bytes": 2319,
-      "sha256": "e4d878cd18b7514d4b434ab548b5a470047f15681b84a3ee86957f29c6eb4883"
-    },
-    {
-      "path": "daily-cleanup/guide-prev.png",
-      "bytes": 2080,
-      "sha256": "498a5f7da3acf75bd37f8209829d96146c5ead0447d4a409ccffb7e60ec7d60a"
-    },
-    {
-      "path": "daily-cleanup/hall.png",
-      "bytes": 15717,
-      "sha256": "974750990454c26091ef480e6b9f7d40a72ec563d257a1b4f2d3af862588d579"
-    },
-    {
-      "path": "daily-cleanup/home-monthly.png",
-      "bytes": 1270,
-      "sha256": "25471a3c75cd7feba5bb608eef7141e8e046296fad587d3df1e115dc040a169d"
-    },
-    {
-      "path": "daily-cleanup/home-thanks.png",
-      "bytes": 3168,
-      "sha256": "a50f658195474411f125b150eb2c867d8f2f39f57b5073963eb486013a5a7346"
-    },
-    {
-      "path": "daily-cleanup/home.png",
-      "bytes": 7309,
-      "sha256": "414217260e94ef855566934e93e4888f2ece33fc4cd7a36060fb15b608194bf0"
-    },
-    {
       "path": "daily-cleanup/friend-guide.png",
       "bytes": 22802,
       "sha256": "4c47a7433d78cb922ddd94fb7a5567207224398a0a54365738cb76b313dbed14"
@@ -433,6 +403,36 @@
       "path": "daily-cleanup/friend-row-gift.png",
       "bytes": 8594,
       "sha256": "cbcba8122791c69fe3328c09ded9e4271f64dd26b29f4db0951850e9a20c9fff"
+    },
+    {
+      "path": "daily-cleanup/guide-next.png",
+      "bytes": 2319,
+      "sha256": "e4d878cd18b7514d4b434ab548b5a470047f15681b84a3ee86957f29c6eb4883"
+    },
+    {
+      "path": "daily-cleanup/guide-prev.png",
+      "bytes": 2080,
+      "sha256": "498a5f7da3acf75bd37f8209829d96146c5ead0447d4a409ccffb7e60ec7d60a"
+    },
+    {
+      "path": "daily-cleanup/hall.png",
+      "bytes": 15717,
+      "sha256": "974750990454c26091ef480e6b9f7d40a72ec563d257a1b4f2d3af862588d579"
+    },
+    {
+      "path": "daily-cleanup/home-monthly.png",
+      "bytes": 1270,
+      "sha256": "25471a3c75cd7feba5bb608eef7141e8e046296fad587d3df1e115dc040a169d"
+    },
+    {
+      "path": "daily-cleanup/home-thanks.png",
+      "bytes": 3168,
+      "sha256": "a50f658195474411f125b150eb2c867d8f2f39f57b5073963eb486013a5a7346"
+    },
+    {
+      "path": "daily-cleanup/home.png",
+      "bytes": 7309,
+      "sha256": "414217260e94ef855566934e93e4888f2ece33fc4cd7a36060fb15b608194bf0"
     },
     {
       "path": "daily-cleanup/house-complete.png",
@@ -1457,6 +1457,12 @@
       "sha256": "0c781e0b2a4899397c70edf70cfab69685077fe3fcf91a38d81596bed3755636"
     },
     {
+      "path": "template-match.onnx",
+      "bytes": 30849,
+      "sha256": "4fa5d4d33244af055bf5477f5616fca1fd07cdfe8be9086db9f8a5c0eac1f702",
+      "source": "python -m tools.build.build_template_match; operators only, template pixels arrive as external initializers"
+    },
+    {
       "path": "training-loading.png",
       "bytes": 1710,
       "sha256": "a6c54f2d664f41a7bc059d080a420ead60923e1e8b410cfafc5c28cacc225a00"
@@ -1493,8 +1499,14 @@
     },
     {
       "path": "weekend-obstacles/sources.json",
-      "bytes": 795,
-      "sha256": "bd0af2ec81abdbf85fb616c6765484528ec3cd8ffa9fbdf64d08c10402bb60cc"
+      "bytes": 1063,
+      "sha256": "5f8f18812fce72da8e41760b65f30fb1a55d2efb42e3f54e0eea552b4582f9d5"
+    },
+    {
+      "path": "weekend-obstacles/spike-needle.png",
+      "bytes": 12682,
+      "sha256": "87202d3d627642bf889ec39b11529e07bdb9309b585bb73fe85399b5b4f0dfdf",
+      "source": "data/evidence/2026-11-21/weekend-activity/31-fixed-live.png crop (583, 326, 629, 494)"
     },
     {
       "path": "weekend-obstacles/spike.png",
@@ -1502,49 +1514,19 @@
       "sha256": "f13ce555c98689d06e61bde9dfd126131aa332cc23bcda34293daf9121105868"
     },
     {
-      "path": "weekend-race/claim.png",
-      "bytes": 2953,
-      "sha256": "922e684b0e6a196206da154d842eb56d46aa8d733dc51ebaae3dee7b51a2494e"
-    },
-    {
       "path": "weekend-race/claim-all-current.png",
       "bytes": 10670,
       "sha256": "3d93f87f02ce595d4a780a2e4688c3821043a3b66dbe7c5d34e985228ebc4fc0"
     },
     {
+      "path": "weekend-race/claim.png",
+      "bytes": 2953,
+      "sha256": "922e684b0e6a196206da154d842eb56d46aa8d733dc51ebaae3dee7b51a2494e"
+    },
+    {
       "path": "weekend-race/claimed-current.png",
       "bytes": 8741,
       "sha256": "da6d041d208ae1656cbdae47447364d7d3e4b12dac819e5ef6c8e15c7db6866e"
-    },
-    {
-      "path": "weekend-race/entry-current.png",
-      "bytes": 28811,
-      "sha256": "72bc77607567d5132cd119399afa826469bde0de5307b1236d6f4eba7f96b93f"
-    },
-    {
-      "path": "weekend-race/intro-go.png",
-      "bytes": 14464,
-      "sha256": "d4d74ef9db8ca094fcf684e79c080cf9cec4de997f9c526d9b62c0f4c634f0a6"
-    },
-    {
-      "path": "weekend-race/race-marker-current.png",
-      "bytes": 6562,
-      "sha256": "3117870fe4539621b602488e76af31f4f721c203863a8972671b6db29901ca69"
-    },
-    {
-      "path": "weekend-race/start-current.png",
-      "bytes": 28004,
-      "sha256": "deddf96582ab8debb91b564fe58abc3b370bb1209ce698e9b749cb945cc91203"
-    },
-    {
-      "path": "weekend-race/summary-return-current.png",
-      "bytes": 1572,
-      "sha256": "f63b63d08bbc8380e484e5402d342162ebb06a05f3720baa1b68d5201bdc433b"
-    },
-    {
-      "path": "weekend-race/tasks-current.png",
-      "bytes": 6335,
-      "sha256": "74a23f9e1b60ef644170114579f4b6cccb9a5b3bf03bfdecf7c4ac15ce05bd61"
     },
     {
       "path": "weekend-race/claimed.png",
@@ -1555,6 +1537,11 @@
       "path": "weekend-race/dash.png",
       "bytes": 1516,
       "sha256": "3fe89b2b1668cdedea7143c6557f5ab86223472769c2a1d849b623a5b398f7c2"
+    },
+    {
+      "path": "weekend-race/entry-current.png",
+      "bytes": 28811,
+      "sha256": "72bc77607567d5132cd119399afa826469bde0de5307b1236d6f4eba7f96b93f"
     },
     {
       "path": "weekend-race/entry.png",
@@ -1577,6 +1564,11 @@
       "sha256": "242b06d569cfba22b5d3a9b183187316193ff2eb7daff953906b0a8e208e27e0"
     },
     {
+      "path": "weekend-race/intro-go.png",
+      "bytes": 14464,
+      "sha256": "d4d74ef9db8ca094fcf684e79c080cf9cec4de997f9c526d9b62c0f4c634f0a6"
+    },
+    {
       "path": "weekend-race/match.png",
       "bytes": 2529,
       "sha256": "19dcec818d6f7c98aefb25e621044460f9da9bd6244fb60b6b830dd749ec4557"
@@ -1590,6 +1582,17 @@
       "path": "weekend-race/race-effect.png",
       "bytes": 1394,
       "sha256": "efcfafe384dcfe4b67e0eb0f33cba5e487d5669b0e0494c1075aabea76cbaa31"
+    },
+    {
+      "path": "weekend-race/race-marker-current.png",
+      "bytes": 6562,
+      "sha256": "3117870fe4539621b602488e76af31f4f721c203863a8972671b6db29901ca69"
+    },
+    {
+      "path": "weekend-race/ranking-spectate.png",
+      "bytes": 6207,
+      "sha256": "86ba4a73072629e6e8b4444bb71faa6381757bc1259bd127ffa95082fbbb5404",
+      "source": "data/evidence/2026-11-21/weekend-activity/40-after-result.png crop (810, 610, 1090, 688)"
     },
     {
       "path": "weekend-race/ready.png",
@@ -1613,13 +1616,34 @@
     },
     {
       "path": "weekend-race/sources.json",
-      "bytes": 2071,
-      "sha256": "30a7577f721ae07f243cc6fb02d5d4a0e0c371b7d7bc542ef1a03ae2f99345db"
+      "bytes": 2377,
+      "sha256": "9f8fca614b3b660ed008e0d49e074501f936881894b2c5b9dc6ca9169bc59876"
+    },
+    {
+      "path": "weekend-race/spectate-back.png",
+      "bytes": 803,
+      "sha256": "bcbf173f68f5096d9d02c6db9143cce27d384a0e77088e0900da4ad53b4ded33",
+      "source": "data/evidence/2026-11-21/weekend-activity/57-spectate-trace.png crop (450, 545, 630, 605)"
     },
     {
       "path": "weekend-race/standings.png",
       "bytes": 3459,
       "sha256": "0768ed558f2fa186ed5befd102148684ce1506becfda0b09f2daf5043e54da95"
+    },
+    {
+      "path": "weekend-race/start-current.png",
+      "bytes": 28004,
+      "sha256": "deddf96582ab8debb91b564fe58abc3b370bb1209ce698e9b749cb945cc91203"
+    },
+    {
+      "path": "weekend-race/summary-return-current.png",
+      "bytes": 1572,
+      "sha256": "f63b63d08bbc8380e484e5402d342162ebb06a05f3720baa1b68d5201bdc433b"
+    },
+    {
+      "path": "weekend-race/tasks-current.png",
+      "bytes": 6335,
+      "sha256": "74a23f9e1b60ef644170114579f4b6cccb9a5b3bf03bfdecf7c4ac15ce05bd61"
     },
     {
       "path": "weekend-race/tasks.png",
@@ -1646,6 +1670,84 @@
       "bytes": 1524,
       "sha256": "a1bc84a7b53a09b17fa0065f7125a13cbe1c26cff1172d998c3a65c99900ea80",
       "source": "data/evidence/2026-11-19/xumi-152/008-lobby.png crop (975, 518, 1039, 550)"
+    },
+    {
+      "path": "xumi/daqian-setup.png",
+      "bytes": 4887,
+      "sha256": "f2d3684b68d3a09a7d4c9063155149ba13838140891414a35f9a75f5a45ee1aa",
+      "source": "data/evidence/2026-11-19/xumi-152/018-own.png crop (94, 16, 300, 73)"
+    },
+    {
+      "path": "xumi/equipment-cancel.png",
+      "bytes": 1200,
+      "sha256": "a875163bb94646e348fefdb148c7d99e6d0e3086eedcc36d648b29794f2f5f93",
+      "source": "data/evidence/2026-11-19/xumi-152/031-own-weapon-selected.png crop (1101, 633, 1167, 669)"
+    },
+    {
+      "path": "xumi/equipment-confirm-message.png",
+      "bytes": 5251,
+      "sha256": "897219383a894f885f528a031c2b542d7d366c6a804a1ede99223494d4f28ca3",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (471, 351, 800, 390)"
+    },
+    {
+      "path": "xumi/equipment-confirm-save.png",
+      "bytes": 1751,
+      "sha256": "a3b26ac00f66ba7f38447222d93d9d109afc7e10d0cc4ff5bb9810b197ea1cc4",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (768, 511, 850, 550)"
+    },
+    {
+      "path": "xumi/equipment-confirm-title.png",
+      "bytes": 1414,
+      "sha256": "87b889e65fca1dfe1ca9960d735fe781eff2aac7dc54afdcf35a0f3f616075f4",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (603, 262, 678, 302)"
+    },
+    {
+      "path": "xumi/equipment-equip.png",
+      "bytes": 1122,
+      "sha256": "59b64457b95395dc0c98a859459cb927339a3dbce5692be53c7d312f443c9c66",
+      "source": "data/evidence/2026-11-19/xumi-152/031-own-weapon-selected.png crop (1101, 555, 1167, 588)"
+    },
+    {
+      "path": "xumi/equipment-save.png",
+      "bytes": 1716,
+      "sha256": "cc7e5b29d1f4161bf0c4f07931b0d9b8f494b89b1f58641d49cd521aac6c6166",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (1065, 659, 1160, 701)"
+    },
+    {
+      "path": "xumi/equipment-support.png",
+      "bytes": 1314,
+      "sha256": "6d0d9d38b66a89125c0db86736d40db89a9232b675910c7c6a26904e360ff1e4",
+      "source": "data/evidence/2026-11-19/xumi-152/053-own-team2-gear.png crop (95, 522, 158, 548)"
+    },
+    {
+      "path": "xumi/equipment-team-1.png",
+      "bytes": 282,
+      "sha256": "d63880d9bb68946961332d999007bf23cf1a0ad24ae0bc3e0fac88d20b9ac972",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (819, 76, 836, 97)"
+    },
+    {
+      "path": "xumi/equipment-team-2.png",
+      "bytes": 320,
+      "sha256": "9a41b78bb740e3212de37bf0974c0dde5f1dcb98566df86f1beeddcde0a2cb5d",
+      "source": "data/evidence/2026-11-19/xumi-152/053-own-team2-gear.png crop (819, 76, 836, 97)"
+    },
+    {
+      "path": "xumi/equipment-team-label.png",
+      "bytes": 1777,
+      "sha256": "7ddce9a729f0a09cb5e21ba678224abdc7da3264b3755e3285398ba9e77312b5",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (836, 76, 934, 98)"
+    },
+    {
+      "path": "xumi/equipment-title-dim.png",
+      "bytes": 4375,
+      "sha256": "3c74ab0c90d4ef6a35c47c20f3809c95097b222d19c60244afc2c7f3107e9fc7",
+      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (94, 6, 309, 69)"
+    },
+    {
+      "path": "xumi/equipment-title.png",
+      "bytes": 5571,
+      "sha256": "cb0007932eae4a7ab82e3decfb7cf3d7b484aa76ead09dfd515d465a97e72594",
+      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (94, 6, 309, 69)"
     },
     {
       "path": "xumi/fangcun-entry.png",
@@ -1684,16 +1786,76 @@
       "source": "data/evidence/2026-11-19/xumi-152/008-lobby.png crop (96, 17, 301, 72)"
     },
     {
+      "path": "xumi/red-ninjutsu.png",
+      "bytes": 1891,
+      "sha256": "bb5404fb2d03c36fe641c1b24924fa045b06a9d5e02a94c171e08a203a841e59",
+      "source": "data/evidence/2026-11-19/xumi-152/daqian-red-ninjutsu-boss2.png crop (28, 39, 84, 85)"
+    },
+    {
+      "path": "xumi/result-complete.png",
+      "bytes": 14904,
+      "sha256": "3777f85aff31691df81474edb5f53c02c9050dbf8551e572e3b7a774b27ae2dc",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (230, 169, 407, 290)"
+    },
+    {
+      "path": "xumi/result-next.png",
+      "bytes": 3625,
+      "sha256": "5666490521a3d4d799028031c46ae21787db0fefaf41384f6fc8e464a703f66d",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (900, 615, 1044, 656)"
+    },
+    {
+      "path": "xumi/result-return.png",
+      "bytes": 5042,
+      "sha256": "f53591fdad169dcb2d74fd0c923aa064ea31df6f174619a2834670732b5bf2d1",
+      "source": "data/evidence/2026-11-19/xumi-152/025-fangcun-final.png crop (784, 613, 993, 656)"
+    },
+    {
+      "path": "xumi/result-total.png",
+      "bytes": 1582,
+      "sha256": "dde853d116dc4eedcd6b6f4cd895d3363dc98761cdbc4dde320b0c7d3c25aec7",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (95, 403, 189, 432)"
+    },
+    {
+      "path": "xumi/result-unplayed.png",
+      "bytes": 1441,
+      "sha256": "f8304886900691d34719fafda0ee1ea959226d93784bfbca24dd9feb611a92f4",
+      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (450, 365, 522, 394)"
+    },
+    {
       "path": "xumi/roster-fixed.png",
       "bytes": 3402,
       "sha256": "f0d276e579c18e23eb1c0fdf829bb81f3478da73254d59b6bce431d0210fec94",
       "source": "data/evidence/2026-11-19/xumi-152/013-system-roster.png crop (536, 111, 745, 142)"
     },
     {
+      "path": "xumi/roster-own-discard.png",
+      "bytes": 2940,
+      "sha256": "6bd682f37d42b6d425a99f8f4149c816a53d8b773cfa625ff71211e81230d4f7",
+      "source": "data/evidence/2026-11-19/xumi-152/020-own-roster.png crop (312, 577, 441, 618)"
+    },
+    {
+      "path": "xumi/roster-own.png",
+      "bytes": 3023,
+      "sha256": "1d523e2ac484eb39264012115f9a3b4a4183aa0b0856c67b53c8d9aa68250fee",
+      "source": "data/evidence/2026-11-19/xumi-152/020-own-roster.png crop (473, 115, 627, 147)"
+    },
+    {
       "path": "xumi/setup-start.png",
       "bytes": 3681,
       "sha256": "4b83492dce6d153b3397ec211a75d8043a85a63ac1b9739820f015d3d32239f1",
       "source": "data/evidence/2026-11-19/xumi-152/011-system.png crop (1015, 612, 1170, 656)"
+    },
+    {
+      "path": "xumi/start-failed.png",
+      "bytes": 2491,
+      "sha256": "804a4bf58a42d8d5666c9aec8a22e953709a13665bbc559e377d2385bf1490d7",
+      "source": "data/evidence/2026-11-19/xumi-152/027-own-start-response.png crop (374, 243, 484, 272)"
+    },
+    {
+      "path": "xumi/start-no-weapon.png",
+      "bytes": 4125,
+      "sha256": "e8831fdba1ad258f6094610cfb73107c8d1e0dacce5406333f2a3704d9e90b5c",
+      "source": "data/evidence/2026-11-19/xumi-152/027-own-start-response.png crop (742, 243, 907, 272)"
     },
     {
       "path": "xumi/tasks-close.png",
@@ -1714,6 +1876,12 @@
       "source": "data/evidence/2026-11-19/xumi-152/013-system-roster.png crop (104, 5, 308, 66)"
     },
     {
+      "path": "xumi/team-score-confirm-message.png",
+      "bytes": 4880,
+      "sha256": "383de45c63ac57e3a41537c77034e8de5a2947ef54afb45a77d6277d2ec5e24b",
+      "source": "data/evidence/2026-11-19/xumi-152/054-fangcun-score-confirm.png crop (535, 349, 823, 391)"
+    },
+    {
       "path": "xumi/team-skills.png",
       "bytes": 2414,
       "sha256": "60c0848d39e73b5cb0b391eb2b34bb279ee1baa7fade4aefabac803d636d8c12",
@@ -1724,150 +1892,6 @@
       "bytes": 6364,
       "sha256": "6684ec7f36689191a51b86fa16cd529c5f4ac678eaeb836521e04f4868e3735b",
       "source": "data/evidence/2026-11-19/xumi-152/012-system-team.png crop (104, 5, 308, 66)"
-    },
-    {
-      "path": "xumi/daqian-setup.png",
-      "bytes": 4887,
-      "sha256": "f2d3684b68d3a09a7d4c9063155149ba13838140891414a35f9a75f5a45ee1aa",
-      "source": "data/evidence/2026-11-19/xumi-152/018-own.png crop (94, 16, 300, 73)"
-    },
-    {
-      "path": "xumi/roster-own.png",
-      "bytes": 3023,
-      "sha256": "1d523e2ac484eb39264012115f9a3b4a4183aa0b0856c67b53c8d9aa68250fee",
-      "source": "data/evidence/2026-11-19/xumi-152/020-own-roster.png crop (473, 115, 627, 147)"
-    },
-    {
-      "path": "xumi/roster-own-discard.png",
-      "bytes": 2940,
-      "sha256": "6bd682f37d42b6d425a99f8f4149c816a53d8b773cfa625ff71211e81230d4f7",
-      "source": "data/evidence/2026-11-19/xumi-152/020-own-roster.png crop (312, 577, 441, 618)"
-    },
-    {
-      "path": "xumi/result-complete.png",
-      "bytes": 14904,
-      "sha256": "3777f85aff31691df81474edb5f53c02c9050dbf8551e572e3b7a774b27ae2dc",
-      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (230, 169, 407, 290)"
-    },
-    {
-      "path": "xumi/result-next.png",
-      "bytes": 3625,
-      "sha256": "5666490521a3d4d799028031c46ae21787db0fefaf41384f6fc8e464a703f66d",
-      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (900, 615, 1044, 656)"
-    },
-    {
-      "path": "xumi/result-total.png",
-      "bytes": 1582,
-      "sha256": "dde853d116dc4eedcd6b6f4cd895d3363dc98761cdbc4dde320b0c7d3c25aec7",
-      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (95, 403, 189, 432)"
-    },
-    {
-      "path": "xumi/result-unplayed.png",
-      "bytes": 1441,
-      "sha256": "f8304886900691d34719fafda0ee1ea959226d93784bfbca24dd9feb611a92f4",
-      "source": "data/evidence/2026-11-19/xumi-152/024-fangcun-transition.png crop (450, 365, 522, 394)"
-    },
-    {
-      "path": "xumi/result-return.png",
-      "bytes": 5042,
-      "sha256": "f53591fdad169dcb2d74fd0c923aa064ea31df6f174619a2834670732b5bf2d1",
-      "source": "data/evidence/2026-11-19/xumi-152/025-fangcun-final.png crop (784, 613, 993, 656)"
-    },
-    {
-      "path": "xumi/equipment-save.png",
-      "bytes": 1716,
-      "sha256": "cc7e5b29d1f4161bf0c4f07931b0d9b8f494b89b1f58641d49cd521aac6c6166",
-      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (1065, 659, 1160, 701)"
-    },
-    {
-      "path": "xumi/equipment-title.png",
-      "bytes": 5571,
-      "sha256": "cb0007932eae4a7ab82e3decfb7cf3d7b484aa76ead09dfd515d465a97e72594",
-      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (94, 6, 309, 69)"
-    },
-    {
-      "path": "xumi/start-failed.png",
-      "bytes": 2491,
-      "sha256": "804a4bf58a42d8d5666c9aec8a22e953709a13665bbc559e377d2385bf1490d7",
-      "source": "data/evidence/2026-11-19/xumi-152/027-own-start-response.png crop (374, 243, 484, 272)"
-    },
-    {
-      "path": "xumi/start-no-weapon.png",
-      "bytes": 4125,
-      "sha256": "e8831fdba1ad258f6094610cfb73107c8d1e0dacce5406333f2a3704d9e90b5c",
-      "source": "data/evidence/2026-11-19/xumi-152/027-own-start-response.png crop (742, 243, 907, 272)"
-    },
-    {
-      "path": "xumi/equipment-equip.png",
-      "bytes": 1122,
-      "sha256": "59b64457b95395dc0c98a859459cb927339a3dbce5692be53c7d312f443c9c66",
-      "source": "data/evidence/2026-11-19/xumi-152/031-own-weapon-selected.png crop (1101, 555, 1167, 588)"
-    },
-    {
-      "path": "xumi/equipment-cancel.png",
-      "bytes": 1200,
-      "sha256": "a875163bb94646e348fefdb148c7d99e6d0e3086eedcc36d648b29794f2f5f93",
-      "source": "data/evidence/2026-11-19/xumi-152/031-own-weapon-selected.png crop (1101, 633, 1167, 669)"
-    },
-    {
-      "path": "xumi/equipment-confirm-message.png",
-      "bytes": 5251,
-      "sha256": "897219383a894f885f528a031c2b542d7d366c6a804a1ede99223494d4f28ca3",
-      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (471, 351, 800, 390)"
-    },
-    {
-      "path": "xumi/equipment-confirm-save.png",
-      "bytes": 1751,
-      "sha256": "a3b26ac00f66ba7f38447222d93d9d109afc7e10d0cc4ff5bb9810b197ea1cc4",
-      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (768, 511, 850, 550)"
-    },
-    {
-      "path": "xumi/equipment-confirm-title.png",
-      "bytes": 1414,
-      "sha256": "87b889e65fca1dfe1ca9960d735fe781eff2aac7dc54afdcf35a0f3f616075f4",
-      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (603, 262, 678, 302)"
-    },
-    {
-      "path": "xumi/equipment-title-dim.png",
-      "bytes": 4375,
-      "sha256": "3c74ab0c90d4ef6a35c47c20f3809c95097b222d19c60244afc2c7f3107e9fc7",
-      "source": "data/evidence/2026-11-19/xumi-152/035-own-gear-progress.png crop (94, 6, 309, 69)"
-    },
-    {
-      "path": "xumi/equipment-team-1.png",
-      "bytes": 282,
-      "sha256": "d63880d9bb68946961332d999007bf23cf1a0ad24ae0bc3e0fac88d20b9ac972",
-      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (819, 76, 836, 97)"
-    },
-    {
-      "path": "xumi/equipment-team-2.png",
-      "bytes": 320,
-      "sha256": "9a41b78bb740e3212de37bf0974c0dde5f1dcb98566df86f1beeddcde0a2cb5d",
-      "source": "data/evidence/2026-11-19/xumi-152/053-own-team2-gear.png crop (819, 76, 836, 97)"
-    },
-    {
-      "path": "xumi/equipment-team-label.png",
-      "bytes": 1777,
-      "sha256": "7ddce9a729f0a09cb5e21ba678224abdc7da3264b3755e3285398ba9e77312b5",
-      "source": "data/evidence/2026-11-19/xumi-152/029-own-equipment.png crop (836, 76, 934, 98)"
-    },
-    {
-      "path": "xumi/equipment-support.png",
-      "bytes": 1314,
-      "sha256": "6d0d9d38b66a89125c0db86736d40db89a9232b675910c7c6a26904e360ff1e4",
-      "source": "data/evidence/2026-11-19/xumi-152/053-own-team2-gear.png crop (95, 522, 158, 548)"
-    },
-    {
-      "path": "xumi/red-ninjutsu.png",
-      "bytes": 1891,
-      "sha256": "bb5404fb2d03c36fe641c1b24924fa045b06a9d5e02a94c171e08a203a841e59",
-      "source": "data/evidence/2026-11-19/xumi-152/daqian-red-ninjutsu-boss2.png crop (28, 39, 84, 85)"
-    },
-    {
-      "path": "xumi/team-score-confirm-message.png",
-      "bytes": 4880,
-      "sha256": "383de45c63ac57e3a41537c77034e8de5a2947ef54afb45a77d6277d2ec5e24b",
-      "source": "data/evidence/2026-11-19/xumi-152/054-fangcun-score-confirm.png crop (535, 349, 823, 391)"
     }
   ]
 }

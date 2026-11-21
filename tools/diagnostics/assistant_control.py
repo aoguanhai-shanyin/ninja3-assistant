@@ -21,6 +21,8 @@ from ninja3_assistant.activities.daily import CHORES, DEFAULT_PET_FEED_REWARD, P
 
 
 ROOT = project_root()
+WEEKEND_MODES = ('daily', 'unlimited', *(str(n) for n in range(4, 26)))
+WEEKEND_ACTIVITIES = ('multiplayer', 'samescreen')
 
 
 class AssistantController:
@@ -37,7 +39,7 @@ class AssistantController:
         self.paused = False
         self.state, self.mode = 'idle', None
         self.activity_enabled, self.activity_mode = False, 'daily'
-        self.weekend_enabled, self.weekend_mode = False, 'daily'
+        self.weekend_enabled, self.weekend_mode, self.weekend_activity = False, 'daily', 'multiplayer'
         self.xumi_enabled = False
         self.abyss_enabled = False
         self.daily_tasks, self.bounty_grade = [], None
@@ -53,6 +55,7 @@ class AssistantController:
             return {'state': self.state, 'mode': self.mode, 'folder': str(self.folder), 'index': self.index,
                     'activity_enabled': self.activity_enabled, 'activity_mode': self.activity_mode,
                     'weekend_enabled': self.weekend_enabled, 'weekend_mode': self.weekend_mode,
+                    'weekend_activity': self.weekend_activity,
                     'xumi_enabled': self.xumi_enabled,
                     'abyss_enabled': self.abyss_enabled,
                     'daily_tasks':list(self.daily_tasks), 'bounty_grade':self.bounty_grade,
@@ -124,7 +127,8 @@ class AssistantController:
         return info
 
     def start(self, mode='hayabusa', *, activity_enabled=False, activity_mode='daily',hide_game_window=False,
-              weekend_enabled=False, weekend_mode='daily', xumi_enabled=False, daily_tasks=(),
+              weekend_enabled=False, weekend_mode='daily', weekend_activity='multiplayer',
+              xumi_enabled=False, daily_tasks=(),
               bounty_grade=None, pet_feed_reward=None,
               bounty_active_invite=True, bounty_passive_invite=True, abyss_enabled=False):
         if mode not in ('hayabusa', 'observe', 'run'):
@@ -139,8 +143,10 @@ class AssistantController:
             raise ValueError('activity is available only in run mode')
         if not isinstance(weekend_enabled,bool):
             raise ValueError('weekend_enabled must be a boolean')
-        if weekend_mode not in ('daily','25'):
-            raise ValueError('weekend_mode must be daily or 25')
+        if weekend_mode not in WEEKEND_MODES:
+            raise ValueError('weekend_mode must be a match count 4..25, unlimited, or daily')
+        if weekend_activity not in WEEKEND_ACTIVITIES:
+            raise ValueError('weekend_activity must be multiplayer or samescreen')
         if weekend_enabled and mode != 'run':
             raise ValueError('weekend is available only in run mode')
         if not isinstance(xumi_enabled, bool):
@@ -178,6 +184,7 @@ class AssistantController:
             self.navigation = None
             self.activity_enabled, self.activity_mode = activity_enabled, activity_mode
             self.weekend_enabled, self.weekend_mode = weekend_enabled, weekend_mode
+            self.weekend_activity = weekend_activity
             self.xumi_enabled = xumi_enabled
             self.abyss_enabled = abyss_enabled
             self.daily_tasks = list(dict.fromkeys(daily_tasks))
@@ -223,7 +230,8 @@ class AssistantController:
                 if self.activity_enabled:
                     command += ['--activity-enabled', '--activity-mode', self.activity_mode]
                 if self.weekend_enabled:
-                    command += ['--weekend-enabled', '--weekend-mode', self.weekend_mode]
+                    command += ['--weekend-enabled', '--weekend-mode', self.weekend_mode,
+                                '--weekend-activity', self.weekend_activity]
                 if self.xumi_enabled:
                     command.append('--xumi-enabled')
                 if self.abyss_enabled:
@@ -419,6 +427,7 @@ class AssistantController:
                               hide_game_window=message.get('hide_game_window',False),
                               weekend_enabled=message.get('weekend_enabled',False),
                               weekend_mode=message.get('weekend_mode','daily'),
+                              weekend_activity=message.get('weekend_activity','multiplayer'),
                               xumi_enabled=message.get('xumi_enabled', False),
                               abyss_enabled=message.get('abyss_enabled', False),
                               daily_tasks=message.get('daily_tasks',()),
@@ -510,7 +519,8 @@ def main():
     parser.add_argument('--activity-enabled', action='store_true')
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
     parser.add_argument('--weekend-enabled',action='store_true')
-    parser.add_argument('--weekend-mode',choices=('daily','25'),default='daily')
+    parser.add_argument('--weekend-mode',choices=WEEKEND_MODES,default='daily')
+    parser.add_argument('--weekend-activity',choices=WEEKEND_ACTIVITIES,default='multiplayer')
     parser.add_argument('--xumi-enabled', action='store_true')
     parser.add_argument('--abyss-enabled', action='store_true')
     parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
@@ -565,7 +575,8 @@ def main():
         if args.command == 'start':
             message.update(activity_enabled=args.activity_enabled, activity_mode=args.activity_mode)
             if args.weekend_enabled:
-                message.update(weekend_enabled=True,weekend_mode=args.weekend_mode)
+                message.update(weekend_enabled=True,weekend_mode=args.weekend_mode,
+                               weekend_activity=args.weekend_activity)
             if args.xumi_enabled:
                 message['xumi_enabled'] = True
             if args.abyss_enabled:

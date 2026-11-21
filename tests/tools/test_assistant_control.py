@@ -189,8 +189,9 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
             self.assertEqual(state['daily_tasks'],['rank','bounty'] if enabled else [])
             self.assertEqual(state['bounty_grade'],'D' if enabled else None)
             if enabled:
-                self.assertEqual(command[-9:],['--weekend-enabled','--weekend-mode','25','--xumi-enabled',
-                                             '--daily-tasks','rank','bounty','--bounty-grade','D'])
+                self.assertEqual(command[-11:],['--weekend-enabled','--weekend-mode','25',
+                                              '--weekend-activity','multiplayer','--xumi-enabled',
+                                              '--daily-tasks','rank','bounty','--bounty-grade','D'])
             else:
                 self.assertNotIn('--daily-tasks',command)
                 self.assertNotIn('--weekend-enabled',command)
@@ -446,7 +447,8 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
             'command':'start','mode':'run','activity_enabled':False,'activity_mode':'daily',
             'daily_tasks':['monthly','bounty','rank'],'bounty_grade':'B',
             'bounty_passive_invite':False,
-            'weekend_enabled':True,'weekend_mode':'25','xumi_enabled':True})
+            'weekend_enabled':True,'weekend_mode':'25','weekend_activity':'multiplayer',
+            'xumi_enabled':True})
 
     def test_daily_cli_validation_does_not_issue_a_request(self):
         for arguments in (['--command','start','--mode','observe','--daily-tasks','rank'],

@@ -7,7 +7,6 @@ import time
 import cv2
 import numpy as np
 from ninja3_assistant.activities.weekend.runner import RaceAvoider, RaceVision
-from ninja3_assistant.activities.weekend.rope import RaceRopeTraversal
 
 
 def main():
@@ -22,8 +21,11 @@ def main():
         raise RuntimeError('无法读取回放视频')
     cv2.setNumThreads(1)
     fps = video.get(cv2.CAP_PROP_FPS)
-    avoider,vision,rope = RaceAvoider(),RaceVision(),RaceRopeTraversal()
-    costs,rope_costs,rows = [],[],[]
+    vision = RaceVision()
+    # One inference per frame answers the page, obstacle and weapon questions,
+    # exactly as the live kernel does.
+    avoider = RaceAvoider(vision.observe)
+    costs,rows = [],[]
     index = 0
     try:
         while True:
@@ -34,25 +36,14 @@ def main():
             kind = vision.detect(frame)
             now = index/fps
             point = None
-            if kind == 'race' and not vision.on_rope and not vision.obscured:
+            if kind == 'race' and not vision.obscured:
                 started = time.perf_counter()
                 point = avoider.decide(frame,now)
                 costs.append((time.perf_counter()-started)*1000)
-                rope = RaceRopeTraversal()
-            elif kind == 'race' and vision.on_rope and not vision.obscured:
-                started = time.perf_counter()
-                avoider.track_player(frame,now)
-                actions = rope.decide(cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY),now,
-                                      avoider.player_x,avoider.player_y)
-                if actions:
-                    point = actions[0].point
-                    rope.scheduled(now)
-                rope_costs.append((time.perf_counter()-started)*1000)
             else:
-                avoider = RaceAvoider()
-                rope = RaceRopeTraversal()
+                avoider = RaceAvoider(vision.observe)
             rows.append({'seconds':now,'scene':kind,'action':point,'hazard':avoider.hazard,
-                         'on_rope':vision.on_rope,'upper_platform':rope.platform,
+                         'weapon_ready':vision.weapon_ready,
                          'player':[avoider.player_x,avoider.player_y],'ground':avoider.ground,
                          'objects':[{'kind':item.kind,'box':item.box} for item in avoider.detected]})
             if index % round(fps*2) == 0 and kind == 'race':
@@ -67,8 +58,6 @@ def main():
     summary = {'video':str(Path(args.video).resolve()),'video_fps':fps,'frames':index,
                'perception_samples':len(costs),'avoidance_ms':dict(zip(('p50','p95','max'),
                    map(float,np.percentile(costs,(50,95,100))))) if costs else None,
-               'rope_samples':len(rope_costs),'rope_ms':dict(zip(('p50','p95','max'),
-                   map(float,np.percentile(rope_costs,(50,95,100))))) if rope_costs else None,
                'live_gameplay':False,'accuracy_measured':False}
     (output/'replay.json').write_text(json.dumps({'summary':summary,'frames':rows},
                                                ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

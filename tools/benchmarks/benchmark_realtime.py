@@ -22,7 +22,8 @@ def percentiles(values):
 
 
 def recognition(frame,frames,adaptive):
-    vision,avoider,cadence = RaceVision(),RaceAvoider(),RecognitionCadence()
+    vision = RaceVision()
+    avoider,cadence = RaceAvoider(vision.observe),RecognitionCadence()
     pauses = deque(maxlen=1024)
     started = 0.
     def callback(phase,info):

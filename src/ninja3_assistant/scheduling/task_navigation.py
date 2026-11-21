@@ -133,7 +133,7 @@ def return_to_home(folder, index, control, *, target=None):
             if _editing_xumi(xumi_screen.kind):
                 return False
             screen, kind = activity.detect(frame), race.detect(frame)
-            race_active = kind in ('ready','dash','finish','result','standings','summary') or (
+            race_active = kind in ('ready','ranking','finish','result','standings','summary') or (
                 kind in ('race','respawn') and race.confirmed_race)
             daily_page,daily_back = daily.navigation(frame)
             bounty_page,bounty_back = bounty.navigation(frame)

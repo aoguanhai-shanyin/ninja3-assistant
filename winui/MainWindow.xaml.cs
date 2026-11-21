@@ -17,6 +17,9 @@ public sealed partial class MainWindow : Window
     private static readonly string[] BountyGrades = ["D", "C", "B", "A"];
     private static readonly string[] NewDailyTasks = ["pet_feed", "arena_reward", "landlady_quiz"];
     private const int DailyTasksVersion = 1;
+    // This week's rotation has no 25-match cap, so the goal is a choice: the
+    // dailies need 4 races, up to 25 may be asked for, and 无限打 keeps racing.
+    private static readonly string[] WeekendGoals = ["daily", .. Enumerable.Range(4, 22).Select(n => n.ToString()), "unlimited"];
     private readonly string _settingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Ninja3Assistant", "settings.json");
@@ -46,6 +49,9 @@ public sealed partial class MainWindow : Window
         public string ActivityMode { get; set; } = "daily";
         public bool WeekendEnabled { get; set; }
         public string WeekendMode { get; set; } = "daily";
+        public string WeekendActivity { get; set; } = "multiplayer";
+        public bool SameScreenEnabled { get; set; }
+        public string SameScreenMode { get; set; } = "daily";
         public bool XumiEnabled { get; set; }
         public bool AbyssEnabled { get; set; }
         public bool HideGameWindow { get; set; }
@@ -99,7 +105,10 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ActivityTabs.SelectionChanged += ActivityTabs_SelectionChanged;
         ActivityTabs.SelectedItem = IntelligenceTab;
-        WeekendTabs.SelectedItem = WeekendTab;
+        FillWeekendGoals(WeekendModeBox);
+        FillWeekendGoals(SameScreenModeBox);
+        WeekendTabs.SelectionChanged += WeekendTabs_SelectionChanged;
+        WeekendTabs.SelectedItem = MultiplayerTab;
         FamilyTabs.SelectedItem = AbyssTab;
         InitializeVideoDebug();
         AppWindow.Resize(new SizeInt32(1080, 760));
@@ -153,8 +162,12 @@ public sealed partial class MainWindow : Window
         ActivityModeBox.SelectedIndex = settings.ActivityMode == "continuous" ? 1 : 0;
         ActivityModeBox.IsEnabled = settings.ActivityEnabled;
         WeekendEnabledSwitch.IsOn = settings.WeekendEnabled;
-        WeekendModeBox.SelectedIndex = settings.WeekendMode == "25" ? 1 : 0;
+        SelectWeekendGoal(WeekendModeBox, settings.WeekendMode);
         WeekendModeBox.IsEnabled = settings.WeekendEnabled;
+        SameScreenEnabledSwitch.IsOn = settings.SameScreenEnabled;
+        SelectWeekendGoal(SameScreenModeBox, settings.SameScreenMode);
+        SameScreenModeBox.IsEnabled = settings.SameScreenEnabled;
+        WeekendTabs.SelectedItem = settings.WeekendActivity == "samescreen" ? SameScreenTab : MultiplayerTab;
         XumiEnabledSwitch.IsOn = settings.XumiEnabled;
         AbyssEnabledSwitch.IsOn = settings.AbyssEnabled;
         HideGameWindowSwitch.IsOn = settings.HideGameWindow;
@@ -219,7 +232,10 @@ public sealed partial class MainWindow : Window
         settings.ActivityEnabled = ActivityEnabledSwitch.IsOn;
         settings.ActivityMode = ActivityModeBox.SelectedIndex == 1 ? "continuous" : "daily";
         settings.WeekendEnabled = WeekendEnabledSwitch.IsOn;
-        settings.WeekendMode = WeekendModeBox.SelectedIndex == 1 ? "25" : "daily";
+        settings.WeekendMode = ReadWeekendGoal(WeekendModeBox);
+        settings.SameScreenEnabled = SameScreenEnabledSwitch.IsOn;
+        settings.SameScreenMode = ReadWeekendGoal(SameScreenModeBox);
+        settings.WeekendActivity = WeekendTabs.SelectedItem == SameScreenTab ? "samescreen" : "multiplayer";
         settings.XumiEnabled = XumiEnabledSwitch.IsOn;
         settings.AbyssEnabled = AbyssEnabledSwitch.IsOn;
         settings.HideGameWindow = HideGameWindowSwitch.IsOn;
@@ -474,11 +490,13 @@ public sealed partial class MainWindow : Window
                 info.ArgumentList.Add(settings.ActivityMode);
             }
             info.Environment["PYTHONIOENCODING"] = "utf-8";
-            if (mode == "run" && settings.WeekendEnabled)
+            if (mode == "run" && WeekendSelection(settings) is { } weekend)
             {
                 info.ArgumentList.Add("--weekend-enabled");
                 info.ArgumentList.Add("--weekend-mode");
-                info.ArgumentList.Add(settings.WeekendMode);
+                info.ArgumentList.Add(weekend.Mode);
+                info.ArgumentList.Add("--weekend-activity");
+                info.ArgumentList.Add(weekend.Activity);
             }
 
             if (mode == "run" && settings.XumiEnabled)
@@ -730,9 +748,10 @@ public sealed partial class MainWindow : Window
         FolderButton.IsEnabled = FolderBox.IsEnabled = available && !AnyWorker;
         InstanceBox.IsEnabled = ScanButton.IsEnabled = RefreshInstancesButton.IsEnabled = available;
         HideGameWindowSwitch.IsEnabled = JoinIntervalBox.IsEnabled = editable;
-        ActivityEnabledSwitch.IsEnabled = WeekendEnabledSwitch.IsEnabled = editable;
+        ActivityEnabledSwitch.IsEnabled = WeekendEnabledSwitch.IsEnabled = SameScreenEnabledSwitch.IsEnabled = editable;
         XumiEnabledSwitch.IsEnabled = AbyssEnabledSwitch.IsEnabled = DailyEnabledSwitch.IsEnabled = editable;
         WeekendModeBox.IsEnabled = editable && WeekendEnabledSwitch.IsOn;
+        SameScreenModeBox.IsEnabled = editable && SameScreenEnabledSwitch.IsOn;
         ActivityModeBox.IsEnabled = editable && ActivityEnabledSwitch.IsOn;
         DailyOptionsControl.IsEnabled = editable && DailyEnabledSwitch.IsOn;
         UpdateVideoDebugAvailability(AnyWorker || _scanning);
@@ -784,10 +803,61 @@ public sealed partial class MainWindow : Window
         XumiOptions.Visibility = sender.SelectedItem == XumiTab ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void WeekendTabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        MultiplayerOptions.Visibility = sender.SelectedItem == MultiplayerTab ? Visibility.Visible : Visibility.Collapsed;
+        SameScreenOptions.Visibility = sender.SelectedItem == SameScreenTab ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static void FillWeekendGoals(ComboBox box)
+    {
+        foreach (string goal in WeekendGoals)
+            box.Items.Add(new ComboBoxItem { Content = WeekendGoalLabel(goal), Tag = goal });
+        box.SelectedIndex = 0;
+    }
+
+    private static string WeekendGoalLabel(string goal) => goal switch
+    {
+        "daily" => "完成每日任务后停止",
+        "unlimited" => "无限打（手动停止前一直竞速）",
+        _ => $"完成 {goal} 场积分比赛"
+    };
+
+    private static void SelectWeekendGoal(ComboBox box, string goal)
+    {
+        box.SelectedItem = box.Items.OfType<ComboBoxItem>().FirstOrDefault(item => (string)item.Tag == goal)
+            ?? box.Items.FirstOrDefault();
+    }
+
+    private static string ReadWeekendGoal(ComboBox box) =>
+        (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "daily";
+
+    private (string Activity, string Mode)? WeekendSelection(Settings settings)
+    {
+        bool same = settings.SameScreenEnabled;
+        bool multi = settings.WeekendEnabled;
+        if (!same && !multi) return null;
+        // Only one rotation is open at a time, so exactly one task is started.
+        // With both switched on the tab in view decides; with only one on, that
+        // one runs whichever tab happens to be showing.
+        string activity = same != multi
+            ? (same ? "samescreen" : "multiplayer")
+            : (WeekendTabs.SelectedItem == SameScreenTab ? "samescreen" : "multiplayer");
+        return activity == "samescreen"
+            ? (activity, settings.SameScreenMode)
+            : (activity, settings.WeekendMode);
+    }
+
     private void WeekendEnabled_Toggled(object sender, RoutedEventArgs e)
     {
         if (WeekendModeBox is not null)
             WeekendModeBox.IsEnabled = WeekendEnabledSwitch.IsOn && SelectedSession is { Process: null } && !_scanning && !VideoDebugBusy;
+    }
+
+    private void SameScreenEnabled_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (SameScreenModeBox is not null)
+            SameScreenModeBox.IsEnabled = SameScreenEnabledSwitch.IsOn && SelectedSession is { Process: null } && !_scanning && !VideoDebugBusy;
     }
 
     private async void Browse_Click(object sender, RoutedEventArgs e)

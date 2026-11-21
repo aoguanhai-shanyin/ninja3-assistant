@@ -10,6 +10,10 @@ $running = Get-CimInstance Win32_Process | Where-Object {
 if ($running) { throw 'Exit Ninja3Assistant and its worker before building.' }
 Push-Location $projectRoot
 try {
+    # The template graph is derived from the local templates, so it is
+    # generated before check_assets verifies the manifest it belongs to.
+    & $Python -m tools.build.build_template_match
+    if ($LASTEXITCODE -ne 0) { throw 'Prepare local assets first, then regenerate the template graph; see assets/README.md.' }
     & $Python -m tools.build.check_assets
     if ($LASTEXITCODE -ne 0) { throw 'Prepare local assets first; see assets/README.md.' }
     & $Python -m tools.build.build_intelligence_portrait_batch

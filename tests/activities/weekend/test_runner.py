@@ -22,6 +22,15 @@ def current_frame(name):
     path = ROOT/'data/evidence/2026-11-21/weekend-activity'/name
     return cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB)
 
+
+def no_obstacles():
+    """FrameScores stand-in: a race frame with nothing to jump over."""
+    scores = Mock()
+    scores.obstacles.return_value = ()
+    scores.matched.return_value = False
+    scores.score.return_value = 0.
+    return scores
+
 class WeekendRaceTest(unittest.TestCase):
     def test_unexpected_home_after_battle_cancels_input_and_yields_retry(self):
         control=RunControl()
@@ -30,6 +39,7 @@ class WeekendRaceTest(unittest.TestCase):
         vision.detect.side_effect=['race','home']
         vision.confirmed_race=True
         vision.obscured=False
+        vision.observe.return_value=no_obstacles()
         vision.on_rope=False
         vision.opening.ground_frames=1
         device.capture.return_value=np.zeros((720,1280,3),np.uint8)
@@ -55,6 +65,7 @@ class WeekendRaceTest(unittest.TestCase):
             vision.detect.return_value = 'race'
             vision.confirmed_race = confirmed
             vision.obscured = False
+            vision.observe.return_value = no_obstacles()
             vision.on_rope = False
             vision.opening.ground_frames = 1
             captures = 0
@@ -75,7 +86,8 @@ class WeekendRaceTest(unittest.TestCase):
                 run_weekend('folder',1,control,lambda *a:None)
             self.assertEqual(native.schedule_movement.call_count,1 if confirmed else 0)
 
-    def test_respawn_recovery_jumps_before_resuming_slide(self):
+    def test_same_screen_revival_hops_out_of_the_hazard(self):
+        """同屏竞速死亡后会自己复活，复活瞬间先跳出危险区。"""
         control = RunControl()
         image = np.zeros((720,1280,3),np.uint8)
         native,device,vision = Mock(),Mock(),Mock()
@@ -83,6 +95,7 @@ class WeekendRaceTest(unittest.TestCase):
         vision.detect.side_effect = ['ready','ready','race','respawn','race','unknown']
         vision.opening.ground_frames = 1
         vision.obscured = False
+        vision.observe.return_value = no_obstacles()
         vision.on_rope = False
         captures = 0
         def capture():
@@ -101,16 +114,15 @@ class WeekendRaceTest(unittest.TestCase):
              patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
              patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
              patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native) as create_touch:
-            run_weekend('folder',1,control,lambda *a:None)
+            run_weekend('folder',1,control,lambda *a:None,activity='samescreen')
         self.assertEqual(create_touch.call_args.kwargs['movement'],'jump-two-slide')
         native.quiesce.assert_any_call(reason='respawn')
         jumps = [c for c in native.priority_tap.call_args_list if c.args[0] == (1090,630)]
         self.assertEqual(len(jumps),1)
         self.assertTrue(jumps[0].kwargs['preserve_slide'])
-        self.assertEqual(native.schedule_movement.call_count,1)
-        native.release.assert_not_called()
+        self.assertGreaterEqual(native.schedule_movement.call_count,1)
 
-    def test_rope_jumps_on_its_own_finger_without_ground_slide(self):
+    def test_race_plans_skills_on_one_finger_and_keeps_movement_in_the_kernel(self):
         control = RunControl(clock=Mock(side_effect=range(100)))
         image = np.zeros((720,1280,3),np.uint8)
         native, device, vision = Mock(), Mock(), Mock()
@@ -119,6 +131,7 @@ class WeekendRaceTest(unittest.TestCase):
         vision.opening.ground_frames = 0
         vision.on_rope = True
         vision.obscured = False
+        vision.observe.return_value = no_obstacles()
         captures = 0
         def capture():
             nonlocal captures
@@ -136,60 +149,57 @@ class WeekendRaceTest(unittest.TestCase):
              patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
              patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
             run_weekend('folder',1,control,lambda *a:None)
-        native.schedule_movement.assert_not_called()
-        self.assertEqual(native.release.call_count,1)
-        jumps = [call for call in native.plan.call_args_list if call.args[0] == 3]
-        self.assertTrue(jumps)
-        self.assertTrue(all(action.point == (1090,630) for call in jumps for action in call.args[1]))
-        self.assertTrue(any(call.args[0] == 4 for call in native.plan.call_args_list))
+        # Every race frame keeps the ground slide lease alive through the
+        # kernel; a jump is a bounded tap, never a second movement finger.
+        self.assertGreaterEqual(native.schedule_movement.call_count,1)
+        self.assertEqual({call.args[0] for call in native.plan.call_args_list},{4})
+        self.assertTrue(all(action.offset_ms < 200
+                            for call in native.plan.call_args_list
+                            for action in call.args[1]))
         self.assertFalse(any(c.args[0] == (1090,630) for c in native.priority_tap.call_args_list))
 
-    def test_leaving_rope_cancels_rope_jumps_before_resuming_ground_movement(self):
-        control = RunControl()
-        native,device,vision = Mock(),Mock(),Mock()
-        native.movement_remaining.return_value = 0.
+    def test_always_visible_slide_arrow_cannot_confirm_a_race(self):
+        vision = RaceVision()
+        arrow = cv2.imread(str(ROOT/'assets/weekend-race/rope-down.png'), cv2.IMREAD_GRAYSCALE)
         image = np.zeros((720,1280,3),np.uint8)
+        height, width = arrow.shape
+        image[590:590+height,165:165+width] = arrow[:,:,None]
+        self.assertEqual(vision.detect(image),'unknown')
+        self.assertFalse(vision.confirmed_race)
+
+    def test_race_start_skates_without_waiting_for_a_super_start(self):
+        """The rotation has no super start: a confirmed race starts skating at once."""
+        control = RunControl()
+        image = np.zeros((720,1280,3),np.uint8)
+        native,device,vision = Mock(),Mock(),Mock()
+        native.movement_remaining.return_value=0.
+        vision.detect.side_effect = ['ready','respawn','race','race']
+        vision.confirmed_race = True
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        vision.on_rope = False
+        vision.opening.ground_frames = 1
         captures = 0
         def capture():
             nonlocal captures
             captures += 1
-            if captures == 3:
+            if captures == 4:
                 control.request_stop()
             return image
-        def detect(*_):
-            vision.on_rope = captures == 1
-            vision.opening.ground_frames = 0 if vision.on_rope else 1
-            return 'race'
         device.capture.side_effect = capture
-        vision.detect.side_effect = detect
-        vision.confirmed_race = True
-        vision.obscured = False
         with tempfile.TemporaryDirectory() as directory, \
              patch('ninja3_assistant.activities.weekend.runner.ROOT',Path(directory)), \
              patch('ninja3_assistant.activities.weekend.runner.prepare_game',return_value=False), \
              patch('ninja3_assistant.activities.weekend.runner.RealtimeBattleKernel.recognition_due',return_value=True), \
              patch('ninja3_assistant.activities.weekend.runner.RaceVision',return_value=vision), \
-             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'),patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
-             patch('ninja3_assistant.activities.weekend.runner.RaceRopeTraversal.upper_platform',return_value=(550,350,160,25)), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
              patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
              patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
-            run_weekend('folder',1,control,lambda *args:None)
-        jumps = [call for call in native.plan.call_args_list if call.args[0] == 3]
-        self.assertEqual(len(jumps[0].args[1]),2)
-        native.cancel_plan.assert_called_once_with(3)
-        native.schedule_movement.assert_called_once()
-        names = [call[0] for call in native.method_calls]
-        self.assertLess(names.index('cancel_plan'),names.index('schedule_movement'))
-
-    def test_both_rope_directions_disable_ground_slide(self):
-        vision = RaceVision()
-        for arrow in (vision.rope_down,vision.rope_up):
-            image = np.zeros((720,1280,3),np.uint8)
-            h,w = arrow.shape
-            image[590:590+h,165:165+w] = arrow[:,:,None]
-            vision.detect(image)
-            self.assertTrue(vision.on_rope)
-            self.assertEqual(vision.opening.ground_frames,0)
+            run_weekend('folder',1,control,lambda *a:None)
+        self.assertFalse(any(c.kwargs.get('reason') == 'respawn'
+                             for c in native.quiesce.call_args_list))
+        self.assertGreaterEqual(native.schedule_movement.call_count,1)
 
     def test_hall_entry_requires_the_race_card_on_the_refreshed_frame(self):
         control = RunControl()
@@ -247,7 +257,7 @@ class WeekendRaceTest(unittest.TestCase):
              patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
             outcome = run_weekend('folder',1,RunControl(clock=Mock(side_effect=range(0,40,2))),lambda k,v:events.append((k,v)),'25')
         self.assertIs(outcome, TaskOutcome.LIMIT_REACHED)
-        self.assertIn(('status','今日25场积分比赛已用完，任务结束'),events)
+        self.assertIn(('status','今日积分场次已用完，任务结束'),events)
         self.assertTrue(all(call.args[0] != (1140,677) for call in native.priority_tap.call_args_list))
         native.close.assert_called_once()
     def terrain(self):
@@ -306,6 +316,15 @@ class WeekendRaceTest(unittest.TestCase):
         avoider.decide(frame('20261114-170712-recovery-kernel.png'),0)
         self.assertEqual((avoider.player_x,avoider.player_y),(608,458))
 
+    def test_water_surface_does_not_invent_pits(self):
+        """The water map has no continuous road, so a missing row is not a pit."""
+        avoider = RaceAvoider()
+        image = self.terrain()
+        self.assertIsNone(avoider.decide(image,0))
+        image[530:600,700:940] = 180
+        self.assertIsNone(avoider.decide(image,1))
+        self.assertIsNone(avoider.hazard)
+
     def test_pit_stops_slide_before_jump_and_flat_road_allows_slide(self):
         image = self.terrain()
         avoider = RaceAvoider()
@@ -317,17 +336,17 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertEqual(avoider.hazard,'pit')
         self.assertGreater(avoider.air_until,1)
 
-    def test_both_weapons_are_scheduled_with_cards(self):
+    def test_weapon_and_cards_share_one_bounded_plan(self):
         skills = RaceSkills()
         self.assertTrue(skills.due(0))
         skills.scheduled(0)
         self.assertFalse(skills.due(.5))
         self.assertTrue(skills.due(.6))
-        points = [a.point for a in skills.actions]
-        self.assertIn((380,630),points)
-        self.assertIn((900,630),points)
-        self.assertIn((740,630),points)
-        self.assertEqual(len(set(points)),5)
+        cooling = [a.point for a in RaceSkills.actions(False)]
+        armed = RaceSkills.actions(True)
+        self.assertEqual(cooling,[(900,630),(520,630),(635,630),(740,630)])
+        self.assertEqual([a.point for a in armed],[(380,630),*cooling])
+        self.assertTrue(all(action.offset_ms < 200 for action in armed))
 
     def test_unobserved_road_under_effect_does_not_invent_a_pit(self):
         avoider = RaceAvoider()
@@ -365,7 +384,7 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertTrue(vision.obscured)
 
     def test_counter_is_daily_reward_allowance_not_session_count(self):
-        for text, expected in [('可获得积分场次剩余21次',21),('剩余0次',0),('剩余25次',25),('剩余26次',None),('未知',None)]:
+        for text, expected in [('可获得积分场次剩余21次',21),('剩余0次',0),('剩余25次',25),('剩余26次',26),('未知',None)]:
             self.assertEqual(remaining_matches(text),expected)
 
     def test_actual_daily_requires_all_five_claimed(self):
@@ -392,17 +411,27 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertEqual(vision.detect(frame('current-fix-check.png')),'race')
         self.assertEqual(vision.detect(frame('sample-94.png')),'race')
 
-    def test_super_start_button_is_recognized_through_countdown(self):
+    def test_countdown_frames_keep_the_race_owned_without_a_super_start_state(self):
         vision = RaceVision()
         folder = ROOT/'data/weekend-race/runs/20261114-164702'
         for name in ('1794646088523972500-startup.png','1794646090232204500-startup.png'):
             image = cv2.cvtColor(cv2.imread(str(folder/name)),cv2.COLOR_BGR2RGB)
-            self.assertEqual(vision.detect(image),'dash')
+            self.assertIn(vision.detect(image),('race','respawn'))
+            self.assertTrue(vision.confirmed_race)
 
     def test_death_is_distinguished_from_running_when_movement_buttons_disappear(self):
+        """死亡时跳跃图标消失；要连续两帧，避免屋顶遮挡的镜头被当成倒地。"""
         path = ROOT/'data/weekend-race/runs/20261114-165630/1794646780212204400-unknown.png'
         image = cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB)
-        self.assertEqual(RaceVision().detect(image),'respawn')
+        vision = RaceVision()
+        self.assertEqual(vision.detect(image),'race')
+        self.assertEqual(vision.detect(image),'respawn')
+        self.assertGreaterEqual(vision.hidden_frames,2)
+        running = frame('current-fix-check.png')
+        steady = RaceVision()
+        self.assertEqual(steady.detect(running),'race')
+        self.assertEqual(steady.detect(running),'race')
+        self.assertEqual(steady.hidden_frames,0)
 
     def test_real_flat_road_with_skill_effects_does_not_invent_pits(self):
         for name in ('20261114-160545-latest.png',
@@ -423,7 +452,7 @@ class WeekendRaceTest(unittest.TestCase):
         run = subprocess.run([str(executable),'--mock','--swipe','1280','410','300','410'],capture_output=True,timeout=5)
         self.assertEqual(run.returncode,2)
 
-    def test_current_rotation_recognizes_entry_intro_home_tasks_and_ready(self):
+    def test_recognizes_entry_intro_home_tasks_and_ready(self):
         vision = RaceVision()
         hall = current_frame('15-hall-two-swipes.png')
         self.assertEqual(vision.detect(hall), 'hall')
@@ -450,6 +479,186 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertEqual(vision.detect(current_frame('restart-return/005.png')), 'result')
         self.assertEqual(vision.detect(current_frame('tasks-claim/007.png')), 'reward')
 
+    def test_settlement_ranking_view_is_recognized_instead_of_unknown(self):
+        """结算页关闭后停在观战排行榜：必须有模板，否则 15 秒 unknown 超时。"""
+        vision = RaceVision()
+        image = current_frame('40-after-result.png')
+        self.assertEqual(vision.detect(image),'ranking')
+        self.assertEqual(vision.layout,'current')
+
+    def test_settlement_is_recorded_even_when_the_confirm_tap_misses(self):
+        """结算页约 1 秒自动关闭：看到结算页就应记一场，而不是依赖点击成功。"""
+        control = RunControl()
+        image = np.zeros((720,1280,3),np.uint8)
+        native,device,vision = Mock(),Mock(),Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = ['ready','race','result','home']
+        vision.confirmed_race = True
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        device.capture.return_value = image
+        ui = Mock()
+        ui.perform.return_value = False
+        progress = WeekendProgress(day='2026-11-21',matches=0)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT',Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game',return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision',return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI',return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
+            outcome = run_weekend('folder',1,control,lambda *a:None,'25',
+                                  checkpoint=True,progress=progress)
+        self.assertIs(outcome,TaskOutcome.MATCH_DONE)
+        self.assertEqual(progress.matches,1)
+
+    def test_settlement_is_recorded_when_the_board_never_shows_a_result_page(self):
+        """实机结算走 finish -> standings -> home，整条链路没有 result 页。
+
+        只认 result 页记账会让每局都漏记，25 场计数因此一直是 0。
+        """
+        control = RunControl()
+        image = np.zeros((720,1280,3),np.uint8)
+        native,device,vision = Mock(),Mock(),Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = ['ready','race','finish','standings','home']
+        vision.confirmed_race = True
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        device.capture.return_value = image
+        ui = Mock()
+        ui.perform.return_value = False
+        progress = WeekendProgress(day='2026-11-21',matches=0)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT',Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game',return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision',return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI',return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
+            outcome = run_weekend('folder',1,control,lambda *a:None,'25',
+                                  checkpoint=True,progress=progress)
+        self.assertIs(outcome,TaskOutcome.MATCH_DONE)
+        self.assertEqual(progress.matches,1)
+
+    def test_spectate_home_is_driven_through_its_own_button(self):
+        """观战态由「进入观战」驱动：点它进结算页，确认后回到可开始的主页。
+
+        退回集会所会陷入 hall→活动 死循环；实测干等 2~8 分钟且有时不恢复。
+        """
+        control = RunControl(clock=Mock(side_effect=range(0,60,2)))
+        image = np.zeros((720,1280,3),np.uint8)
+        native,device,vision = Mock(),Mock(),Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = ['ready','race','ranking','ranking','home']
+        vision.confirmed_race = True
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        device.capture.return_value = image
+        ui = Mock()
+        ui.perform.return_value = False
+        progress = WeekendProgress(day='2026-11-21',matches=0)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT',Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game',return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision',return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI',return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
+            outcome = run_weekend('folder',1,control,lambda *a:None,'25',
+                                  checkpoint=True,progress=progress)
+        self.assertIs(outcome,TaskOutcome.MATCH_DONE)
+        # The spectate state also proves the match ended, so it must count.
+        self.assertEqual(progress.matches,1)
+        taps = [entry.args[1] for entry in ui.perform.call_args_list if len(entry.args) > 1]
+        self.assertIn('enter_spectate',taps)
+        self.assertNotIn('leave_ranking',taps)
+
+    def test_spectator_trace_page_uses_its_own_back_button(self):
+        """观战轨迹页的返回在 (540,570)，赛后轨迹页的 (640,667) 点不中它。"""
+        control = RunControl(clock=Mock(side_effect=range(0,80,2)))
+        image = np.zeros((720,1280,3),np.uint8)
+        native,device,vision = Mock(),Mock(),Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = ['ready','race','ranking','spectate','finish','home']
+        vision.confirmed_race = True
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        device.capture.return_value = image
+        ui = Mock()
+        ui.perform.return_value = False
+        progress = WeekendProgress(day='2026-11-21',matches=0)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT',Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game',return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision',return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI',return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
+            outcome = run_weekend('folder',1,control,lambda *a:None,'25',
+                                  checkpoint=True,progress=progress)
+        self.assertIs(outcome,TaskOutcome.MATCH_DONE)
+        self.assertEqual(progress.matches,1)
+        taps = [entry.args[1] for entry in ui.perform.call_args_list if len(entry.args) > 1]
+        self.assertIn('enter_spectate',taps)
+        self.assertIn('spectate_back',taps)
+        self.assertNotIn('confirm_summary',taps)
+
+    def test_relay_panel_is_recognized_before_the_race(self):
+        """死亡弹框压在竞速 HUD 上：必须先判接力，否则整局都在往弹框送操作。
+
+        标题亮绿占比在两块地图是 0.30 / 0.23，九张页面和所有竞速帧都是
+        0.0000。模板匹配做不到这件事——平坦横幅用 NCC 会假阳性 1.00。
+        """
+        vision = RaceVision()
+        self.assertEqual(vision.detect(current_frame('58-relay-bamboo.png')), 'relay')
+        self.assertTrue(vision.confirmed_race)
+        self.assertEqual(RaceVision().detect(current_frame('59-relay-cave.png')), 'relay')
+        self.assertEqual(RaceVision().detect(current_frame('18-activity-home.png')), 'home')
+        self.assertEqual(RaceVision().detect(current_frame('19-daily-tasks.png')), 'tasks')
+        self.assertEqual(RaceVision().detect(frame('current-fix-check.png')), 'race')
+
+    def test_relay_panel_is_skipped_instead_of_joined(self):
+        """用户规则：死亡出接力弹框，不接了就行——跳过并等本局结算。"""
+        control = RunControl(clock=Mock(side_effect=range(0,60,2)))
+        image = np.zeros((720,1280,3),np.uint8)
+        native,device,vision = Mock(),Mock(),Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = ['ready','race','relay','relay','finish','home']
+        vision.confirmed_race = True
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        device.capture.return_value = image
+        ui = Mock()
+        ui.perform.return_value = False
+        progress = WeekendProgress(day='2026-11-21',matches=0)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT',Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game',return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision',return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI',return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
+            outcome = run_weekend('folder',1,control,lambda *a:None,'25',
+                                  checkpoint=True,progress=progress)
+        self.assertIs(outcome,TaskOutcome.MATCH_DONE)
+        self.assertEqual(progress.matches,1)
+        taps = [entry.args[1] for entry in ui.perform.call_args_list if len(entry.args) > 1]
+        self.assertIn('skip_relay',taps)
+        # Joining the relay would keep sending movement into the panel.
+        self.assertFalse(any(call.args and call.args[0] == (1090,630)
+                             for call in native.priority_tap.call_args_list))
+
     def test_current_race_marker_confirms_battle_without_old_distance_board(self):
         vision = RaceVision()
         image = current_frame('race-02/100.png')
@@ -471,13 +680,14 @@ class WeekendRaceTest(unittest.TestCase):
 
     def test_five_current_claimed_labels_are_counted_separately(self):
         vision = RaceVision()
-        template = cv2.cvtColor(vision.images['claimed-current'], cv2.COLOR_GRAY2RGB)
+        template = cv2.imread(str(ROOT/'assets/weekend-race/claimed-current.png'),
+                              cv2.IMREAD_GRAYSCALE)
+        template = cv2.cvtColor(template, cv2.COLOR_GRAY2RGB)
         height, width = template.shape[:2]
         image = np.zeros((720, 1280, 3), np.uint8)
         for top in (140, 240, 340, 440, 540):
             image[top:top+height, 990:990+width] = template
-        self.assertEqual(vision.count(image, 'claimed-current',
-                                      weekend_runner.CURRENT_CLAIMED_REGION), 5)
+        self.assertEqual(vision.count(image, 'claimed-current'), 5)
 
     def test_weekend_progress_resets_at_daily_boundary(self):
         progress = WeekendProgress()
@@ -488,7 +698,7 @@ class WeekendRaceTest(unittest.TestCase):
         progress.refresh('2026-11-22')
         self.assertEqual(progress.matches, 0)
 
-    def test_current_rotation_stops_after_twenty_five_confirmed_matches(self):
+    def test_twenty_five_confirmed_matches_stop_before_starting_another(self):
         vision = Mock()
         vision.detect.side_effect = ['tasks', 'tasks', 'home']
         vision.layout = 'current'

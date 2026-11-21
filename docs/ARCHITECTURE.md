@@ -11,11 +11,14 @@ WinUI 启动 Python Worker，Worker 执行任务计划。Plan 管理任务、进
 | `src/ninja3_assistant/runtime/realtime_battle.py` | 共用实时内核：新鲜帧、识别节奏、动作计划和撤回 |
 | `src/ninja3_assistant/device/native_touch.py` | Python 到 C++ 的有界命令协议 |
 | `native_touch/main.cpp` | 多手指触控执行、截止时间及释放 |
-| `src/ninja3_assistant/activities/weekend/runner.py`、`src/ninja3_assistant/activities/weekend/obstacles.py`、`src/ninja3_assistant/activities/weekend/rope.py` | 竞速、正向避障及绳索处理 |
+| `src/ninja3_assistant/vision/template_match.py` | 项目级唯一 WinML 模板匹配图：统一模板目录、单次推理返回页面/障碍/武器得分 |
+| `src/ninja3_assistant/activities/weekend/runner.py` | 周末竞速（多人 / 同屏）页面状态机、正向避障、武器释放、死亡处理与日常领取；识别与输入均走共用内核 |
 
 连续移动可提交最多 3 秒，点击计划使用更短的时间窗口；后续帧可替换或撤销。地面移动、应急跳跃、武器/卡牌按手指分配；暂停、停止和场景退出取消剩余动作。玩法策略不得另开相互竞争的输入循环。
 
-周末多人竞速按活动轮换兼容新旧页面：集会所卡片与「前往活动」介绍页使用各自局部模板；排行榜主页、五项日常和一键领取使用当前版坐标；赛后轨迹「返回」作为独立阻塞状态处理；比赛与旧版共用实时内核及成绩/结算识别。当前主页不再展示剩余积分场次，打满模式由同一 Worker 内的跨局进度记录已确认结算的场次，按北京时间每日 05:00 的任务日界重置，达到 25 场后停止。
+整个项目只保留一张 WinML 图 `assets/template-match.onnx`，所有活动、所有轮换共用。新增障碍、页面、武器图标或旧周末模板都是 `vision/template_match.py` 中 `CATALOG` 的一条条目，不新增模型文件，也不引入「旧版/新版」开关。模板像素以外部初始化器在启动时注入，检入仓库的图只含算子结构。每个模板分支复现 `cv2.matchTemplate(..., TM_CCOEFF_NORMED)`，因此既有实测阈值继续有效；同一搜索区域的模板共用一个 ROI 输入，一帧只推理一次。
+
+周末多人竞速不再区分轮换版本：竞速由距离板、竞速标记或烟雾遮挡时仍可见的特效标记确认，绳索、木板、冰面与水面统一按地形和障碍处理；武器就绪由技能簇亮度判定，图标亮起才把武器点并入计划。页面识别、障碍定位和武器状态来自同一次推理，动作仍由 `RealtimeBattleKernel` 管理。赛后轨迹「返回」作为独立阻塞状态；打满模式由同一 Worker 内的跨局进度记录已确认结算的场次，按北京时间每日 05:00 的任务日界重置，达到所选场次（4–25）或无限打时手动停止为止，本周轮换没有 25 场上限。死亡按玩法规则处理：多人竞速的「选择忍者接力」弹框只跳过、不接接力；同屏竞速等待自行复活后先跳出危险区。
 
 运行代码位于 `src/ninja3_assistant/`，使用绝对包导入。`paths.py` 集中处理项目根目录与冻结程序资源位置；`packaging/` 集中维护入口和资源清单。测试按领域对应分组，工具与运行包分离。具体目录见 `DIRECTORY_LAYOUT.md`。
 
