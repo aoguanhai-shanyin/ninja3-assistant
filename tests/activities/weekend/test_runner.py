@@ -659,6 +659,36 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertFalse(any(call.args and call.args[0] == (1090,630)
                              for call in native.priority_tap.call_args_list))
 
+    def test_match_goal_stops_the_daily_phase_and_updates_the_ui_counter(self):
+        """选「完成 4 场」时第一阶段也要在第 4 场停；WinUI 计数不能恒为 0。"""
+        control = RunControl(clock=Mock(side_effect=range(0,60,2)))
+        image = np.zeros((720,1280,3),np.uint8)
+        native,device,vision = Mock(),Mock(),Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = ['ready','race','finish','home']
+        vision.confirmed_race = True
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        device.capture.return_value = image
+        ui = Mock()
+        ui.perform.return_value = False
+        progress = WeekendProgress(day='2026-11-21',matches=3)
+        events = []
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT',Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game',return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision',return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI',return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu',return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch',return_value=native):
+            outcome = run_weekend('folder',1,control,lambda k,v:events.append((k,v)),'daily',
+                                  checkpoint=True,progress=progress,goal=4)
+        self.assertIs(outcome,TaskOutcome.LIMIT_REACHED)
+        self.assertEqual(progress.matches,4)
+        self.assertIn(('kill',1),events)
+
     def test_current_race_marker_confirms_battle_without_old_distance_board(self):
         vision = RaceVision()
         image = current_frame('race-02/100.png')

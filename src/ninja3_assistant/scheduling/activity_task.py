@@ -54,6 +54,7 @@ class WeekendTask(ActivityTask):
         super().__init__('weekend', self.LABELS[activity],
                          None if mode == 'daily' else mode, ((9, 23),))
         self.activity = activity
+        self.goal = int(mode) if mode.isdigit() else None
         self._progress_day = None
         self._progress = None
 
@@ -66,7 +67,7 @@ class WeekendTask(ActivityTask):
             self._progress = WeekendProgress()
         self._progress.refresh(day)
         return run_weekend(folder, index, control, emit, mode=mode, checkpoint=True,
-                           progress=self._progress, activity=self.activity)
+                           progress=self._progress, activity=self.activity, goal=self.goal)
 
 
 class XumiTask(ActivityTask):

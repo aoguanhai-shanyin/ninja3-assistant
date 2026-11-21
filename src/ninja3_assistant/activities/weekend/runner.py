@@ -527,13 +527,15 @@ class RaceSkills:
 
 
 def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=False, practice=False,
-                *, checkpoint=False, progress=None, activity='multiplayer'):
+                *, checkpoint=False, progress=None, activity='multiplayer', goal=None):
     """Run a weekend race rotation until the configured goal is met.
 
-    ``mode`` is the goal: ``daily`` stops once the five tasks are claimed,
-    ``unlimited`` keeps racing until stopped by hand, and ``4``..``25`` stops
-    after that many matches (the dailies need four). This week's rotation has
-    no 25-match cap, so 25 is a user choice and not a game limit.
+    ``mode`` is the active phase: ``daily`` stops once the five tasks are
+    claimed, ``unlimited`` keeps racing until stopped by hand, and ``4``..``25``
+    stops after that many matches. ``goal`` is the user's chosen match count and
+    is passed separately so the daily phase also stops at that count -- the
+    planner runs the daily phase first, and without it a "complete 4 races"
+    choice would race on until every daily happened to be claimed.
 
     ``activity`` picks the rotation. Both share this runner, the one WinML
     catalog and the battle kernel; only the hall card and the death behaviour
@@ -543,7 +545,7 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
     label = WEEKEND_LABELS.get(activity, WEEKEND_LABELS['multiplayer'])
     if mode not in WEEKEND_MODES:
         raise ValueError('weekend mode must be a match count 4..25, unlimited, or daily')
-    target = int(mode) if mode.isdigit() else None
+    target = goal if goal is not None else (int(mode) if mode.isdigit() else None)
     claimed_stop = mode == 'daily'
     device = native = recorder = None
     kernel = RealtimeBattleKernel(control, movement_horizon=3.)
@@ -606,6 +608,10 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
             result_confirmed = True
             if progress is not None:
                 progress.record()
+                # Keep the WinUI settlement counter in step with the worker's
+                # own match bookkeeping; the kill event is already the
+                # "confirmed settlement" channel for the other activities.
+                emit('kill', 1)
 
         def reached_target():
             """True only when a match-count goal was asked for and is met."""
