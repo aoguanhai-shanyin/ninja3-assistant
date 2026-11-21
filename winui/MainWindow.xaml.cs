@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json.Serialization;
 using System.Text;
 using System.Text.Json;
 using Microsoft.UI.Windowing;
@@ -19,18 +21,22 @@ public sealed partial class MainWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Ninja3Assistant", "settings.json");
     private readonly Queue<string> _log = new();
-    private Process? _worker;
-    private string _mode = "";
-    private bool _paused;
-    private bool _stopping;
+    private readonly Dictionary<string, WorkerSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Settings> _profiles = new(StringComparer.OrdinalIgnoreCase);
+    private Settings _defaults = new();
+    private InstanceOption? _selectedInstance;
+    private WorkerSession? SelectedSession => _selectedInstance?.Session;
+    private bool AnyWorker => _sessions.Values.Any(session => session.Process is not null);
     private bool _scanning;
-    private int _completed;
+    private bool _updatingInstances;
+    private bool? _compactLayout;
+    private int _restoredCount;
     private int? _savedIndex;
     private string? _savedName;
     private string? _savedFolder;
     private string? _scannedFolder;
 
-    private sealed class Settings
+    private sealed record Settings
     {
         public string Folder { get; set; } = @"D:\Program Files\Netease\MuMu";
         public int? Index { get; set; }
@@ -41,6 +47,7 @@ public sealed partial class MainWindow : Window
         public bool WeekendEnabled { get; set; }
         public string WeekendMode { get; set; } = "daily";
         public bool XumiEnabled { get; set; }
+        public bool AbyssEnabled { get; set; }
         public bool HideGameWindow { get; set; }
         public bool DailyEnabled { get; set; }
         public string[] DailyTasks { get; set; } = ["monthly", "limited", "blessing", "weapon", "curse", "bounty_shop", "daily_shop", "village", "house", "bounty", "bounty_s", "rank", .. NewDailyTasks];
@@ -51,14 +58,40 @@ public sealed partial class MainWindow : Window
         public string PetFeedReward { get; set; } = "exp";
         public bool CloseToTray { get; set; } = true;
         public bool RememberCloseAction { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, Settings>? InstanceProfiles { get; set; }
     }
 
-    private sealed class InstanceOption
+    private sealed class WorkerSession
     {
+        public Process? Process { get; set; }
+        public string Mode { get; set; } = "";
+        public bool Paused { get; set; }
+        public bool Stopping { get; set; }
+        public bool CommandPending { get; set; }
+        public int Completed { get; set; }
+        public string State { get; set; } = "未运行";
+        public string Status { get; set; } = "可以启动当前实例。";
+        public string Device { get; set; } = "识别设备：尚未检测";
+        public string Probe { get; set; } = "";
+        public string Rate { get; set; } = "--";
+        public string Clicks { get; set; } = "0";
+        public string Interval { get; set; } = "最近连点：--";
+        public Queue<string> Log { get; } = new();
+    }
+
+    private sealed class InstanceOption : INotifyPropertyChanged
+    {
+        public required string Folder { get; init; }
+        public required string Key { get; init; }
         public required int Index { get; init; }
         public required string Name { get; init; }
         public required bool Started { get; init; }
-        public string DisplayName => Name + (Started ? "  ·  运行中" : "  ·  未启动");
+        public required WorkerSession Session { get; init; }
+        public string DisplayName => $"{Name}  ·  #{Index}  ·  {(Session.Process is not null
+            ? Session.State : Started ? "模拟器已启动" : "模拟器未启动")}";
+        public event PropertyChangedEventHandler? PropertyChanged;
+        public void Refresh() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
     }
 
     public MainWindow()
@@ -67,6 +100,7 @@ public sealed partial class MainWindow : Window
         ActivityTabs.SelectionChanged += ActivityTabs_SelectionChanged;
         ActivityTabs.SelectedItem = IntelligenceTab;
         WeekendTabs.SelectedItem = WeekendTab;
+        FamilyTabs.SelectedItem = AbyssTab;
         InitializeVideoDebug();
         AppWindow.Resize(new SizeInt32(1080, 760));
         Closed += Window_Closed;
@@ -74,6 +108,7 @@ public sealed partial class MainWindow : Window
         InitializeTrayIntegration();
         AddLog("准备就绪。");
         RestoreSessionCount();
+        UpdateControls();
     }
 
     private void RestoreSessionCount()
@@ -82,7 +117,7 @@ public sealed partial class MainWindow : Window
         int index = Array.IndexOf(args, "--resume-settlements");
         if (index < 0 || index + 1 >= args.Length || !int.TryParse(args[index + 1], out int count) || count < 0)
             return;
-        _completed = count;
+        _restoredCount = count;
         CountText.Text = count.ToString();
         AddLog("已保留更新前的结算计数：" + count + " 次。");
     }
@@ -99,7 +134,20 @@ public sealed partial class MainWindow : Window
         {
             AddLog("设置读取失败，已使用默认值：" + error.Message);
         }
+        _defaults = settings with { InstanceProfiles = null };
+        if (settings.InstanceProfiles is not null)
+            foreach (var (key, profile) in settings.InstanceProfiles)
+                _profiles[key] = profile;
         FolderBox.Text = settings.Folder;
+        LoadCloseBehaviorSettings(settings);
+        _savedIndex = settings.Index;
+        _savedName = settings.InstanceName;
+        _savedFolder = settings.Folder;
+        ApplyOptions(settings);
+    }
+
+    private void ApplyOptions(Settings settings)
+    {
         JoinIntervalBox.Value = settings.JoinIntervalMs is >= 20 and <= 1000 ? settings.JoinIntervalMs : 30;
         ActivityEnabledSwitch.IsOn = settings.ActivityEnabled;
         ActivityModeBox.SelectedIndex = settings.ActivityMode == "continuous" ? 1 : 0;
@@ -108,6 +156,7 @@ public sealed partial class MainWindow : Window
         WeekendModeBox.SelectedIndex = settings.WeekendMode == "25" ? 1 : 0;
         WeekendModeBox.IsEnabled = settings.WeekendEnabled;
         XumiEnabledSwitch.IsOn = settings.XumiEnabled;
+        AbyssEnabledSwitch.IsOn = settings.AbyssEnabled;
         HideGameWindowSwitch.IsOn = settings.HideGameWindow;
         DailyEnabledSwitch.IsOn = settings.DailyEnabled;
         var dailyTasks = settings.DailyTasks ?? [];
@@ -123,13 +172,9 @@ public sealed partial class MainWindow : Window
         PetFeedRewardBox.SelectedItem = PetFeedRewardBox.Items.OfType<ComboBoxItem>()
             .FirstOrDefault(option => (string)option.Tag == settings.PetFeedReward) ?? PetFeedRewardBox.Items[0];
         PetFeedRewardBox.IsEnabled = PetFeedTaskOption.IsChecked == true;
-        LoadCloseBehaviorSettings(settings);
-        _savedIndex = settings.Index;
-        _savedName = settings.InstanceName;
-        _savedFolder = settings.Folder;
     }
 
-    private bool TrySettings(out Settings settings, bool requireRunning = true)
+    private bool TrySettings(out Settings settings, bool requireRunning)
     {
         settings = new Settings { Folder = FolderBox.Text.Trim() };
         if (!Directory.Exists(settings.Folder))
@@ -149,20 +194,34 @@ public sealed partial class MainWindow : Window
             ShowMessage(ScanText.Text);
             return false;
         }
-        settings.Index = instance.Index;
-        settings.InstanceName = instance.Name;
-        if (double.IsNaN(JoinIntervalBox.Value) || JoinIntervalBox.Value < 20 ||
-            JoinIntervalBox.Value > 1000 || JoinIntervalBox.Value != Math.Truncate(JoinIntervalBox.Value))
+        if (!ValidJoinInterval())
         {
             ShowMessage("抢队连点间隔请输入 20 到 1000 之间的整数毫秒。");
             return false;
         }
-        settings.JoinIntervalMs = (int)JoinIntervalBox.Value;
+        settings = ReadOptions(instance);
+        return true;
+    }
+
+    private bool ValidJoinInterval() => JoinIntervalBox.Value is >= 20 and <= 1000 &&
+        JoinIntervalBox.Value == Math.Truncate(JoinIntervalBox.Value);
+
+    private Settings ReadOptions(InstanceOption instance)
+    {
+        var settings = new Settings
+        {
+            Folder = instance.Folder,
+            Index = instance.Index,
+            InstanceName = instance.Name,
+            JoinIntervalMs = ValidJoinInterval() ? (int)JoinIntervalBox.Value :
+                _profiles.GetValueOrDefault(instance.Key, _defaults).JoinIntervalMs
+        };
         settings.ActivityEnabled = ActivityEnabledSwitch.IsOn;
         settings.ActivityMode = ActivityModeBox.SelectedIndex == 1 ? "continuous" : "daily";
         settings.WeekendEnabled = WeekendEnabledSwitch.IsOn;
         settings.WeekendMode = WeekendModeBox.SelectedIndex == 1 ? "25" : "daily";
         settings.XumiEnabled = XumiEnabledSwitch.IsOn;
+        settings.AbyssEnabled = AbyssEnabledSwitch.IsOn;
         settings.HideGameWindow = HideGameWindowSwitch.IsOn;
         settings.DailyEnabled = DailyEnabledSwitch.IsOn;
         settings.DailyTasks = DailyOptionsPanel.Children.OfType<CheckBox>()
@@ -174,7 +233,7 @@ public sealed partial class MainWindow : Window
         settings.PetFeedReward = (PetFeedRewardBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "exp";
         settings.CloseToTray = _closeToTray;
         settings.RememberCloseAction = _rememberCloseAction;
-        return true;
+        return settings;
     }
 
     private bool PersistSettings(Settings settings)
@@ -183,7 +242,9 @@ public sealed partial class MainWindow : Window
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
             string temp = _settingsPath + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
+            if (_selectedInstance is not null) _profiles[_selectedInstance.Key] = settings;
+            File.WriteAllText(temp, JsonSerializer.Serialize(settings with { InstanceProfiles = _profiles },
+                new JsonSerializerOptions { WriteIndented = true }));
             File.Move(temp, _settingsPath, true);
             _savedIndex = settings.Index;
             _savedName = settings.InstanceName;
@@ -214,18 +275,60 @@ public sealed partial class MainWindow : Window
             await ScanInstancesAsync();
     }
 
+    private void Root_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        bool compact = e.NewSize.Width < 720;
+        if (_compactLayout == compact || SidebarColumn is null) return;
+        _compactLayout = compact;
+        SidebarColumn.Width = new GridLength(compact ? 62 : 190);
+        Sidebar.Padding = compact ? new Thickness(10, 18, 10, 18) : new Thickness(20, 26, 20, 26);
+        var visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        BrandText.Visibility = NavHeading.Visibility = SidebarFooter.Visibility = visibility;
+        TaskNavLabel.Visibility = SettingsNavLabel.Visibility = VideoNavLabel.Visibility = visibility;
+        foreach (var button in new[] { TaskNav, SettingsNav, VideoNav })
+        {
+            button.Padding = new Thickness(compact ? 0 : 14, 10, compact ? 0 : 14, 10);
+            button.HorizontalContentAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        }
+        TaskToolbar.Padding = compact ? new Thickness(16, 12, 16, 12) : new Thickness(24, 14, 24, 14);
+        TaskContent.Padding = SettingsContent.Padding = compact
+            ? new Thickness(16, 18, 16, 18) : new Thickness(34, 30, 34, 30);
+    }
+
     private void Instance_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        DeviceText.Text = "识别设备：尚未检测";
-        ProbeResultText.Text = "";
-        if (InstanceBox.SelectedItem is InstanceOption instance)
-            ScanText.Text = instance.Started ? "已选择正在运行的实例。" : "所选实例尚未启动，启动任务时会自动打开。";
+        if (!_updatingInstances) SelectInstance(InstanceBox.SelectedItem as InstanceOption);
     }
+
+    private void SelectInstance(InstanceOption? instance)
+    {
+        if (_selectedInstance?.Key != instance?.Key)
+        {
+            if (_selectedInstance is { } previous)
+                _profiles[previous.Key] = ReadOptions(previous);
+            _selectedInstance = instance;
+            if (instance is not null)
+                ApplyOptions(_profiles.GetValueOrDefault(instance.Key, _defaults));
+        }
+        else
+        {
+            _selectedInstance = instance;
+        }
+        if (instance is not null && _restoredCount > 0)
+        {
+            instance.Session.Completed = _restoredCount;
+            _restoredCount = 0;
+        }
+        SettingsInstanceText.Text = instance is null ? "尚未选择实例" : $"{instance.Name}（#{instance.Index}）";
+        RenderSelectedSession();
+        UpdateControls();
+    }
+
     private async void Scan_Click(object sender, RoutedEventArgs e) => await ScanInstancesAsync();
 
     private async Task ScanInstancesAsync()
     {
-        if (_exiting || _scanning || _worker is not null || VideoDebugBusy) return;
+        if (_exiting || _scanning || VideoDebugBusy) return;
         string folder = FolderBox.Text.Trim();
         string manager = Path.Combine(folder, "nx_main", "MuMuManager.exe");
         var previous = InstanceBox.SelectedItem as InstanceOption;
@@ -235,7 +338,7 @@ public sealed partial class MainWindow : Window
         string? preferredName = sameFolder ? previous?.Name ?? _savedName :
             string.Equals(folder, _savedFolder, StringComparison.OrdinalIgnoreCase) ? _savedName : null;
         _scanning = true;
-        SetBusy(false);
+        UpdateControls();
         ScanText.Text = "正在扫描 MuMu 多开实例…";
         try
         {
@@ -275,14 +378,23 @@ public sealed partial class MainWindow : Window
                     ? nameValue.GetString() ?? "模拟器" : "模拟器";
                 bool started = value.TryGetProperty("is_process_started", out var running) && running.ValueKind == JsonValueKind.True
                     && value.TryGetProperty("is_android_started", out var android) && android.ValueKind == JsonValueKind.True;
-                instances.Add(new InstanceOption { Index = index, Name = name, Started = started });
+                string key = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + "|" + index;
+                if (!_sessions.TryGetValue(key, out var session))
+                    _sessions[key] = session = new WorkerSession();
+                instances.Add(new InstanceOption
+                {
+                    Folder = folder, Key = key, Index = index, Name = name, Started = started, Session = session
+                });
             }
             instances.Sort((a, b) => a.Index.CompareTo(b.Index));
             _scannedFolder = folder;
+            _updatingInstances = true;
             InstanceBox.ItemsSource = instances;
             InstanceBox.SelectedItem = instances.FirstOrDefault(item => item.Index == preferredIndex &&
-                (preferredName is null || item.Name == preferredName));
-            if (InstanceBox.SelectedItem is null && instances.Count == 1) InstanceBox.SelectedItem = instances[0];
+                (sameFolder || preferredName is null || item.Name == preferredName)) ??
+                instances.FirstOrDefault(item => item.Started) ?? instances.FirstOrDefault();
+            _updatingInstances = false;
+            SelectInstance(InstanceBox.SelectedItem as InstanceOption);
             int runningCount = instances.Count(item => item.Started);
             ScanText.Text = instances.Count == 0 ? "未发现模拟器实例，请先在 MuMu 多开器中创建。" :
                 $"已发现 {instances.Count} 个实例，其中 {runningCount} 个运行中。" +
@@ -291,15 +403,18 @@ public sealed partial class MainWindow : Window
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or
                                       InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception)
         {
-            _scannedFolder = null;
-            InstanceBox.ItemsSource = null;
+            if (!sameFolder && !AnyWorker)
+            {
+                _scannedFolder = null;
+                InstanceBox.ItemsSource = null;
+            }
             ScanText.Text = "扫描失败：" + error.Message;
             AddLog(ScanText.Text);
         }
         finally
         {
             _scanning = false;
-            SetBusy(false);
+            UpdateControls();
         }
     }
 
@@ -309,19 +424,21 @@ public sealed partial class MainWindow : Window
 
     private async Task StartWorkerAsync(string mode)
     {
-        if (_exiting || _worker is not null || _scanning || VideoDebugBusy) return;
+        if (_exiting || _scanning || VideoDebugBusy) return;
         if (!string.Equals(FolderBox.Text.Trim(), _scannedFolder, StringComparison.OrdinalIgnoreCase))
         {
             await ScanInstancesAsync();
             if (_exiting || !string.Equals(FolderBox.Text.Trim(), _scannedFolder, StringComparison.OrdinalIgnoreCase)) return;
         }
-        if (!TrySettings(out var settings, requireRunning: mode != "run") || !PersistSettings(settings))
+        if (SelectedSession is not { Process: null } session ||
+            !TrySettings(out var settings, requireRunning: mode != "run"))
             return;
         if (mode == "run" && settings.DailyEnabled && settings.DailyTasks.Length == 0)
         {
             ShowMessage("请至少选择一项每日清理任务。");
             return;
         }
+        if (!PersistSettings(settings)) return;
         string executable = Path.Combine(AppContext.BaseDirectory, "Ninja3Worker.exe");
         if (!File.Exists(executable))
         {
@@ -366,6 +483,8 @@ public sealed partial class MainWindow : Window
 
             if (mode == "run" && settings.XumiEnabled)
                 info.ArgumentList.Add("--xumi-enabled");
+            if (mode == "run" && settings.AbyssEnabled)
+                info.ArgumentList.Add("--abyss-enabled");
             if (mode == "run" && settings.DailyEnabled)
             {
                 info.ArgumentList.Add("--daily-tasks");
@@ -388,45 +507,39 @@ public sealed partial class MainWindow : Window
                 }
             }
             var process = Process.Start(info) ?? throw new InvalidOperationException("无法启动运行组件");
-            _worker = process;
-            _mode = mode;
-            _paused = false;
-            _stopping = false;
-            RateText.Text = "--";
-            ClicksText.Text = "0";
-            ActualIntervalText.Text = "最近连点：--";
-            PauseButton.Content = "暂停";
-            DebugPauseButton.Content = "暂停调试";
-            SetBusy(true);
-            StatusBadge.Text = mode == "probe" ? "●  正在检测" : "●  正在启动";
-            if (mode == "probe") ProbeResultText.Text = "正在检查连接…";
+            session.Process = process;
+            session.Mode = mode;
+            session.Paused = session.Stopping = session.CommandPending = false;
+            session.Rate = "--";
+            session.Clicks = "0";
+            session.Interval = "最近连点：--";
+            session.State = mode == "probe" ? "正在检测" : "正在启动";
+            if (mode == "probe") session.Probe = "正在检查连接…";
             ShowMessage(mode == "probe" ? "正在检查模拟器连接和识别设备…" :
                 mode == "hayabusa-debug" ? "场景调试：仅观察所选实例，不发送战斗动作…" :
-                "正在连接模拟器并初始化识别…");
-            _ = ObserveWorkerAsync(process);
+                "正在连接模拟器并初始化识别…", session);
+            RefreshSession(session);
+            _ = ObserveWorkerAsync(session, process);
         }
-        catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+        catch (Exception error) when (error is Win32Exception or IOException or InvalidOperationException)
         {
-            _worker = null;
-            SetBusy(false);
-            if (mode == "probe") ProbeResultText.Text = "启动失败：" + error.Message;
-            ShowMessage("启动失败：" + error.Message);
+            if (mode == "probe") session.Probe = "启动失败：" + error.Message;
+            ShowMessage("启动失败：" + error.Message, session);
+            RefreshSession(session);
         }
     }
 
-    private async Task ObserveWorkerAsync(Process process)
+    private async Task ObserveWorkerAsync(WorkerSession session, Process process)
     {
         async Task ReadAsync(StreamReader reader, bool isError)
         {
-            string? line;
-            while ((line = await reader.ReadLineAsync()) is not null)
+            while (await reader.ReadLineAsync() is { } line)
             {
-                string captured = line;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (!ReferenceEquals(_worker, process)) return;
-                    if (isError) AddLog("运行组件：" + captured);
-                    else HandleWorkerLine(captured);
+                    if (!ReferenceEquals(session.Process, process)) return;
+                    if (isError) AddLog("运行组件：" + line, session);
+                    else HandleWorkerLine(session, line);
                 });
             }
         }
@@ -437,19 +550,19 @@ public sealed partial class MainWindow : Window
             await process.WaitForExitAsync();
             await Task.WhenAll(output, errors);
             int code = process.ExitCode;
-            DispatcherQueue.TryEnqueue(() => WorkerExited(process, code));
+            DispatcherQueue.TryEnqueue(() => WorkerExited(session, process, code));
         }
-        catch (Exception error) when (error is IOException or InvalidOperationException or ObjectDisposedException)
+        catch (Exception error) when (error is IOException or InvalidOperationException)
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                if (ReferenceEquals(_worker, process)) ShowMessage("运行组件已中断：" + error.Message);
-                WorkerExited(process, -1);
+                if (ReferenceEquals(session.Process, process)) ShowMessage("运行组件已中断：" + error.Message, session);
+                WorkerExited(session, process, -1);
             });
         }
     }
 
-    private void HandleWorkerLine(string line)
+    private void HandleWorkerLine(WorkerSession session, string line)
     {
         if (!line.TrimStart().StartsWith('{')) return;
         try
@@ -461,131 +574,179 @@ public sealed partial class MainWindow : Window
             switch (kind)
             {
                 case "backend":
-                    DeviceText.Text = "识别设备：" + value.GetString();
+                    session.Device = "识别设备：" + value.GetString();
                     break;
                 case "status":
-                    ShowMessage(value.GetString() ?? "");
+                    if (session.State == "正在启动") session.State = "运行中";
+                    ShowMessage(value.GetString() ?? "", session);
                     break;
                 case "state":
-                    bool wasPaused = _paused;
-                    _paused = value.GetString() == "paused";
-                    PauseButton.Content = _paused ? "继续" : "暂停";
-                    DebugPauseButton.Content = _paused ? "继续调试" : "暂停调试";
-                    StatusBadge.Text = _paused ? "●  已暂停" : "●  运行中";
-                    if (_paused && !wasPaused) ShowMessage("已暂停；继续后会重新识别当前画面。");
-                    else if (!_paused && wasPaused) ShowMessage("正在继续，重新识别当前画面…");
+                    bool wasPaused = session.Paused;
+                    session.Paused = value.GetString() == "paused";
+                    if (!session.Stopping)
+                        session.State = session.Paused ? "已暂停" : "运行中";
+                    if (session.Paused && !wasPaused) ShowMessage("已暂停，继续后会重新识别当前画面。", session);
+                    else if (!session.Paused && wasPaused) ShowMessage("正在继续，重新识别当前画面…", session);
                     break;
                 case "metrics":
-                    RateText.Text = value.GetProperty("fps").GetDouble().ToString("F1");
-                    ClicksText.Text = value.TryGetProperty("clicks", out var clicks)
+                    session.Rate = value.GetProperty("fps").GetDouble().ToString("F1");
+                    session.Clicks = value.TryGetProperty("clicks", out var clicks)
                         ? clicks.GetInt32().ToString() : "—";
                     if (value.TryGetProperty("join_interval_ms", out var interval) && interval.ValueKind == JsonValueKind.Number)
-                        ActualIntervalText.Text = "最近连点：" + interval.GetDouble().ToString("F0") + " 毫秒";
-                    break;
+                        session.Interval = "最近连点：" + interval.GetDouble().ToString("F0") + " 毫秒";
+                    if (ReferenceEquals(SelectedSession, session)) RenderMetrics(session);
+                    return;
                 case "kill":
-                    _completed += value.GetInt32();
-                    CountText.Text = _completed.ToString();
-                    AddLog("已确认结算，累计 " + _completed + " 次。");
+                    session.Completed += value.GetInt32();
+                    AddLog("已确认结算，累计 " + session.Completed + " 次。", session);
                     break;
                 case "probe":
-                    DeviceText.Text = "识别设备：" + value.GetProperty("backend").GetString();
-                    ProbeResultText.Text = "连接成功：实例画面 " + value.GetProperty("width").GetInt32() + " × " +
+                    session.Device = "识别设备：" + value.GetProperty("backend").GetString();
+                    session.Probe = "连接成功：实例画面 " + value.GetProperty("width").GetInt32() + " × " +
                         value.GetProperty("height").GetInt32() + "，" + value.GetProperty("page").GetString() + "。";
-                    ShowMessage(ProbeResultText.Text);
+                    ShowMessage(session.Probe, session);
                     break;
                 case "error":
-                    if (_mode == "probe") ProbeResultText.Text = "连接检查失败：" + value.GetString();
-                    ShowMessage(_mode == "probe" ? ProbeResultText.Text : "任务异常：" + value.GetString());
+                    if (session.Mode == "probe") session.Probe = "连接检查失败：" + value.GetString();
+                    ShowMessage(session.Mode == "probe" ? session.Probe : "任务异常：" + value.GetString(), session);
                     break;
+                default:
+                    return;
             }
+            RefreshSession(session);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException)
         {
-            AddLog("无法读取运行状态：" + error.Message);
+            AddLog("无法读取运行状态：" + error.Message, session);
         }
     }
 
-    private void WorkerExited(Process process, int exitCode)
+    private void WorkerExited(WorkerSession session, Process process, int exitCode)
     {
-        if (!ReferenceEquals(_worker, process)) return;
-        _worker = null;
+        if (!ReferenceEquals(session.Process, process)) return;
+        session.Process = null;
         process.Dispose();
-        SetBusy(false);
-        StatusBadge.Text = "●  未运行";
+        session.Stopping = session.Paused = session.CommandPending = false;
+        session.State = exitCode == 0 ? "未运行" : "异常退出";
         if (exitCode != 0)
         {
-            if (_mode == "probe") ProbeResultText.Text = "连接检查组件已退出，代码：" + exitCode;
-            ShowMessage("运行组件已退出，代码：" + exitCode);
+            if (session.Mode == "probe") session.Probe = "连接检查组件已退出，代码：" + exitCode;
+            ShowMessage("运行组件已退出，代码：" + exitCode, session);
         }
-        else if (_mode is "run" or "hayabusa-debug") AddLog("任务已结束。");
+        else if (session.Mode is "run" or "hayabusa-debug") ShowMessage("任务已结束。", session);
+        RefreshSession(session);
     }
 
     private async void Pause_Click(object sender, RoutedEventArgs e)
     {
-        if (_worker is null || _mode is not ("run" or "hayabusa-debug") || _stopping) return;
-        await SendCommandAsync(_paused ? "resume" : "pause");
+        if (SelectedSession is not { Process: { } process, Stopping: false, CommandPending: false } session ||
+            session.Mode is not ("run" or "hayabusa-debug")) return;
+        await SendCommandAsync(session, process, session.Paused ? "resume" : "pause");
     }
 
     private async void Stop_Click(object sender, RoutedEventArgs e)
     {
-        if (_worker is null || _mode is not ("run" or "hayabusa-debug")) return;
-        _stopping = true;
-        PauseButton.IsEnabled = false;
-        StopButton.IsEnabled = false;
-        DebugPauseButton.IsEnabled = false;
-        DebugStopButton.IsEnabled = false;
-        StatusBadge.Text = "●  正在停止";
-        ShowMessage("正在停止任务…");
-        await SendCommandAsync("stop");
+        if (SelectedSession is not { Process: { } process, Stopping: false, CommandPending: false } session ||
+            session.Mode is not ("run" or "hayabusa-debug")) return;
+        session.Stopping = true;
+        session.State = "正在停止";
+        ShowMessage("正在停止任务…", session);
+        await SendCommandAsync(session, process, "stop");
     }
 
-    private async Task SendCommandAsync(string command)
+    private async Task SendCommandAsync(WorkerSession session, Process process, string command)
     {
+        session.CommandPending = true;
+        RefreshSession(session);
         try
         {
-            if (_worker is not null && !_worker.HasExited)
+            if (!process.HasExited)
             {
-                await _worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { command }));
-                await _worker.StandardInput.FlushAsync();
+                await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { command }));
+                await process.StandardInput.FlushAsync();
             }
         }
         catch (Exception error) when (error is IOException or InvalidOperationException)
         {
-            ShowMessage("无法控制任务：" + error.Message);
+            if (ReferenceEquals(session.Process, process))
+            {
+                session.Stopping = false;
+                session.State = session.Paused ? "已暂停" : "运行中";
+                ShowMessage("无法控制任务：" + error.Message, session);
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(session.Process, process))
+            {
+                session.CommandPending = false;
+                RefreshSession(session);
+            }
         }
     }
 
-    private void SetBusy(bool busy)
+    private void RefreshSession(WorkerSession session)
     {
-        bool available = !_exiting && !busy && !_scanning && !VideoDebugBusy;
-        StartButton.IsEnabled = available;
-        PauseButton.IsEnabled = busy && _mode == "run";
-        StopButton.IsEnabled = busy && _mode == "run";
-        DebugStartButton.IsEnabled = available;
-        DebugPauseButton.IsEnabled = busy && _mode == "hayabusa-debug";
-        DebugStopButton.IsEnabled = busy && _mode == "hayabusa-debug";
-        ProbeButton.IsEnabled = available;
-        SaveButton.IsEnabled = available;
-        FolderButton.IsEnabled = available;
-        FolderBox.IsEnabled = available;
-        HideGameWindowSwitch.IsEnabled = available;
-        InstanceBox.IsEnabled = available;
-        ScanButton.IsEnabled = available;
-        JoinIntervalBox.IsEnabled = available;
-        ActivityEnabledSwitch.IsEnabled = available;
-        WeekendEnabledSwitch.IsEnabled = available;
-        XumiEnabledSwitch.IsEnabled = available;
-        WeekendModeBox.IsEnabled = available && WeekendEnabledSwitch.IsOn;
-        ActivityModeBox.IsEnabled = available && ActivityEnabledSwitch.IsOn;
-        DailyEnabledSwitch.IsEnabled = available;
-        DailyOptionsControl.IsEnabled = available && DailyEnabledSwitch.IsOn;
-        UpdateVideoDebugAvailability(busy || _scanning);
+        if (InstanceBox.ItemsSource is IEnumerable<InstanceOption> instances)
+            foreach (var item in instances.Where(item => ReferenceEquals(item.Session, session)))
+                item.Refresh();
+        if (ReferenceEquals(SelectedSession, session)) RenderSelectedSession();
+        UpdateControls();
+    }
+
+    private void RenderMetrics(WorkerSession? session)
+    {
+        RateText.Text = session?.Rate ?? "--";
+        ClicksText.Text = session?.Clicks ?? "0";
+        ActualIntervalText.Text = session?.Interval ?? "最近连点：--";
+        CountText.Text = (session?.Completed ?? _restoredCount).ToString();
+    }
+
+    private void RenderSelectedSession()
+    {
+        var session = SelectedSession;
+        bool debug = session?.Mode == "hayabusa-debug";
+        StatusText.Text = debug && session!.Process is not null
+            ? "当前实例正在使用场景调试。" : session?.Status ?? "请先选择一个 MuMu 实例。";
+        DebugStatusText.Text = debug ? session!.Status : "调试只观察当前场景，最长 10 分钟。";
+        StatusBadge.Text = "●  " + (session?.State ?? "未运行");
+        DeviceText.Text = session?.Device ?? "识别设备：尚未检测";
+        ProbeResultText.Text = session?.Probe ?? "";
+        PauseButton.Content = session?.Paused == true ? "继续" : "暂停";
+        DebugPauseButton.Content = session?.Paused == true ? "继续调试" : "暂停调试";
+        RenderMetrics(session);
+        RenderLog(session);
+    }
+
+    private void UpdateControls()
+    {
+        var session = SelectedSession;
+        bool available = !_exiting && !_scanning && !VideoDebugBusy;
+        bool editable = available && session is { Process: null };
+        bool controllable = !_exiting && session is { Process: not null, Stopping: false, CommandPending: false };
+        StartButton.IsEnabled = DebugStartButton.IsEnabled = ProbeButton.IsEnabled = SaveButton.IsEnabled = editable;
+        PauseButton.IsEnabled = StopButton.IsEnabled = controllable && session?.Mode == "run";
+        DebugPauseButton.IsEnabled = DebugStopButton.IsEnabled = controllable && session?.Mode == "hayabusa-debug";
+        FolderButton.IsEnabled = FolderBox.IsEnabled = available && !AnyWorker;
+        InstanceBox.IsEnabled = ScanButton.IsEnabled = RefreshInstancesButton.IsEnabled = available;
+        HideGameWindowSwitch.IsEnabled = JoinIntervalBox.IsEnabled = editable;
+        ActivityEnabledSwitch.IsEnabled = WeekendEnabledSwitch.IsEnabled = editable;
+        XumiEnabledSwitch.IsEnabled = AbyssEnabledSwitch.IsEnabled = DailyEnabledSwitch.IsEnabled = editable;
+        WeekendModeBox.IsEnabled = editable && WeekendEnabledSwitch.IsOn;
+        ActivityModeBox.IsEnabled = editable && ActivityEnabledSwitch.IsOn;
+        DailyOptionsControl.IsEnabled = editable && DailyEnabledSwitch.IsOn;
+        UpdateVideoDebugAvailability(AnyWorker || _scanning);
+
+        int count = _sessions.Values.Count(item => item.Process is not null);
+        int paused = _sessions.Values.Count(item => item.Process is not null && item.Paused);
+        FleetText.Text = count == 0 ? "MuMu 多开" : paused == 0
+            ? $"MuMu 多开 · {count} 个活跃" : $"MuMu 多开 · {count} 个活跃 · {paused} 个已暂停";
     }
 
     private void DailyEnabled_Toggled(object sender, RoutedEventArgs e)
     {
         if (DailyOptionsControl is not null)
-            DailyOptionsControl.IsEnabled = DailyEnabledSwitch.IsOn && _worker is null && !_scanning && !VideoDebugBusy;
+            DailyOptionsControl.IsEnabled = DailyEnabledSwitch.IsOn && SelectedSession is { Process: null } && !_scanning && !VideoDebugBusy;
     }
 
     private void BountyTask_Changed(object sender, RoutedEventArgs e) => UpdateBountyOptions();
@@ -614,7 +775,7 @@ public sealed partial class MainWindow : Window
     private void ActivityEnabled_Toggled(object sender, RoutedEventArgs e)
     {
         if (ActivityModeBox is not null)
-            ActivityModeBox.IsEnabled = ActivityEnabledSwitch.IsOn && _worker is null && !_scanning && !VideoDebugBusy;
+            ActivityModeBox.IsEnabled = ActivityEnabledSwitch.IsOn && SelectedSession is { Process: null } && !_scanning && !VideoDebugBusy;
     }
 
     private void ActivityTabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
@@ -626,7 +787,7 @@ public sealed partial class MainWindow : Window
     private void WeekendEnabled_Toggled(object sender, RoutedEventArgs e)
     {
         if (WeekendModeBox is not null)
-            WeekendModeBox.IsEnabled = WeekendEnabledSwitch.IsOn && _worker is null && !_scanning && !VideoDebugBusy;
+            WeekendModeBox.IsEnabled = WeekendEnabledSwitch.IsOn && SelectedSession is { Process: null } && !_scanning && !VideoDebugBusy;
     }
 
     private async void Browse_Click(object sender, RoutedEventArgs e)
@@ -666,18 +827,30 @@ public sealed partial class MainWindow : Window
         SettingsNav.Background = new SolidColorBrush(task ? Windows.UI.Color.FromArgb(0, 0, 0, 0) : Windows.UI.Color.FromArgb(255, 38, 52, 81));
     }
 
-    private void ShowMessage(string message)
+    private void ShowMessage(string message, WorkerSession? session = null)
     {
-        if (_mode == "hayabusa-debug") DebugStatusText.Text = message;
-        else StatusText.Text = message;
-        AddLog(message);
+        session ??= SelectedSession;
+        if (session is not null) session.Status = message;
+        if (ReferenceEquals(session, SelectedSession))
+        {
+            if (session?.Mode == "hayabusa-debug") DebugStatusText.Text = message;
+            else StatusText.Text = message;
+        }
+        AddLog(message, session);
     }
 
-    private void AddLog(string message)
+    private void AddLog(string message, WorkerSession? session = null)
     {
-        _log.Enqueue(DateTime.Now.ToString("HH:mm:ss") + "  " + message);
-        while (_log.Count > 100) _log.Dequeue();
-        LogBox.Text = string.Join(Environment.NewLine, _log);
+        session ??= SelectedSession;
+        var log = session?.Log ?? _log;
+        log.Enqueue(DateTime.Now.ToString("HH:mm:ss") + "  " + message);
+        while (log.Count > 100) log.Dequeue();
+        if (ReferenceEquals(SelectedSession, session)) RenderLog(session);
+    }
+
+    private void RenderLog(WorkerSession? session)
+    {
+        LogBox.Text = string.Join(Environment.NewLine, session?.Log ?? _log);
         LogBox.SelectionStart = LogBox.Text.Length;
     }
 
@@ -685,18 +858,10 @@ public sealed partial class MainWindow : Window
     {
         DisposeTrayIntegration();
         CloseVideoDebug(updateControls: false);
-        var process = _worker;
-        if (process is null) return;
-        try
+        foreach (var session in _sessions.Values)
         {
-            if (!process.HasExited)
-            {
-                process.StandardInput.WriteLine("{\"command\":\"stop\"}");
-                process.StandardInput.Flush();
-                process.StandardInput.Close();
-                if (!process.WaitForExit(3000)) process.Kill(true);
-            }
+            try { session.Process?.StandardInput.Close(); } // EOF requests a clean Worker stop.
+            catch (Exception error) when (error is IOException or InvalidOperationException) { }
         }
-        catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
     }
 }

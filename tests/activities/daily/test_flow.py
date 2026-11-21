@@ -47,6 +47,15 @@ class DailyFlowTest(unittest.TestCase):
         self.assertEqual(missing.action,'wait')
         self.assertFalse(missing.defer_on_timeout)
 
+    def test_limited_checks_summon_signup_even_without_a_home_campaign(self):
+        flow=DailyFlow('limited')
+        home=screen('home',[])
+        home.home_points={'summon':(674,648)}
+        self.assertEqual(flow.step(home,self.vision()).operation,'open_summon')
+        s=screen('summon',[('十日签到',[240,670,60,22])])
+        self.assertEqual(flow.step(s,self.vision()).operation,'open_ten_signin')
+        self.assertFalse(flow.limited_checked)
+
     def test_known_summon_guide_is_closed_outside_all_draw_buttons(self):
         decision=DailyFlow('weapon').step(screen('summon-guide',[]),self.vision())
         self.assertEqual(decision.point,(640,100))
@@ -54,6 +63,7 @@ class DailyFlowTest(unittest.TestCase):
 
     def vision(self, *, free=False, coin=True):
         v=Mock();v.free.return_value=free;v.coin.return_value=coin;v.match.return_value=None
+        v.templates={}
         v.food.side_effect=lambda s:int(s.hits(r'\d+',(1160,15,1225,75))[0].text) if s.hits(r'\d+',(1160,15,1225,75)) else None
         return v
 
@@ -129,7 +139,9 @@ class DailyFlowTest(unittest.TestCase):
 
     def test_house_only_continues_the_known_five_food_request(self):
         flow=DailyFlow('house')
-        s=screen('house_continue',[('是否消耗5饭团继续进行修炼?',[400,350,470,50])])
+        s=screen('house_continue',[('是否消耗',[480,350,96,30]), ('5',[577,350,12,23]),
+                                   ('饭团',[595,350,44,30]), ('继续进行修炼?',[653,350,155,30]),
+                                   ('确定',[778,514,64,32])])
         self.assertEqual(flow.step(s,self.vision()).point,(810,530))
         s=screen('house_continue',[('消耗60勾玉修炼',[400,350,470,50])])
         self.assertEqual(flow.step(s,self.vision()).action,'unavailable')

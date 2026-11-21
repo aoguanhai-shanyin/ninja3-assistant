@@ -1,8 +1,10 @@
 """Counter fallback checks without local game assets or Windows OCR."""
 import unittest
+from unittest.mock import Mock
 
 import numpy as np
 
+from ninja3_assistant.game_ui.trial import read_trial_counter, trial_counter_glyphs
 from ninja3_assistant.activities.daily.vision import DailyScreen, DailyVision
 
 
@@ -36,6 +38,31 @@ class FoodCounterOcrTest(unittest.TestCase):
         self.assertEqual(self.food('8 》 8 》 8'),8)
         self.assertEqual(self.food('9 》 9 》 9'),9)
         self.assertIsNone(self.food('8 》 8 》 9'))
+
+    def test_isolated_foreground_ignores_the_icon_button_and_color_effect(self):
+        frame = np.zeros((720,1280,3),np.uint8)
+        frame[43:53,1190:1192] = 255
+        frame[43:53,1200:1202] = 255
+        clean = trial_counter_glyphs(frame)
+        frame[40:55,1120:1168] = 255
+        frame[40:55,1232:1248] = 255
+        frame[39:42,1175:1190] = (225,185,95)
+        np.testing.assert_array_equal(trial_counter_glyphs(frame),clean)
+        ocr = Mock()
+        ocr.read.side_effect = [{'text':''},{'text':'11 11 11'}]
+        self.assertEqual(read_trial_counter(frame,ocr,None),{'text':'11 11 11'})
+        self.assertEqual(ocr.read.call_count,2)
+        for call in ocr.read.call_args_list:
+            prepared = call.args[0]
+            self.assertEqual(set(np.unique(prepared)),{0,255})
+            self.assertTrue(np.array_equal(prepared[:,:,0],prepared[:,:,1]))
+
+    def test_empty_foreground_does_not_use_unrelated_text_or_guess_counter(self):
+        frame = np.zeros((720,1280,3),np.uint8)
+        frame[31:61,1122:1160] = 255
+        ocr = Mock()
+        self.assertIsNone(self.food(read_trial_counter(frame,ocr,None)['text']))
+        ocr.read.assert_not_called()
 
 
 if __name__ == '__main__':

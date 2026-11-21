@@ -6,11 +6,13 @@ import time
 from collections import deque
 
 from ninja3_assistant.activities.bounty.flow import Decision, Flow
+from ninja3_assistant.activities.bounty.reverse_menu import ACTION_NAMES, reverse_observation
 from ninja3_assistant.combat.hayabusa.scene import HayabusaScene
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.combat.opening_actions import OpeningActions, execute_opening
 from ninja3_assistant.device.mumu_macro import GroundMacroGate, create_skate_macro
 from ninja3_assistant.device.native_touch import create_native_touch
+from ninja3_assistant.game_ui import GameUI
 from ninja3_assistant.runtime.realtime_battle import RealtimeBattleKernel
 from ninja3_assistant.vision.vision import Vision
 
@@ -123,11 +125,12 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
         native = create_native_touch(folder, index, control.stop, emit)
         if native is not None:
             native = kernel.attach(native)
+        ui = GameUI(control, lambda: kernel.capture(device), kernel if native is not None else None)
         macro = native
         if macro is None and os.environ.get('NINJA_USE_MUMU_MACRO') == '1':
             macro = create_skate_macro(folder, index, control.stop, emit)
         status('C++ 触控进程已就绪' if native is not None else
-               '使用 MuMu 宏对照模式' if macro is not None else '未找到 C++ 触控组件，使用 SDK 回退')
+               '使用 MuMu 宏对照模式' if macro is not None else '未找到 C++ 触控组件，菜单操作不可用')
         if macro is not None:
             gate = GroundMacroGate(macro, control)
             def release_inputs():
@@ -155,7 +158,6 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
                 scene.reset()
                 opening.reset()
                 scene_generation = generation
-            captured = time.monotonic()
             captured_precise = time.perf_counter()
             frame = kernel.capture(device)
             capture_seconds = time.perf_counter()-captured_precise
@@ -275,6 +277,15 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
                             scene.input_duration(time.perf_counter()-input_started)
                 control.run_if_active(process_scene)
                 continue
+            def menu_input(decision):
+                previous_join = decision.point if decision.action == 'join' else None
+                observation = reverse_observation(screen,frame,generation,captured_precise,previous_join=previous_join)
+                name = ACTION_NAMES.get(decision.action,decision.action)
+                action = observation.controls.get(name)
+                if action is None or action.point != decision.point:
+                    return None
+                return ui.perform(observation,name,refresh=False,before_send=native.quiesce)
+
             def process_screen():
                 nonlocal clicks, reported_kills, current_backend, scene_owned
                 if control.generation() != generation:
@@ -298,12 +309,13 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
                         native.quiesce()
                     device.reopen_game(control.stop)
                     return 'reopen'
-                if decision.action != 'wait' and decision.point and time.monotonic() - captured <= .5:
+                if decision.action != 'wait' and decision.point:
+                    if native is None:
+                        status('操作游戏界面需要 NinjaTouch.exe')
+                        return 'stop'
                     if decision.action == 'join':
                         return decision
-                    if native is not None:
-                        native.quiesce()
-                    if device.tap(decision.point, control.stop):
+                    if menu_input(decision):
                         clicks += 1
                         flow.completed(decision, control.now())
                 return 'continue'
@@ -320,15 +332,10 @@ def run_flow(folder, index, control, emit, join_interval_ms=30):
 
                 def join_once():
                     nonlocal clicks
-                    if control.generation() != generation or time.perf_counter() - captured_precise > .5:
-                        return None
-                    pressed = time.perf_counter()
-                    if native is not None:
-                        native.quiesce()
-                    if device.tap(result.point, control.stop, hold_seconds=.015):
+                    if ack := menu_input(result):
                         clicks += 1
                         flow.completed(result, control.now())
-                        return pressed
+                        return ack[0]
                     return None
 
                 pressed = control.run_if_active(join_once)

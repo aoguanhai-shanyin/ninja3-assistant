@@ -83,12 +83,12 @@ class EquipmentSetup:
         points = _SLOTS+tuple((x,y) for y in support for x in _WEAPON_COLUMNS)
         if scene.kind == 'equipment_detail' and self._stage == 'detail':
             if scene.point == (1134, 573) and _same_icon(frame, self._icon, _INVENTORY):
-                return DailyDecision('tap', scene.point, _EQUIP, guard=(1046, 543, 1223, 600))
+                return DailyDecision.tap('equip_weapon', scene.point, _EQUIP, guard=(1046, 543, 1223, 600))
         if scene.kind == 'equipment_target' and self._stage == 'target':
             x, y = self._target
             if (self._target in scene.equipment_targets and _slots(frame,rows).get(self._target) == 'empty' and
                     _same_icon(frame, self._icon, _INVENTORY)):
-                return DailyDecision('tap', self._target, _PLACE, guard=(x-45, y-45, x+45, y+45))
+                return DailyDecision.tap('place_weapon', self._target, _PLACE, guard=(x-45, y-45, x+45, y+45))
         if scene.kind != 'equipment':
             return DailyDecision(status='等待确认选中武器及可装备位置')
         slots = _slots(frame,rows)
@@ -106,9 +106,11 @@ class EquipmentSetup:
         empties = [point for point in points if slots[point] == 'empty']
         if not empties:
             if self._changed:
-                return DailyDecision('gear_done', _SAVE, '保存已确认的大千试炼装备', guard=(1000, 647, 1223, 711))
+                return DailyDecision('gear_done', _SAVE, '保存已确认的大千试炼装备',
+                                     guard=(1000, 647, 1223, 711), operation='save_equipment')
             if scene.back:
-                return DailyDecision('gear_done', scene.back, '当前小队主副武器均已装备，返回配队', guard=(15, 0, 83, 73))
+                return DailyDecision('gear_done', scene.back, '当前小队主副武器均已装备，返回配队',
+                                     guard=(15, 0, 83, 73), operation='back')
             return DailyDecision(status='等待确认已装备队伍的返回入口')
         inventory = frame[177:466, 972:1256]
         if self._prior_inventory is not None and cv2.absdiff(inventory, self._prior_inventory).mean() <= 6:
@@ -121,14 +123,14 @@ class EquipmentSetup:
         self._target = empties[0]
         self._icon = icon.copy()
         self._prior_inventory = inventory.copy()
-        return DailyDecision('tap', _INVENTORY, _SELECT, guard=(966, 167, 1059, 263))
+        return DailyDecision.tap('select_weapon', _INVENTORY, _SELECT, guard=(966, 167, 1059, 263))
 
     def completed(self, decision):
-        if decision.status == _SELECT:
+        if decision.operation == 'select_weapon':
             self._stage = 'detail'
-        elif decision.status == _EQUIP:
+        elif decision.operation == 'equip_weapon':
             self._stage = 'target'
-        elif decision.status == _PLACE:
+        elif decision.operation == 'place_weapon':
             self._stage = 'verify'
         elif decision.action == 'gear_done':
             self._stage = 'done'

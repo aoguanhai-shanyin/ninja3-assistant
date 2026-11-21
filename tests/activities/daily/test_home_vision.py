@@ -64,7 +64,7 @@ class HomeVisionTest(unittest.TestCase):
 
     def test_stale_back_is_rejected_for_both_home_layouts(self):
         screen=DailyScreen(self.frame,{'words':[]},'rank')
-        decision=DailyDecision('tap',(75,50),'返回主页，继续每日悬赏')
+        decision=DailyDecision.tap('back',(75,50),'返回主页，继续每日悬赏')
         for name,point in (('home',(582,676)),('home-summon',(677,687))):
             with self.subTest(name=name):
                 vision=self.vision({'home-hall':(814,614),name:point})

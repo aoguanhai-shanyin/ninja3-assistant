@@ -88,3 +88,64 @@ class NativePlanTest(unittest.TestCase):
         self.stop.set()
         self.wait(lambda:self.touch.stop_ack > 0)
         self.assertEqual(self.pressed(revision),[])
+
+    def test_board_timeline_executes_beyond_200ms_independently_of_skill(self):
+        captured = time.perf_counter()
+        board = self.touch.plan(5,(TimedTap(50,(480,460),100),TimedTap(380,(720,470))),
+                                captured_at=captured,deadline=captured+1.)
+        skill = self.touch.plan(4,(TimedTap(100,(900,630)),),
+                                captured_at=captured,deadline=captured+.2)
+        self.wait(lambda:len(self.pressed(board)) == 2 and len(self.pressed(skill)) == 1)
+        first, second = self.pressed(board)
+        self.assertEqual([first['finger'],second['finger'],self.pressed(skill)[0]['finger']],
+                         [5,5,4])
+        self.assertLess(first['down_start_us'],self.pressed(skill)[0]['down_start_us'])
+        self.assertGreaterEqual(second['down_start_us'],int(captured*1_000_000)+380_000)
+
+    def test_board_cancel_releases_active_contact_and_drops_remaining_taps(self):
+        captured = time.perf_counter()
+        board = self.touch.plan(5,(TimedTap(30,(480,460),175),TimedTap(420,(720,470))),
+                                captured_at=captured,deadline=captured+1.)
+        self.wait(lambda:len(self.pressed(board)) == 1)
+        cancel = self.touch.cancel_plan(5)
+        skill = self.touch.plan(4,(TimedTap(110,(900,630)),),
+                                captured_at=captured,deadline=captured+.2)
+        self.wait(lambda:len(self.pressed(skill)) == 1 and
+                  any(k == 'native_plan' and v['event'] == 'cleared' and v['revision'] == cancel
+                      for k,v in self.events))
+        self.wait(lambda:any(k == 'native_plan' and v['event'] == 'dropped' and
+                            v['revision'] == board and v['index'] == 0 for k,v in self.events))
+        self.assertTrue(any(k == 'native_plan' and v['event'] == 'dropped' and
+                            v['revision'] == board and v['index'] == 1 for k,v in self.events))
+        self.assertEqual(len(self.pressed(board)),1)
+
+    def test_board_rejects_stale_capture_in_python_and_native(self):
+        captured = time.perf_counter()-.25
+        actions = (TimedTap(450,(720,470)),)
+        self.assertIsNone(self.touch.plan(5,actions,captured_at=captured,deadline=captured+1.))
+        captured_us = int(captured*1_000_000)
+        # Bypass the Python admission guard to check the native boundary too.
+        wire = (f'PLAN 5 50 {captured_us} {captured_us+1_000_000} 1 '
+                f'{captured_us+450_000} 720 470 15 {captured_us+470_000}\n')
+        with self.touch.cv:
+            self.touch.proc.stdin.write(wire)
+            self.touch.proc.stdin.flush()
+        self.wait(lambda:any(k == 'native_plan' and v['event'] == 'rejected' and
+                             v['revision'] == 50 for k,v in self.events))
+        self.assertEqual(self.pressed(50),[])
+
+    def test_stop_barrier_blocks_older_board_revision_after_fresh_capture(self):
+        captured = time.perf_counter()
+        board = self.touch.plan(5,(TimedTap(700,(720,470)),),
+                                captured_at=captured,deadline=captured+1.)
+        self.stop.set()
+        self.wait(lambda:self.touch.stop_ack > 0)
+        captured_us = int(time.perf_counter()*1_000_000)
+        wire = (f'PLAN 5 {board} {captured_us} {captured_us+1_000_000} 1 '
+                f'{captured_us+350_000} 720 470 15 {captured_us+370_000}\n')
+        with self.touch.cv:
+            self.touch.proc.stdin.write(wire)
+            self.touch.proc.stdin.flush()
+        self.wait(lambda:any(k == 'native_plan' and v['event'] == 'rejected' and
+                             v['revision'] == board for k,v in self.events))
+        self.assertEqual(self.pressed(board),[])

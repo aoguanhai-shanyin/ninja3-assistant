@@ -9,6 +9,8 @@ import queue
 import threading
 from dataclasses import dataclass
 
+from ninja3_assistant.device.native_touch import PLAN_FRAME_MAX_AGE, PLAN_HORIZONS
+
 
 @dataclass(frozen=True, slots=True)
 class FrameStamp:
@@ -87,7 +89,7 @@ class RealtimeBattleKernel:
         self.stale_drops = 0
         self.sequence = 0
         self.cadence = RecognitionCadence()
-        self.plan_frames = {3:0,4:0}
+        self.plan_frames = dict.fromkeys(PLAN_HORIZONS,0)
         self.movement_frame = 0
 
     def attach(self, driver):
@@ -176,14 +178,17 @@ class RealtimeBattleKernel:
         self.cadence.completed(self.captured_at,self.clock(),stable=stable)
 
     def plan(self, finger, actions, *, frame=None, deadline=None):
-        if finger not in (3,4):
-            raise ValueError('planned finger must be 3 or 4')
+        if finger not in PLAN_HORIZONS:
+            raise ValueError('planned finger must be 3, 4, or 5')
         frame = self.stamp() if frame is None else frame
-        expires = frame.captured_at+.2 if deadline is None else min(deadline,frame.captured_at+.2)
+        expires = frame.captured_at+PLAN_HORIZONS[finger]
+        if deadline is not None:
+            expires = min(deadline,expires)
+        admission_deadline = min(expires,frame.captured_at+PLAN_FRAME_MAX_AGE)
         def commit():
             if (not 1 <= frame.sequence <= self.sequence or frame.captured_at > self.captured_at or
                 frame.sequence < self.plan_frames[finger] or frame.generation != self.control.generation() or
-                self.clock() >= expires or self.control.paused() or self.control.stop.is_set()):
+                self.clock() >= admission_deadline or self.control.paused() or self.control.stop.is_set()):
                 self.stale_drops += 1
                 return None
             revision = self.driver.plan(finger,actions,captured_at=frame.captured_at,deadline=expires)
@@ -194,10 +199,11 @@ class RealtimeBattleKernel:
         return None if result is False else result
 
     def cancel_plan(self, finger):
-        if finger not in (3,4):
-            raise ValueError('planned finger must be 3 or 4')
+        if finger not in PLAN_HORIZONS:
+            raise ValueError('planned finger must be 3, 4, or 5')
         def cancel():
-            self.plan_frames[finger] = self.sequence
+            # A cancelled board sequence must wait for a new capture.
+            self.plan_frames[finger] = self.sequence+1 if finger == 5 else self.sequence
             return self.driver.cancel_plan(finger)
         return self.control.run_if_active(cancel)
 

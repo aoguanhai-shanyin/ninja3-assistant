@@ -15,6 +15,7 @@ FRIEND_HOME = (10,320,94,418)
 FRIEND_BACK = (55,46)
 INBOX_BACK = (640,700)
 INBOX_ENTRY = (1170,20,1268,105)
+INBOX_POINT = (1217,49)
 INBOX_ACTIONS = {
     'return': ('friend-rice-return',(326,625,531,679),(425,650)),
     'collect': ('friend-rice-collect',(810,625,1012,680),(908,650)),
@@ -79,12 +80,12 @@ def _batch_button(frame, vision, key):
 
 
 def same_gift(frame, vision, decision):
-    if decision.status == '批量回赠好友饭团':
+    if decision.operation == 'return_rice_batch':
         rows = _inbox_rows(frame,vision)
         return (len(rows) == decision.rice_gifts and _blank_inbox_after(frame,len(rows)) and
                 _batch_button(frame,vision,'return') == decision.point)
     x,y = decision.point
-    name = 'friend-rice-envelope' if decision.status == '回赠一份好友饭团' else 'friend-row-gift'
+    name = 'friend-rice-envelope' if decision.operation == 'return_rice' else 'friend-row-gift'
     box = (x-47,y-37,x+47,y+37)
     return _enabled(frame,vision,name,box) == decision.point
 
@@ -124,7 +125,7 @@ class FriendRice:
     def step(self, screen, vision):
         if screen.page == 'home':
             if point := vision.match(screen.frame,'friend-home',FRIEND_HOME):
-                return DailyDecision('tap',point,'打开好友列表',guard=FRIEND_HOME)
+                return DailyDecision.tap('open_friends',point,'打开好友列表',guard=FRIEND_HOME)
             return DailyDecision(status='等待识别主页好友入口')
         if screen.page == 'friend-list':
             return self._list(screen,vision)
@@ -139,33 +140,33 @@ class FriendRice:
         empty = '暂无可收取的饭团' in screen.text((473,302,829,389))
         if (number and int(number[1]) == LIMIT) or (not rows and empty):
             self.inbox_complete = True
-            return DailyDecision('tap',INBOX_BACK,'关闭已检查的好友饭团面板')
+            return DailyDecision.tap('back',INBOX_BACK,'关闭已检查的好友饭团面板')
         if not rows:
             return DailyDecision(status='等待确认好友饭团收取状态')
         remaining = self.remaining()
         if 0 < len(rows) <= remaining and _blank_inbox_after(frame,len(rows)):
             if point := _batch_button(frame,vision,'return'):
-                return DailyDecision('tap',point,'批量回赠好友饭团',rice_gifts=len(rows))
+                return DailyDecision.tap('return_rice_batch',point,'批量回赠好友饭团',rice_gifts=len(rows))
         if remaining:
             reply = next((reply for _,reply in rows if reply),None)
             if reply:
-                return DailyDecision('tap',reply,'回赠一份好友饭团',rice_gifts=1)
+                return DailyDecision.tap('return_rice',reply,'回赠一份好友饭团',rice_gifts=1)
         if point := _batch_button(frame,vision,'collect'):
-            return DailyDecision('tap',point,'批量收取好友饭团',guard=INBOX_ACTIONS['collect'][1])
+            return DailyDecision.tap('collect_rice_batch',point,'批量收取好友饭团',guard=INBOX_ACTIONS['collect'][1])
         return DailyDecision(status='等待确认好友饭团收取按钮')
 
     def _list(self, screen, vision):
         if not self.inbox_complete:
-            return DailyDecision('tap',(1217,49),'打开好友饭团收取面板',guard=INBOX_ENTRY)
+            return DailyDecision.tap('open_rice_inbox',INBOX_POINT,'打开好友饭团收取面板',guard=INBOX_ENTRY)
         remaining = self.remaining()
         if not remaining:
             return DailyDecision('done',status='好友饭团已检查，助手今日赠送额度已用完')
         if gifts := _list_gifts(screen.frame,vision):
-            return DailyDecision('tap',gifts[0],'向好友赠送一份饭团',rice_gifts=1)
+            return DailyDecision.tap('give_rice',gifts[0],'向好友赠送一份饭团',rice_gifts=1)
         identities = screen.frame[190:687,292:524]
         if self.scroll_from is not None and cv2.absdiff(self.scroll_from,identities).mean() < 2:
             return DailyDecision('done',status='已检查可领取与可赠送的好友饭团')
-        return DailyDecision('swipe',(855,651),'继续检查可赠送饭团的好友',(855,282))
+        return DailyDecision.swipe('scroll_friends',(855,651),'继续检查可赠送饭团的好友',(855,282))
 
     def completed(self, decision, screen):
         if decision.action == 'swipe' and screen.page == 'friend-list':

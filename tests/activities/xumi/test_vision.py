@@ -6,11 +6,15 @@ import cv2
 import numpy as np
 
 from ninja3_assistant.activities.bounty.combat import BountyCombatVision
+from ninja3_assistant.activities.daily.flow import DailyDecision
+from ninja3_assistant.activities.xumi.runner import XumiFlow
 from ninja3_assistant.activities.xumi.vision import XumiVision
 from ninja3_assistant.paths import project_root
 
 
 EVIDENCE = project_root()/'data/evidence/2026-11-19/xumi-152'
+MANUAL = EVIDENCE.parent/'xumi-manual-preflight-170955'
+RELAY = project_root()/'data/runtime/xumi/runs/20261119-135458-511800'
 
 
 def frame(name):
@@ -77,6 +81,98 @@ class XumiVisionTest(unittest.TestCase):
 
         resized = np.zeros((360, 640, 3), dtype=np.uint8)
         self.assertEqual(self.vision.scene(resized).kind, 'unknown')
+
+    def test_named_trial_action_rechecks_its_portal_on_the_same_page(self):
+        lobby = frame('008-lobby.png')
+        scene = self.vision.scene(lobby)
+        flow = XumiFlow()
+        flow.mode = 'fangcun'
+        decision = flow.step(lobby, scene)
+        observed = self.vision.menu_observation(lobby, scene, decision, None, 0, 0)
+        self.assertEqual(observed.page, 'xumi.lobby')
+        action = observed.controls['open_fangcun']
+        self.assertTrue(action.guard(lobby))
+        changed = lobby.copy()
+        changed[507:559, 232:316] = 0
+        self.assertEqual(self.vision.scene(changed).kind, 'lobby')
+        self.assertFalse(action.guard(changed))
+
+    @unittest.skipUnless((EVIDENCE/'062-setup-restored.png').is_file(), 'local ready Xumi screens unavailable')
+    def test_trial_setup_exposes_start_only_for_visible_ready_teams(self):
+        cases = (
+            ('011-system.png', ('empty','empty'), False),
+            ('016-system-after.png', ('filled','empty'), False),
+            ('018-own.png', ('empty','empty'), False),
+            ('026-own-current.png', ('filled','filled'), True),
+            ('027-own-start-response.png', ('filled','filled'), False),
+            ('062-setup-restored.png', ('filled','filled'), True),
+        )
+        for name, leads, can_start in cases:
+            with self.subTest(name=name):
+                setup = self.vision.scene(frame(name)).setup
+                self.assertEqual(setup.leads, leads)
+                self.assertTrue(setup.first_difficulty)
+                self.assertEqual(setup.can_start, can_start)
+                self.assertEqual(setup.start, (1092,634) if can_start else None)
+
+    @unittest.skipUnless((EVIDENCE/'039-own-armed-setup.png').is_file(), 'local ready Xumi setup unavailable')
+    def test_start_rechecks_team_difficulty_and_enabled_control_in_fresh_frame(self):
+        ready = frame('039-own-armed-setup.png')
+        scene = self.vision.scene(ready)
+        decision = DailyDecision('start', scene.setup.start, operation='start_trial')
+        self.assertTrue(self.vision.current_action(ready,scene,decision,None,ready))
+        for name, box in (
+            ('first lead',(538,542,589,583)),
+            ('second lead',(539,625,590,666)),
+            ('difficulty',(924,167,1014,204)),
+            ('enabled button',(970,615,997,654)),
+        ):
+            with self.subTest(occluded=name):
+                x1,y1,x2,y2 = box
+                changed = ready.copy()
+                changed[y1:y2,x1:x2] = 0
+                setup = self.vision.scene(changed).setup
+                self.assertFalse(setup.can_start)
+                self.assertFalse(self.vision.current_action(ready,scene,decision,None,changed))
+        failed = frame('027-own-start-response.png')
+        self.assertFalse(self.vision.current_action(ready,scene,decision,None,failed))
+
+    @unittest.skipUnless((MANUAL/'daqian.png').is_file(), 'local third difficulty setups unavailable')
+    def test_manual_third_difficulty_reports_the_current_start_control_without_a_selector(self):
+        for name in ('fangcun.png','daqian.png'):
+            with self.subTest(mode=name):
+                third = frame(MANUAL/name)
+                scene = self.vision.scene(third)
+                self.assertEqual(scene.setup.leads,('filled','filled'))
+                self.assertEqual(scene.setup.selected_difficulty,3)
+                self.assertTrue(scene.setup.can_start)
+                self.assertEqual(scene.setup.start,(1092,634))
+                start = DailyDecision('start',scene.setup.start,operation='start_trial')
+                self.assertTrue(self.vision.current_action(third,scene,start,None,third))
+
+                second = third.copy()
+                second[171:201,1144:1241] = (90,45,125)
+                label = second[171:201,1038:1126]
+                red, green, blue = label.astype('int16').transpose(2, 0, 1)
+                lavender = (red >= 105) & (green >= 96) & (blue-red >= 18) & (blue >= 150)
+                label[lavender] = (242,239,127)
+                ready = self.vision.scene(second).setup
+                self.assertEqual(ready.selected_difficulty,2)
+                self.assertTrue(ready.can_start)
+                self.assertFalse(self.vision.current_action(third,scene,start,None,second))
+
+    @unittest.skipUnless((RELAY/'0150-unknown-wait.png').is_file(), 'local paid relay screens unavailable')
+    def test_relay_requires_local_title_and_skip_button_and_exposes_no_action(self):
+        for name in ('0018-unknown-wait.png','0029-unknown-wait.png','0150-unknown-wait.png'):
+            with self.subTest(frame=name):
+                image = frame(RELAY/name)
+                relay = self.vision.scene(image)
+                self.assertEqual((relay.kind,relay.point,relay.back),('relay',None,None))
+                for left,top,right,bottom in ((500,44,780,101),(582,680,701,720)):
+                    obscured = image.copy()
+                    obscured[top:bottom,left:right] = 0
+                    self.assertNotEqual(self.vision.scene(obscured).kind,'relay')
+        self.assertNotEqual(self.vision.scene(frame('025-fangcun-final.png')).kind,'relay')
 
     @unittest.skipUnless((EVIDENCE/'024-fangcun-transition.png').is_file(), 'Xumi result screenshot unavailable')
     def test_first_boss_result_continues_to_unplayed_boss_only(self):

@@ -6,11 +6,13 @@ import numpy as np
 
 from ninja3_assistant.activities.daily.vision import DailyScreen, DailyVision
 from ninja3_assistant.paths import resource_root
+from ninja3_assistant.vision.control_match import match_control
 from ninja3_assistant.vision.game_update import game_update_banner
 
 
 REFRESH_BOX = (1075,148,1220,203)
 INVITE_SLOT_BOX = (595,300,685,376)
+HALL_ENTRY_BOX = (0,100,1280,260)
 ORDER_COUNTER_BOX = (351,156,378,187)
 ORDER_FAILURE_BOX = (420,225,865,295)
 ORDER_SUCCESS_BOX = (540,220,740,315)
@@ -21,6 +23,7 @@ class DailyBountyScreen(DailyScreen):
         super().__init__(frame,ocr,page)
         self.remaining = self.grade = self.join = self.entry = None
         self.ready = self.start = self.create = self.confirm = self.close = None
+        self.defeat = False
         self.free_claim = self.free_guard = self.back = self.login = None
         self.free_exhausted = False
         self.minimum_players = False
@@ -59,9 +62,12 @@ class DailyBountyVision:
                           ('join','join'),('ready','ready'),('refresh','refresh'),
                           ('join-disbanded','join-disbanded'),('join-closed','join-closed'),
                           ('prepared','prepared'),('result-title','result-title'),
-                          ('result-confirm','result-confirm')):
+                          ('result-confirm','result-confirm'),('defeat-title','hayabusa-defeat')):
             if name not in self.templates:
                 self.templates[name] = cv2.imread(str(root/(path+'.png')),0)
+        hall_label = self.templates['hall-entry']
+        self.hall_entry_mask = (cv2.dilate((hall_label >= 155).astype(np.uint8),np.ones((5,5),np.uint8))
+                                if hall_label is not None else None)
 
     def match(self, frame, name, box=(0,0,1280,720), threshold=.92):
         # Reuse the daily matcher's error bound and optional local template bank.
@@ -90,6 +96,8 @@ class DailyBountyVision:
             return 'result',(640,680)
         if point := self.order_result_confirm(frame):
             return 'result',point
+        if point := self.defeat_confirm(frame):
+            return 'result',point
         if self.match(frame,'own-empty',(480,290,800,350)):
             return 'bounty_own_empty',(1115,670)
         if self.match(frame,'order-locked',(440,330,875,400)):
@@ -111,9 +119,25 @@ class DailyBountyVision:
                 return page,(65,50)
         return self.common.navigation(frame)
 
+    def hall_entry(self, frame):
+        """Match the foreground bounty label once the Hall context is known."""
+        return match_control(frame, self.templates.get('hall-entry'), HALL_ENTRY_BOX,
+                             mask=self.hall_entry_mask, threshold=.93, max_error=28)
+
     def order_result_confirm(self, frame):
         if self.match(frame,'order-result-title',(570,49,825,123),.96):
             return self.match(frame,'result-confirm',(526,630,773,719))
+        return None
+
+    def defeat_confirm(self, frame):
+        if not self.match(frame,'defeat-title',(508,36,764,172),.95):
+            return None
+        # Bounty has one centered button. Training uses two buttons in the bottom row.
+        red,green,blue = cv2.split(frame[522:564,535:745])
+        yellow = (red >= 220) & (green >= 175) & (blue <= 145)
+        if (yellow[:,:45].mean() >= .85 and yellow[:,-45:].mean() >= .85 and
+                .08 <= (red[:,55:155] < 80).mean() <= .4):
+            return (640,543)
         return None
 
     def tasks_panel(self, frame):
@@ -276,6 +300,9 @@ class DailyBountyVision:
         if point := self.order_result_confirm(frame):
             screen.page,screen.grade,screen.confirm = 'result','S',point
             return screen
+        if point := self.defeat_confirm(frame):
+            screen.page,screen.confirm,screen.defeat = 'result',point,True
+            return screen
         if (self.match(frame,'leave-title',(530,340,760,395)) and
                 self.match(frame,'leave-room-context',(1030,580,1220,625))):
             screen.page,screen.confirm = 'bounty_leave',(810,525)
@@ -288,11 +315,7 @@ class DailyBountyVision:
             screen.page = 'bounty_grade'
             screen.grade_choices = dict(zip(('D','C','B','A'),((640,246),(640,306),(640,365),(640,423))))
             screen.confirm,screen.close = (640,490),(897,163)
-            for grade,(_,y) in screen.grade_choices.items():
-                r,g,b = frame[y-5:y+5,460:500,:3].mean(axis=(0,1))
-                if r > 225 and g > 185 and b > 75:
-                    screen.grade = grade
-                    break
+            screen.grade = self._selected_grade(frame,screen.grade_choices)
             return screen
         purchase_text = screen.text((450,150,825,550))
         if '购买奖励次数' in purchase_text:
@@ -337,7 +360,7 @@ class DailyBountyVision:
                 screen.remaining = self._count(ocr.get('bounty_order_counter',{}).get('text',''),'order')
             self._order_controls(screen)
         elif screen.page == 'hall':
-            screen.entry = self.match(frame,'hall-entry',(0,100,1280,260))
+            screen.entry = self.hall_entry(frame)
         elif screen.page == 'bounty_room':
             for grade in ('D','C','B','A','S'):
                 if self.match(frame,'room-grade-'+grade,(280,0,360,85),.96):
@@ -436,25 +459,45 @@ class DailyBountyVision:
                     return point
         return None
 
+    @staticmethod
+    def _selected_grade(frame, choices):
+        for grade,(_,y) in choices.items():
+            r,g,b = frame[y-5:y+5,460:500,:3].mean(axis=(0,1))
+            if r > 225 and g > 185 and b > 75:
+                return grade
+        return None
+
     def current_action(self, screen, decision, fresh):
         if game_update_banner(fresh):
+            return False
+        operation = decision.operation
+        if screen.page == 'result' and screen.defeat:
+            return self.defeat_confirm(fresh) == decision.point
+        fresh_page,_ = self.navigation(fresh)
+        if fresh_page != screen.page and self.navigation(screen.frame)[0] == screen.page:
             return False
         if screen.page == 'result' and screen.grade == 'S' and self.order_result_confirm(screen.frame):
             return self.order_result_confirm(fresh) == decision.point
         if decision.free_kind == 'bounty':
             return bool(decision.guard and self.match(fresh,'free-claim',decision.guard,.96))
-        if decision.status == '刷新悬赏队伍列表':
-            return (self.navigation(fresh)[0] == screen.page and
+        if operation == 'refresh':
+            return (fresh_page == screen.page and
                     self.match(fresh,'refresh',REFRESH_BOX,.94) == decision.point)
-        if decision.status == '加入S级悬赏队伍':
-            return (self.navigation(fresh)[0] == 'bounty_order' and
+        if operation == 'join_order':
+            return (fresh_page == 'bounty_order' and
                     (self._filter(fresh,876),self._filter(fresh,978)) == ('on','off') and
                     not (self._order_join_failed(fresh) or self._order_join_pending(fresh)) and
                     self._join(fresh,'S') == decision.point)
+        if operation == 'join_daily':
+            return fresh_page == 'bounty_daily' and self._join(fresh,screen.grade or self.grade_hint) == decision.point
+        if operation == 'confirm_grade':
+            return self._selected_grade(fresh,screen.grade_choices) == screen.grade
+        if operation == 'leave_wrong_grade' and not self.match(fresh,'room-footer',(1030,580,1220,625)):
+            return False
         if screen.page == 'hall':
-            if self.navigation(fresh)[0] != 'hall':
+            if fresh_page != 'hall':
                 return False
-            entry = self.match(fresh,'hall-entry',(0,100,1280,260))
+            entry = self.hall_entry(fresh)
             if decision.action == 'swipe':
                 return entry is None
             return entry is not None and max(abs(a-b) for a,b in zip(decision.point,entry)) <= 12

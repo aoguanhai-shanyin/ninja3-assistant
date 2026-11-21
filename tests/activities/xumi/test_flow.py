@@ -1,11 +1,11 @@
 import unittest
 from dataclasses import replace
-from unittest.mock import Mock
 
 from ninja3_assistant.activities.daily.flow import DailyDecision
 from ninja3_assistant.activities.xumi.runner import XumiFlow
 from ninja3_assistant.activities.xumi.tasks import XumiTaskRow
 from ninja3_assistant.activities.xumi.vision import XumiScreen
+from ninja3_assistant.game_ui.xumi import TrialSetup
 
 
 class XumiFlowTest(unittest.TestCase):
@@ -19,27 +19,53 @@ class XumiFlowTest(unittest.TestCase):
         self.assertEqual(flow.step(None,XumiScreen('result_next',point=(976,635))).action,'continue')
         self.assertEqual(flow.step(None,XumiScreen('result_done',point=(890,635))).action,'settle')
 
-    def test_daqian_requires_weapon_check_before_start(self):
+    def test_unknown_lead_waits_and_missing_weapon_skips_without_editing(self):
         flow = XumiFlow()
         flow.mode = 'daqian'
-        flow.teams = Mock()
-        flow.teams.step.return_value = DailyDecision('start',(1090,638))
-        setup = XumiScreen('daqian_setup',back=(47,40))
-        self.assertEqual(flow.step(None,setup).action,'start')
-        flow.gear_required = True
-        check = flow.step(None,setup)
-        self.assertEqual(check.action,'check_gear')
-        flow.completed(check)
-        self.assertEqual(flow.step(None,XumiScreen('team',team_number=1)).point,(1250,363))
-        flow.completed(DailyDecision('gear_done',(1115,678)))
-        self.assertEqual(flow.step(None,XumiScreen('equipment')).action,'wait')
-        flow.step(None,XumiScreen('team',team_number=1))
-        check = flow.step(None,setup)
-        self.assertEqual(check.point,(563,647))
-        flow.completed(check)
-        flow.completed(DailyDecision('gear_done',(1115,678)))
-        flow.step(None,XumiScreen('team',team_number=2))
-        self.assertEqual(flow.step(None,setup).action,'start')
+        setup = XumiScreen('daqian_setup',back=(47,40),setup=TrialSetup(('filled','unknown'),1,None))
+        self.assertEqual(flow.step(None,setup).action,'wait')
+        self.assertFalse(flow.progress.blocked_modes)
+        editor = flow.step(None,XumiScreen('equipment',back=(47,40)))
+        self.assertEqual(editor.action,'defer')
+        self.assertIsNone(editor.point)
+        skip = flow.step(None,replace(setup,notice='missing_weapon'))
+        self.assertEqual((skip.operation,skip.point),('back',(47,40)))
+        self.assertIn('daqian',flow.progress.blocked_modes)
+
+    def test_manual_empty_team_skips_only_that_mode_and_survives_checkpoints(self):
+        flow = XumiFlow()
+        rows = tuple(XumiTaskRow(mode,kind,0,goal) for mode in ('fangcun','daqian')
+                     for kind,goal in (('match',1),('score',50000)))
+        tasks = XumiScreen('tasks',back=(1078,118))
+        flow.step(None,tasks,rows)
+        self.assertEqual(flow.mode,'fangcun')
+        setup = XumiScreen('fangcun_setup',back=(47,40),setup=TrialSetup(('filled','empty'),1,None))
+        self.assertEqual(flow.step(None,setup).operation,'back')
+        resumed = XumiFlow(flow.progress)
+        resumed.step(None,tasks,rows)
+        self.assertEqual(resumed.mode,'daqian')
+        claimed = tuple(replace(row,current=row.goal,claimed=True) for row in rows[2:])
+        self.assertEqual(resumed.step(None,tasks,rows[:2]+claimed).action,'defer')
+
+    def test_replay_checks_current_difficulty_and_does_not_tap_progress_markers(self):
+        flow = XumiFlow(trial='daqian',difficulty=2)
+        setup = XumiScreen('daqian_setup',setup=TrialSetup(('filled','filled'),3,(1092,634)))
+        skipped = flow.step(None,setup)
+        self.assertEqual(skipped.action,'defer')
+        self.assertIsNone(skipped.point)
+        ready = replace(setup,setup=TrialSetup(('filled','filled'),2,(1092,634)))
+        for flow in (XumiFlow(trial='daqian',difficulty=2), XumiFlow()):
+            flow.mode = 'daqian'
+            start = flow.step(None,ready)
+            self.assertEqual((start.action,start.point,start.value),('start',(1092,634),2))
+
+    def test_daily_trials_leave_third_difficulty_for_manual_play(self):
+        flow = XumiFlow()
+        flow.mode = 'daqian'
+        setup = XumiScreen('daqian_setup',back=(47,40),setup=TrialSetup(('filled','filled'),3,(1092,634)))
+        skipped = flow.step(None,setup)
+        self.assertEqual((skipped.operation,skipped.point),('back',(47,40)))
+        self.assertIn('daqian',flow.progress.blocked_modes)
 
     def test_daily_progress_requires_both_modes_and_all_claims(self):
         scene = XumiScreen('tasks', back=(1078,118))

@@ -4,7 +4,12 @@ from dataclasses import dataclass
 import cv2
 
 from ninja3_assistant.activities.daily.vision import DailyVision
+from ninja3_assistant.activities.xumi.teams import team_mode
+from ninja3_assistant.game_ui import PageAction, PageObservation
+from ninja3_assistant.game_ui.pages import page_id
+from ninja3_assistant.game_ui.xumi import TrialSetup, trial_setup
 from ninja3_assistant.paths import resource_root
+from ninja3_assistant.vision.game_update import game_update_banner
 
 
 BACK = (47, 40)
@@ -25,6 +30,12 @@ class XumiScreen:
     equipment_targets: tuple[tuple[int, int], ...] = ()
     team_number: int | None = None
     support_rows: tuple[int, ...] = ()
+    team_mode: str | None = None
+    setup: TrialSetup | None = None
+
+    @property
+    def navigation_kind(self):
+        return self.team_mode+'_team' if self.kind == 'team' and self.team_mode else self.kind
 
 
 class XumiVision:
@@ -35,6 +46,55 @@ class XumiVision:
 
     def match(self, frame, name, area, threshold=.94):
         return self.daily.match(frame, 'xumi-'+name, area, threshold=threshold)
+
+    def menu_observation(self, frame, scene, decision, invitation, generation, captured_at):
+        controls = {}
+        if decision.point is not None and decision.operation:
+            controls[decision.operation] = PageAction(
+                decision.operation, decision.point, decision.end, hold_seconds=.055,
+                guard=lambda fresh: self.current_action(frame, scene, decision, invitation, fresh),
+            )
+        kind = ('invite' if invitation else 'reward' if decision.operation == 'dismiss_reward' else scene.navigation_kind)
+        area = 'daily' if kind == 'reward' else 'xumi'
+        return PageObservation(page_id(area,kind),frame,generation,captured_at,controls,detail=scene)
+
+    def current_action(self, frame, scene, decision, invitation, fresh):
+        if game_update_banner(fresh):
+            return False
+        fresh_invite = self.daily.invitations.detect(cv2.cvtColor(fresh,cv2.COLOR_RGB2GRAY))
+        if fresh_invite != invitation:
+            return False
+        fresh_scene = self.scene(fresh)
+        if fresh_scene.kind != scene.kind or (scene.team_number is not None and
+                fresh_scene.team_number != scene.team_number):
+            return False
+        if fresh_scene.team_mode != scene.team_mode:
+            return False
+        if decision.operation == 'start_trial':
+            return (scene.setup is not None and fresh_scene.setup is not None
+                    and scene.setup.can_start and fresh_scene.setup.can_start
+                    and scene.setup.start == decision.point == fresh_scene.setup.start
+                    and scene.setup.selected_difficulty == fresh_scene.setup.selected_difficulty)
+        if scene.kind in ('home','hall','guide') and fresh_scene.point != scene.point:
+            return False
+        if scene.kind == 'equipment_target' and decision.point not in fresh_scene.equipment_targets:
+            return False
+        if decision.operation == 'back' and fresh_scene.back != scene.back:
+            return False
+        if decision.operation == 'open_tasks' and fresh_scene.point != decision.point:
+            return False
+        if decision.operation in ('open_fangcun','open_daqian') and (
+                getattr(fresh_scene, decision.operation.removeprefix('open_')) != decision.point):
+            return False
+        if decision.operation == 'dismiss_reward':
+            reward, point = self.daily.navigation(fresh)
+            if reward not in ('reward','reward_continue') or point != decision.point:
+                return False
+        if decision.guard:
+            x1,y1,x2,y2 = decision.guard
+            if cv2.absdiff(frame[y1:y2,x1:x2],fresh[y1:y2,x1:x2]).mean() > 14:
+                return False
+        return True
 
     def equipment_team(self, frame):
         heading = cv2.cvtColor(frame[70:105,814:940], cv2.COLOR_RGB2GRAY)
@@ -49,6 +109,21 @@ class XumiVision:
             return None
         numbers = [number for number in (1, 2) if matches(str(number), heading[:,:28])]
         return numbers[0] if len(numbers) == 1 else None
+
+    @staticmethod
+    def relay(frame):
+        red, green, blue = frame[44:101,500:780].astype('int16').transpose(2, 0, 1)
+        lime = (red >= 150) & (green >= 205) & (blue < 140) & (green-red >= 15) & (red-blue >= 58)
+        # Six separate glyphs of 选择忍者接力, independent of countdown and battle art.
+        glyphs = ((8,49),(53,94),(99,137),(143,182),(186,227),(232,268))
+        if not all(.17 < lime[:,left:right].mean() < .43 for left,right in glyphs):
+            return False
+        if lime[:,[51,97,140,184,229]].mean() > .03:
+            return False
+        skip_label = frame[689:717,610:670]
+        skip_background = frame[688:719,586:607]
+        return bool((skip_label.min(axis=2) > 215).mean() > .17
+                    and (skip_background.max(axis=2) < 50).mean() > .9)
 
     @staticmethod
     def selected_team(frame):
@@ -76,6 +151,9 @@ class XumiVision:
     def scene(self, frame):
         if frame.shape != (720, 1280, 3):
             return XumiScreen()
+
+        if self.relay(frame):
+            return XumiScreen('relay')
 
         if (self.match(frame, 'team-score-confirm-message', (518, 337, 842, 405)) and
                 self.match(frame, 'equipment-confirm-title', (585, 252, 694, 314))):
@@ -113,7 +191,7 @@ class XumiVision:
                     self.match(frame, 'roster-own-discard', (298, 566, 453, 628))):
                 return XumiScreen('own_roster', back=(370, 597))
             if team and self.match(frame, 'team-skills', (291, 578, 443, 642)):
-                return XumiScreen('team', back=BACK, team_number=self.selected_team(frame))
+                return XumiScreen('team', back=BACK, team_number=self.selected_team(frame), team_mode=team_mode(frame))
 
         if (self.match(frame, 'equipment-title-dim', TITLE) and
                 self.match(frame, 'equipment-confirm-title', (585, 252, 694, 314)) and
@@ -132,7 +210,7 @@ class XumiVision:
             if targets := self.weapon_targets(frame):
                 return XumiScreen('equipment_target', equipment_targets=targets, team_number=self.equipment_team(frame))
 
-        if self.match(frame, 'setup-start', (989, 600, 1197, 668)):
+        if start := self.match(frame, 'setup-start', (989, 600, 1197, 668)):
             for mode in ('fangcun', 'daqian'):
                 if self.match(frame, mode+'-setup', TITLE):
                     notice = None
@@ -140,7 +218,8 @@ class XumiVision:
                             self.match(frame, 'start-failed', (285, 234, 542, 284)) and
                             self.match(frame, 'start-no-weapon', (615, 234, 1007, 284))):
                         notice = 'missing_weapon'
-                    return XumiScreen(mode+'_setup', back=BACK, notice=notice)
+                    return XumiScreen(mode+'_setup', back=BACK, notice=notice,
+                                      setup=trial_setup(frame,start,notice))
 
         if self.daily.match(frame, 'hall', (0, 0, 400, 120)):
             entry = self.match(frame, 'hall-entry', (110, 108, 1280, 236))

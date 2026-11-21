@@ -64,42 +64,47 @@ images use a bounded background queue and do not block the battle loop.
 
 The native command reader is the single producer. Each touch consumer owns its
 contact, pending mailbox and release time. Finger 1 slides, finger 2 performs
-the paired macro jump, finger 3 handles explicit jumps/navigation, and finger 4
-handles weapons/cards. Finger 3 and 4 use the same `FingerConsumer` state and
-can remain pressed concurrently. A single timer event loop advances consumers
+the paired macro jump, finger 3 handles explicit jumps/navigation, finger 4
+handles weapons/cards, and finger 5 runs board controls from a recognized frame.
+Fingers 3, 4, and 5 each own a `FingerConsumer` and can remain pressed
+concurrently. A single timer event loop advances consumers
 instead of sleeping through each hold or creating an OS thread per finger.
 The SDK calls are serialized in that loop; the resulting touch lifetimes
 overlap. A mailbox keeps only the latest pending action, never an old backlog.
 
 ## Frame-spanning plans (PLAN1)
 
-The process advertises `CAPS PLAN1` after `READY`. `NativeTouch.plan()` submits
-a tuple of immutable `TimedTap(offset_ms, point, hold_ms=15, slack_ms=20)` actions
-to finger 3 or 4. One revision replaces that finger's previous pending plan;
+The process advertises `CAPS PLAN1` for fingers 3 and 4 and `CAPS PLAN5` for
+finger 5 after `READY`. `NativeTouch.plan()` submits a tuple of immutable
+`TimedTap(offset_ms, point, hold_ms=15, slack_ms=20)` actions.
+One revision replaces that finger's previous pending plan;
 `cancel_plan(finger)` revokes its pending actions and releases its active plan
 contact. Other fingers and the continuous skate cycle remain active. An action
 already dispatched to the SDK cannot be undone in the game.
 
 The native input reader accepts `PLAN finger revision capture_us expires_us N`
 followed on the same line by N groups of
-`execute_at_us x y hold_ms execute_by_us`. A plan has at most 16 actions and a
-200ms horizon (12 capture intervals at 60Hz). Actions on one finger cannot
-overlap. Both start time and individual expiry are absolute QPC timestamps.
+`execute_at_us x y hold_ms execute_by_us`. The reader must receive the plan
+within 200 ms of the capture. A plan has at most 16 actions. Tap start times
+and individual expiry are absolute QPC timestamps bounded by 200 ms after
+capture for fingers 3 and 4, or one second for finger 5. Actions on one finger
+cannot overlap.
 Expired actions are dropped rather than replayed in a late burst.
 `CANCEL finger revision` replaces the timeline with an empty newer revision.
 `STOP sequence revision_barrier` additionally rejects plans older than the stop
 barrier. The original `STOP` forms and `TAP2` remain supported.
 
 Plans use fixed-size native arrays. The Python producer coalesces unsent
-revisions in two finger slots, so recognition cannot build an unbounded input
+revisions in three finger slots, so recognition cannot build an unbounded input
 queue. Native execution uses its own timer and does not wait for the next
 Python frame or for Python GC. Events are `PLAN_ACCEPTED`, `PLAN_PRESSED`,
 `PLAN_RELEASED`, `PLAN_DROPPED`, `PLAN_CLEARED`, and `PLAN_REJECTED`.
 
 `RealtimeBattleKernel.stamp()` binds plans to immutable frame sequence,
 capture time and pause generation. A later frame can cancel or replace the
-plan; an older frame cannot restore it. The kernel clamps action deadlines to
-the original frame validity and rejects a caller's replacement timestamp.
+plan; an older frame cannot restore it. Finger 5 requires a new frame after
+cancellation. The kernel checks the 200 ms
+admission window independently from the finger's action horizon.
 `RecognitionCadence` recognizes stable scenes at up to 30Hz while capture can
 remain at 60Hz. Urgency and generation changes bypass skipping. Dropped
 recognition frames do not stop native movement or replay old decisions.

@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from ninja3_assistant.activities.daily.resources import reserve_food, remaining_seconds, save_deadline, load_deadline
 from ninja3_assistant.activities.intelligence.flow import CHINA
+from ninja3_assistant.game_ui.house import clock_seconds
 from ninja3_assistant.runtime.runner import RunControl
 from ninja3_assistant.scheduling.activity_task import DailyTask,IntelligenceTask
 from ninja3_assistant.scheduling.task_planner import TaskPlan
@@ -35,6 +36,15 @@ class DailyResourceTest(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(remaining_seconds(text),17*3600+53*60)
         self.assertIsNone(remaining_seconds('17?时53分'))
+        self.assertEqual(remaining_seconds('司 01 小 时 39; 分'),99*60)
+        self.assertIsNone(remaining_seconds('01小时a9分'))
+
+    def test_house_clock_rejects_minutes_without_the_start_of_the_readout(self):
+        hours = {'text':'07小时','bbox':(271,684,60,18)}
+        minutes = {'text':'39分','bbox':(333,684,43,18)}
+        self.assertEqual(clock_seconds([hours,minutes]),7*3600+39*60)
+        self.assertIsNone(clock_seconds([minutes]))
+        self.assertEqual(clock_seconds([{**minutes,'bbox':(271,684,43,18)}]),39*60)
 
     def test_scheduler_prefers_persisted_due_house_after_restart(self):
         now = datetime(2026,11,16,5,tzinfo=CHINA)

@@ -1,6 +1,8 @@
 """The reverse-S workflow; it only acts on the current recognized screen."""
 from dataclasses import dataclass
 
+from ninja3_assistant.activities.bounty.reverse_menu import FILTER_POINTS, join_control
+
 @dataclass(frozen=True)
 class Decision:
     action: str
@@ -137,9 +139,9 @@ class Flow:
                 return self.unknown(now, '无法确认等级筛选')
             self.unknown_since = None
             self.reopened = False
-            if screen.s == 'off': return Decision('s_on', (876, 171), '开启 S 筛选')
-            if screen.a == 'on': return Decision('a_off', (766, 171), '关闭 A 筛选')
-            if screen.ss == 'on': return Decision('ss_off', (978, 171), '关闭 SS+ 筛选')
+            if screen.s == 'off': return Decision('s_on', FILTER_POINTS['s_on'], '开启 S 筛选')
+            if screen.a == 'on': return Decision('a_off', FILTER_POINTS['a_off'], '关闭 A 筛选')
+            if screen.ss == 'on': return Decision('ss_off', FILTER_POINTS['ss_off'], '关闭 SS+ 筛选')
             if self.phase == 'start':
                 if screen.join:
                     return Decision('join', screen.join, '发现 S 队伍，立即尝试加入')
@@ -175,14 +177,8 @@ class Flow:
                     self.phase = 'start'
                     self.trusted_join = False
                     return Decision('wait', status='筛选发生变化，重新确认')
-                if screen.join and abs(screen.join[0]-self.join_point[0]) <= 8 and abs(screen.join[1]-self.join_point[1]) <= 8:
-                    return Decision('join', screen.join, '继续尝试加入 S 队伍')
-                for left, top in screen.card_cells:
-                    if left <= self.join_point[0] < left + 360 and top <= self.join_point[1] < top + 176:
-                        point = self.join_point
-                        if screen.join and left <= screen.join[0] < left + 360 and top <= screen.join[1] < top + 176:
-                            point = screen.join
-                        return Decision('join', point, '继续尝试加入 S 队伍')
+                if point := join_control(screen, self.join_point):
+                    return Decision('join', point, '继续尝试加入 S 队伍')
             if screen.board and now - self.joined_at >= 5:
                 self.phase = 'search'
                 self.trusted_join = False

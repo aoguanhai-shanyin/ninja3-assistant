@@ -130,12 +130,12 @@ class WorkerActivityTest(unittest.TestCase):
     def test_multiple_activities_reach_one_planner(self):
         with patch.object(sys, 'argv', ['worker.py', '--mode', 'run', '--folder', 'selected',
                          '--index', '1', '--activity-enabled', '--activity-mode', 'continuous',
-                         '--weekend-enabled', '--weekend-mode', '25', '--xumi-enabled']), \
+                         '--weekend-enabled', '--weekend-mode', '25', '--xumi-enabled', '--abyss-enabled']), \
                 patch.object(sys, 'stdout', io.StringIO()), patch('ninja3_assistant.entrypoints.worker.threading.Thread'), \
                 patch('ninja3_assistant.scheduling.task_scheduler.run_tasks') as planner, patch('ninja3_assistant.entrypoints.worker.run_flow') as flow:
             worker.main()
         self.assertEqual([(t.name, t.extra_mode) for t in planner.call_args.kwargs['tasks']],
-                         [('intelligence', 'continuous'), ('weekend', '25'), ('xumi', None)])
+                         [('intelligence', 'continuous'), ('weekend', '25'), ('xumi', None), ('abyss', None)])
         flow.assert_not_called()
 
     def test_xumi_opt_in_runs_without_enabling_another_activity(self):
@@ -150,7 +150,7 @@ class WorkerActivityTest(unittest.TestCase):
         self.assertEqual((task.name, task.label, task.extra_mode), ('xumi', '须弥幻境', None))
 
     def test_other_modes_reject_activity_before_creating_a_command_thread(self):
-        for flag in ('--activity-enabled', '--xumi-enabled'):
+        for flag in ('--activity-enabled', '--xumi-enabled', '--abyss-enabled'):
             for mode in ('probe', 'hayabusa', 'hayabusa-debug', 'hayabusa-video'):
                 extra = ['--video', 'v.mp4'] if mode == 'hayabusa-video' else []
                 with self.subTest(mode=mode, flag=flag), \

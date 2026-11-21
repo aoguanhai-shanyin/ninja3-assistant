@@ -98,6 +98,9 @@ class BountyCombatVision:
             return (55,60)
         return None
 
+    def ninjutsu_point(self, frame, gray):
+        return self._red_ninjutsu_point(frame) or self.opening._ninjutsu_point(gray)
+
     def detect(self, frame, *, battle_allowed=True):
         if not battle_allowed:
             self.reset()
@@ -117,8 +120,7 @@ class BountyCombatVision:
                 for template,(x1,y1,x2,y2) in zip(self.ground_controls,
                     ((80,550,310,715),(1010,550,1190,715))))
         boss_signal = self.boss_portrait(gray) or self.boss_bar(frame)
-        point = ((self._red_ninjutsu_point(frame) or self.opening._ninjutsu_point(gray))
-                 if self.boss_seen or boss_signal else None)
+        point = self.ninjutsu_point(frame,gray) if self.boss_seen or boss_signal else None
         # The Boss portrait can arrive while a control is still obscured.
         # Its fixed border+Lv layout and a visible skill HUD suffice; do not
         # wait for both movement controls or for the coloured health fill.

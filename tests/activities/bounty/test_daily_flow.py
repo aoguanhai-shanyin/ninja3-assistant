@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import numpy as np
 
 from ninja3_assistant.activities.bounty.daily_flow import (
-    BountyProgress, DailyBountyFlow, EMPTY_ORDERS_RECHECK_SECONDS, ORDER_REFRESH_MIN_SECONDS, TASK_PANEL_RECHECK_SECONDS,
+    BountyProgress, DailyBountyFlow, EMPTY_ORDERS_RECHECK_SECONDS, HALL_SETTLE_SECONDS,
+    ORDER_REFRESH_MIN_SECONDS, TASK_PANEL_RECHECK_SECONDS,
 )
 from ninja3_assistant.activities.bounty.daily_vision import DailyBountyScreen, DailyBountyVision
 from ninja3_assistant.activities.intelligence.flow import CHINA, daily_key
@@ -129,17 +130,30 @@ class DailyBountyFlowTest(unittest.TestCase):
         self.assertEqual(flow.step(screen('result',grade='S',confirm=(640,680)),None).point,(640,680))
 
     def test_hall_search_checks_both_sides_then_retries_without_marking_complete(self):
-        flow=DailyBountyFlow('bounty','A')
+        now=[0.]
+        flow=DailyBountyFlow('bounty','A',clock=lambda:now[0])
         hall=screen('hall')
-        for start,end in [((1080,400),(280,400))]*3 + [((280,400),(1080,400))]*3:
+        for start,end in [((850,400),(430,400))]*3 + [((430,400),(850,400))]*3:
             decision=flow.step(hall,None)
             self.assertEqual((decision.action,decision.point,decision.end),('swipe',start,end))
             self.assertEqual(flow.step(hall,None),decision)
             flow.completed(decision,hall)
+            self.assertEqual(flow.step(hall,None).operation,'settle_hall')
+            now[0] += HALL_SETTLE_SECONDS
         decision=flow.step(hall,None)
         self.assertEqual(decision.action,'retry')
         self.assertIsNone(decision.point)
         self.assertEqual(flow.step(screen('hall',entry=(1045,161)),None).point,(1045,161))
+
+    def test_briefly_missing_visible_bounty_entry_waits_before_another_swipe(self):
+        now=[0.]
+        flow=DailyBountyFlow('bounty','A',clock=lambda:now[0])
+        self.assertEqual(flow.step(screen('hall',entry=(706,161)),None).operation,'open_bounty')
+        now[0] = HALL_SETTLE_SECONDS/2
+        self.assertEqual(flow.step(screen('hall'),None).operation,'settle_hall')
+        self.assertEqual(flow.step(screen('hall',entry=(725,161)),None).point,(725,161))
+        now[0] += HALL_SETTLE_SECONDS
+        self.assertEqual(flow.step(screen('hall'),None).operation,'find_entry')
 
     def test_daily_tasks_are_checked_and_only_completed_when_both_are_claimed(self):
         flow=DailyBountyFlow('bounty','A')

@@ -72,6 +72,15 @@ class XumiTask(ActivityTask):
         return run_xumi(folder, index, control, emit, progress=self._progress)
 
 
+class AbyssTask(ActivityTask):
+    def __init__(self):
+        super().__init__('abyss', '深渊备战', None, ((0, 24),))
+
+    def run(self, folder, index, control, emit, *, mode):
+        from ninja3_assistant.activities.abyss.runner import run_abyss
+        return run_abyss(folder, index, control, emit)
+
+
 class DailyTask(ActivityTask):
     def __init__(self, kind, *, bounty_grade='D', pet_feed_reward=DEFAULT_PET_FEED_REWARD,
                  active_invite=True, passive_invite=True, bounty_progress=None):
@@ -125,7 +134,7 @@ class DailyTask(ActivityTask):
 
 def selected_tasks(*, activity_mode=None, weekend_mode=None, xumi_enabled=False, daily_tasks=(), bounty_grade='D',
                    pet_feed_reward=DEFAULT_PET_FEED_REWARD, bounty_active_invite=True,
-                   bounty_passive_invite=True):
+                   bounty_passive_invite=True, abyss_enabled=False):
     daily_tasks = tuple(dict.fromkeys(daily_tasks))
     bounty_progress = None
     if any(kind in ('bounty','bounty_s') for kind in daily_tasks):
@@ -141,4 +150,6 @@ def selected_tasks(*, activity_mode=None, weekend_mode=None, xumi_enabled=False,
         tasks.append(WeekendTask(weekend_mode))
     if xumi_enabled:
         tasks.append(XumiTask())
+    if abyss_enabled:
+        tasks.append(AbyssTask())
     return tasks

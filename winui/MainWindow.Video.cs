@@ -61,7 +61,7 @@ public sealed partial class MainWindow
 
     private async void VideoImport_Click(object sender, RoutedEventArgs e)
     {
-        if (_exiting || _worker is not null || _scanning || _openingVideo) return;
+        if (_exiting || AnyWorker || _scanning || _openingVideo) return;
         PauseVideo();
         var picker = new FileOpenPicker();
         foreach (string extension in new[] { ".mp4", ".m4s", ".mkv", ".avi", ".mov", ".webm" })
@@ -80,7 +80,7 @@ public sealed partial class MainWindow
 
     private async Task LoadVideoDebugAsync(string path)
     {
-        if (_exiting || _worker is not null || _scanning || _openingVideo) return;
+        if (_exiting || AnyWorker || _scanning || _openingVideo) return;
         CloseVideoDebug();
         VideoNav_Click(this, new RoutedEventArgs());
         if (!File.Exists(path)) { VideoStatusText.Text = "视频文件不存在：" + path; return; }
@@ -97,7 +97,7 @@ public sealed partial class MainWindow
         VideoStepText.Text = "流程：--";
         VideoActionText.Text = "建议动作：--";
         VideoStatusText.Text = "正在读取视频并初始化识别…";
-        SetBusy(_worker is not null);
+        UpdateControls();
         try
         {
             var info = new ProcessStartInfo(executable)
@@ -112,14 +112,14 @@ public sealed partial class MainWindow
             info.Environment["PYTHONIOENCODING"] = "utf-8";
             var process = Process.Start(info) ?? throw new InvalidOperationException("无法启动视频分析组件。");
             _videoWorker = process;
-            SetBusy(_worker is not null);
+            UpdateControls();
             _ = ObserveVideoWorkerAsync(process);
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             _openingVideo = false;
             VideoStatusText.Text = "视频打开失败：" + error.Message;
-            SetBusy(_worker is not null);
+            UpdateControls();
         }
         await Task.CompletedTask;
     }
@@ -184,7 +184,7 @@ public sealed partial class MainWindow
                 if (code != 0) VideoStatusText.Text = "视频分析组件已退出，代码：" + code;
                 else if (!VideoStatusText.Text.Contains("失败")) VideoStatusText.Text += " · 分析组件已结束，可重新导入。";
                 process.Dispose();
-                SetBusy(_worker is not null);
+                UpdateControls();
             });
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or ObjectDisposedException)
@@ -215,7 +215,7 @@ public sealed partial class MainWindow
             _updatingVideoTimeline = false;
             VideoTimeText.Text = $"00:00.000 / {VideoTime(_videoDuration)} · 帧 1/{_videoTotalFrames}";
             VideoFileText.Text = $"{value.GetProperty("path").GetString()} · {_videoFps:F2} fps · {value.GetProperty("backend").GetString()}";
-            SetBusy(_worker is not null);
+            UpdateControls();
             await RequestVideoFrameAsync(0);
         }
         else if (kind == "video_frame")
@@ -261,7 +261,7 @@ public sealed partial class MainWindow
             string reason = recipe.ValueKind == JsonValueKind.Object ? VideoString(recipe, "reason") : "";
             VideoStatusText.Text = $"{(resynced ? "已跳转并重新同步 · " : "")}分析 {value.GetProperty("analysis_ms").GetDouble():F1} ms · {reason}";
             if (_videoFrame >= _videoTotalFrames - 1) PauseVideo();
-            UpdateVideoDebugAvailability(_worker is not null || _scanning);
+            UpdateVideoDebugAvailability(AnyWorker || _scanning);
         }
         else if (kind == "video_error")
         {
@@ -269,7 +269,7 @@ public sealed partial class MainWindow
             _videoAwaitingFrame = _openingVideo = false;
             PauseVideo();
             VideoStatusText.Text = "视频分析失败：" + VideoString(value, "message");
-            SetBusy(_worker is not null);
+            UpdateControls();
         }
     }
 
@@ -281,7 +281,7 @@ public sealed partial class MainWindow
         long request = ++_videoRequestId;
         _videoAwaitingFrame = true;
         VideoStatusText.Text = $"正在分析第 {frame + 1} 帧…";
-        UpdateVideoDebugAvailability(_worker is not null || _scanning);
+        UpdateVideoDebugAvailability(AnyWorker || _scanning);
         await _videoWriteLock.WaitAsync();
         try
         {
@@ -330,14 +330,14 @@ public sealed partial class MainWindow
         _videoPlaying = true;
         if (_videoFrame >= _videoTotalFrames - 1) await RequestVideoFrameAsync(0);
         _videoPlayTimer.Start();
-        UpdateVideoDebugAvailability(_worker is not null || _scanning);
+        UpdateVideoDebugAvailability(AnyWorker || _scanning);
     }
 
     private void PauseVideo()
     {
         _videoPlaying = false;
         _videoPlayTimer.Stop();
-        UpdateVideoDebugAvailability(_worker is not null || _scanning);
+        UpdateVideoDebugAvailability(AnyWorker || _scanning);
     }
 
     private void VideoClose_Click(object sender, RoutedEventArgs e)
@@ -374,7 +374,7 @@ public sealed partial class MainWindow
         if (updateControls)
         {
             Title = "忍3助手";
-            SetBusy(_worker is not null);
+            UpdateControls();
         }
     }
 

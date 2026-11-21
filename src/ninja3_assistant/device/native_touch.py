@@ -11,6 +11,10 @@ import math
 from dataclasses import dataclass
 
 
+PLAN_FRAME_MAX_AGE = .2
+PLAN_HORIZONS = {3: PLAN_FRAME_MAX_AGE, 4: PLAN_FRAME_MAX_AGE, 5: 1.}
+
+
 @dataclass(frozen=True, slots=True)
 class TimedTap:
     offset_ms: int
@@ -55,9 +59,10 @@ class NativeTouch:
         self.pending_tap = None
         self.tap_inflight = False
         self.plan_supported = False
+        self.board_plan_supported = False
         self.plan_seq = 0
         self.plan_pending = {}
-        self.plan_live_until = {3:0.,4:0.}
+        self.plan_live_until = dict.fromkeys(PLAN_HORIZONS,0.)
         self.telemetry = deque(maxlen=512)
         self.outbox = queue.Queue(maxsize=128)
         self.dropped_events = 0
@@ -140,11 +145,13 @@ class NativeTouch:
         never change the continuous movement gesture on fingers 1 and 2.
         """
         actions = tuple(actions)
-        if finger not in (3,4) or not 1 <= len(actions) <= 16:
-            raise ValueError('a plan requires finger 3/4 and 1..16 taps')
-        deadline = min(deadline,captured_at+.2)
+        if finger not in PLAN_HORIZONS or not 1 <= len(actions) <= 16:
+            raise ValueError('a plan requires finger 3, 4, or 5 and 1..16 taps')
+        horizon = PLAN_HORIZONS[finger]
+        deadline = min(deadline,captured_at+horizon)
+        admission_deadline = min(deadline,captured_at+PLAN_FRAME_MAX_AGE)
         captured_us = int(captured_at*1_000_000)
-        deadline_us = min(int(deadline*1_000_000),captured_us+200000)
+        deadline_us = min(int(deadline*1_000_000),captured_us+int(horizon*1_000_000))
         previous_up = 0
         fields = []
         for action in actions:
@@ -160,38 +167,51 @@ class NativeTouch:
             fields.extend((at_us,x,y,action.hold_ms,min(deadline_us,at_us+action.slack_ms*1000)))
         with self.cv:
             self._check()
-            if not self.plan_supported:
-                self.cv.wait_for(lambda:self.plan_supported or self.error,timeout=.1)
-                self._check()
-                if not self.plan_supported:
-                    raise RuntimeError('NinjaTouch 缺少 PLAN1 协议，请同步更新运行组件')
-            if self.stopped.is_set() or self.stop_requested > self.stop_ack or time.perf_counter() >= deadline:
+            self._require_plan_support(finger)
+            now = time.perf_counter()
+            if self.stopped.is_set() or self.stop_requested > self.stop_ack or not captured_at <= now < admission_deadline:
                 return None
             self.plan_seq += 1
             revision = self.plan_seq
             command = f'PLAN {finger} {revision} {captured_us} {deadline_us} {len(actions)} '
             command += ' '.join(map(str,fields))
-            self.plan_pending[finger] = (command,deadline)
-            self.plan_live_until[finger] = captured_at+previous_up/1000
+            self.plan_pending[finger] = (command,admission_deadline)
+            # A replacement may expire before reaching the process. Keep STOP
+            # watching both its latest release and the previous revision's.
+            self.plan_live_until[finger] = max(self.plan_live_until[finger],
+                fields[-1]/1_000_000+actions[-1].hold_ms/1000)
             self.cv.notify_all()
             return revision
 
     def cancel_plan(self, finger):
         """Revoke queued actions and release that plan's active contact only."""
-        if finger not in (3,4):
-            raise ValueError('planned finger must be 3 or 4')
+        if finger not in PLAN_HORIZONS:
+            raise ValueError('planned finger must be 3, 4, or 5')
         with self.cv:
             self._check()
+            if finger == 5:
+                self._require_plan_support(finger)
             self.plan_seq += 1
             self.plan_pending[finger] = (f'CANCEL {finger} {self.plan_seq}',float('inf'))
             self.plan_live_until[finger] = 0.
             self.cv.notify_all()
             return self.plan_seq
 
+    def _require_plan_support(self, finger):
+        capability = 'PLAN5' if finger == 5 else 'PLAN1'
+        def supported():
+            return self.board_plan_supported if finger == 5 else self.plan_supported
+        if not supported():
+            self.cv.wait_for(lambda:supported() or self.error,timeout=.1)
+            self._check()
+            if not supported():
+                raise RuntimeError(f'NinjaTouch 缺少 {capability} 协议，请同步更新运行组件')
+
     def _clear_plan_intents(self):
         self.plan_seq += 1
         self.plan_pending.clear()
-        self.plan_live_until[3] = self.plan_live_until[4] = 0.
+        for finger in self.plan_live_until:
+            self.plan_live_until[finger] = 0.
 
     def _cancel_queued(self):
         self.movement_until = None
@@ -434,6 +454,8 @@ class NativeTouch:
                         self.ready = True
                     elif line == 'CAPS PLAN1':
                         self.plan_supported = True
+                    elif line == 'CAPS PLAN5':
+                        self.board_plan_supported = True
                     elif line.startswith('PLAN_'):
                         fields = line.split()
                         value = {'event':fields[0][5:].lower(),'finger':int(fields[1]),'revision':int(fields[2])}

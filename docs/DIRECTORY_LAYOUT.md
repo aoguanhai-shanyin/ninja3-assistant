@@ -6,6 +6,7 @@ Python 运行代码采用 `src` 包布局。根目录只放项目元数据、使
 src/ninja3_assistant/
   entrypoints/           Worker、旧版界面入口
   scheduling/            任务接口、Plan、Scheduler、导航与结果
+  game_ui/               游戏页面模型、操作执行、菜单导航图
   runtime/               运行控制、实时战斗内核、输入调度
   device/                MuMu SDK、原生触控、宏与设备能力
   vision/                通用场景、邀请与 GPU 分割

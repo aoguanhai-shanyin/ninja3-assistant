@@ -22,6 +22,11 @@
 using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 
+static constexpr std::array<int,3> plan_fingers{3,4,5};
+static constexpr auto contact_slots = plan_fingers.back()+1;
+static constexpr int64_t plan_admission_us = 200000;
+static constexpr int64_t board_plan_horizon_us = 1000000;
+
 // The microsecond timestamps have QueryPerformanceCounter's shared system epoch.
 static int64_t timestamp_us() {
     LARGE_INTEGER counter{}, frequency{};
@@ -190,7 +195,7 @@ struct Shared {
         size_t begin = 0, end = 0;
         int64_t revision = 0;
     };
-    std::array<Plan,5> plans;
+    std::array<Plan,contact_slots> plans;
     int64_t plan_floor = 0;
 };
 
@@ -202,7 +207,7 @@ static std::string tap_dropped(const Shared::Tap& tap) {
 }
 
 static void clear_plans(Shared& state, Output& output, int64_t barrier = 0) {
-    for (int id : {3,4}) {
+    for (int id : plan_fingers) {
         auto& plan = state.plans[id];
         while (plan.begin < plan.end) output.send(tap_dropped(plan.actions[plan.begin++]));
         state.plan_floor = std::max(state.plan_floor,plan.revision);
@@ -251,13 +256,13 @@ private:
     Output& output_;
     bool slide_;
     bool jump_two_;
-    bool held_[5] = {false,false,false,false,false};
+    bool held_[contact_slots]{};
     // Each finger consumes its own mailbox with an independent release time.
     // One timer loop advances all consumers without sleeping through a hold.
     struct FingerConsumer {
         std::optional<Shared::Tap> active;
         Clock::time_point release_at{};
-    } consumers_[5];
+    } consumers_[contact_slots];
     bool cycle_ = false;
     unsigned step_ = 0;
     uint64_t cycle_count_ = 0;
@@ -282,7 +287,7 @@ private:
         output_.send(tap_dropped(tap));
     }
     Clock::time_point next_release(Clock::time_point wake) const {
-        for (int id : {3,4}) {
+        for (int id : plan_fingers) {
             if (consumers_[id].active) wake = std::min(wake,consumers_[id].release_at);
             const auto& plan = state_.plans[id];
             if (!consumers_[id].active && plan.begin < plan.end) {
@@ -293,8 +298,10 @@ private:
         return wake;
     }
     bool has_plans() const {
-        return state_.plans[3].begin < state_.plans[3].end ||
-               state_.plans[4].begin < state_.plans[4].end;
+        return std::any_of(plan_fingers.begin(),plan_fingers.end(),[this](int id) {
+            const auto& plan = state_.plans[id];
+            return plan.begin < plan.end;
+        });
     }
     void touch_up(int id) {
         if (!held_[id]) return;
@@ -308,10 +315,10 @@ private:
     }
     bool release_all() noexcept {
         bool okay = true;
-        for (int id : {4,3,2,1}) {
+        for (int id = contact_slots-1; id >= 1; --id) {
             try { touch_up(id); } catch (...) { okay = false; }
         }
-        for (int id : {3,4}) {
+        for (int id : plan_fingers) {
             if (consumers_[id].active) drop(*consumers_[id].active);
             consumers_[id].active.reset();
         }
@@ -349,8 +356,10 @@ private:
             // the repeating ground gesture is stopped.
             now = Clock::now();
             bool advanced = false;
-            for (int id : {3,4}) {
-                auto& pending = id == 3 ? state_.tap : state_.skill;
+            for (int id : plan_fingers) {
+                // Finger 5 is plan-only. Its due action is consumed in this iteration.
+                std::optional<Shared::Tap> board_tap;
+                auto& pending = id == 3 ? state_.tap : id == 4 ? state_.skill : board_tap;
                 auto& consumer = consumers_[id];
                 auto& plan = state_.plans[id];
                 if (consumer.active && consumer.active->index >= 0 &&
@@ -421,7 +430,8 @@ private:
                 }
             }
             if (advanced) continue;
-            if (!state_.skating && !state_.tap && !held_[3] && !held_[4] && !has_plans()) {
+            if (!state_.skating && !state_.tap && !state_.skill &&
+                !held_[3] && !held_[4] && !held_[5] && !has_plans()) {
                 state_.idle = true;
                 state_.cv.notify_all();
                 state_.cv.wait(lock, [this] { return state_.quit || state_.skating || state_.tap.has_value() || state_.skill.has_value() || has_plans() || state_.generation != observed_generation_; });
@@ -528,6 +538,7 @@ int wmain(int argc, wchar_t** argv) {
         std::thread worker([&] { engine.run(); });
         output->send("READY");
         output->send("CAPS PLAN1");
+        output->send("CAPS PLAN5");
         std::string line;
         while (std::getline(std::cin,line)) {
             if (line.size() > 2048) { output->send("ERROR line_too_long"); continue; }
@@ -585,26 +596,29 @@ int wmain(int argc, wchar_t** argv) {
             } else if (command == "PLAN" || command == "CANCEL") {
                 int finger = 0, count = 0;
                 int64_t revision = 0, captured = 0, expires = 0;
-                if (!(input >> finger >> revision) || (finger != 3 && finger != 4) || revision <= 0) {
+                if (!(input >> finger >> revision) || finger < plan_fingers.front() ||
+                    finger > plan_fingers.back() || revision <= 0) {
                     output->send("ERROR invalid_plan"); continue;
                 }
                 Shared::Plan candidate;
                 candidate.revision = revision;
                 bool valid = true;
                 if (command == "PLAN") {
+                    const auto horizon_us = finger == 5 ? board_plan_horizon_us : plan_admission_us;
                     valid = bool(input >> captured >> expires >> count) && captured > 0 &&
-                        expires > captured && expires-captured <= 200000 && count > 0 && count <= 16;
-                    int64_t previous_up = captured;
+                        expires > captured && expires-captured <= horizon_us && count > 0 &&
+                        static_cast<size_t>(count) <= candidate.actions.size();
+                    int64_t previous_up_offset = 0;
                     for (int i=0;valid && i<count;++i) {
                         auto& action = candidate.actions[i];
                         valid = bool(input >> action.at_us >> action.x >> action.y >> action.hold_ms >> action.deadline_us) &&
-                            action.at_us >= previous_up && action.at_us < expires &&
+                            action.at_us >= captured && action.at_us < expires &&
+                            action.at_us-captured >= previous_up_offset &&
                             action.deadline_us > action.at_us && action.deadline_us <= expires &&
                             action.x >= 0 && action.x < 1280 && action.y >= 0 && action.y < 720 &&
                             action.hold_ms >= 1 && action.hold_ms <= 200;
                         action.revision = revision; action.index = i; action.finger = finger;
-                        action.deadline = Clock::now()+std::chrono::microseconds(std::max<int64_t>(0,action.deadline_us-timestamp_us()));
-                        previous_up = action.at_us+action.hold_ms*1000;
+                        if (valid) previous_up_offset = action.at_us-captured+action.hold_ms*1000;
                     }
                     candidate.end = valid ? static_cast<size_t>(count) : 0;
                 }
@@ -612,13 +626,20 @@ int wmain(int argc, wchar_t** argv) {
                 std::lock_guard<std::mutex> lock(state.mutex);
                 if (state.fatal || state.quit) { output->send("ERROR unavailable"); continue; }
                 auto& plan = state.plans[finger];
+                const auto now_us = timestamp_us();
                 if (revision <= state.plan_floor || revision <= plan.revision ||
-                    (command == "PLAN" && (captured > timestamp_us() || expires <= timestamp_us()))) {
+                    (command == "PLAN" && (captured > now_us || expires <= now_us ||
+                                          now_us-captured >= plan_admission_us))) {
                     output->send("PLAN_REJECTED " + std::to_string(finger) + " " + std::to_string(revision)); continue;
                 }
+                const auto now = Clock::now();
+                for (size_t i=0; i<candidate.end; ++i) {
+                    auto& action = candidate.actions[i];
+                    action.deadline = now+std::chrono::microseconds(std::max<int64_t>(0,action.deadline_us-now_us));
+                }
                 while (plan.begin < plan.end) output->send(tap_dropped(plan.actions[plan.begin++]));
-                auto& pending = finger == 3 ? state.tap : state.skill;
-                if (pending) { output->send(tap_dropped(*pending)); pending.reset(); }
+                auto* pending = finger == 3 ? &state.tap : finger == 4 ? &state.skill : nullptr;
+                if (pending && *pending) { output->send(tap_dropped(**pending)); pending->reset(); }
                 plan = std::move(candidate);
                 state.idle = false;
                 output->send(std::string(command == "PLAN" ? "PLAN_ACCEPTED " : "PLAN_CLEARED ") +

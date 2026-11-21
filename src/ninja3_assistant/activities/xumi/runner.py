@@ -1,4 +1,5 @@
-"""Daily-only Xumi trials with the common capture, input and combat kernel."""
+"""Xumi trials with the shared capture, input and combat kernel."""
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
@@ -9,17 +10,16 @@ import time
 
 import cv2
 
-from ninja3_assistant.activities.bounty.combat import BountyCombat, BountyCombatVision
 from ninja3_assistant.activities.daily.flow import DailyDecision
 from ninja3_assistant.activities.daily.vision import DailyScreen
 from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
-from ninja3_assistant.activities.xumi.equipment import EquipmentSetup
+from ninja3_assistant.activities.xumi.combat import XumiCombat, XumiCombatVision
 from ninja3_assistant.activities.xumi.tasks import read_task_panel, tasks_claimed
-from ninja3_assistant.activities.xumi.teams import TeamSetup
 from ninja3_assistant.activities.xumi.vision import TITLE, XumiVision
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.device.native_touch import create_native_touch, executable_path
 from ninja3_assistant.paths import project_root
+from ninja3_assistant.game_ui import GameUI
 from ninja3_assistant.runtime.realtime_battle import FrameDiagnostics, RealtimeBattleKernel
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
@@ -30,8 +30,8 @@ TRIALS = {'fangcun': '方寸试炼', 'daqian': '大千试炼'}
 TEAM_PAGES = ('team', 'roster', 'own_roster')
 
 
-def tap(point, status, guard=None):
-    return DailyDecision('tap', point, status, guard=guard) if point else DailyDecision(status=status)
+def tap(operation, point, status, guard=None):
+    return DailyDecision.tap(operation, point, status, guard=guard) if point else DailyDecision(status=status)
 
 
 @dataclass
@@ -40,53 +40,53 @@ class XumiProgress:
     settled_mode: str | None = None
     scores: dict[str, int] = field(default_factory=dict)
     no_progress: dict[str, int] = field(default_factory=lambda: dict.fromkeys(TRIALS,0))
+    blocked_modes: dict[str, str] = field(default_factory=dict)
 
 
 class XumiFlow:
-    def __init__(self, progress=None):
-        self.mode = None
+    def __init__(self, progress=None, *, trial=None, difficulty=None):
+        self.mode = self.trial = trial
+        self.difficulty = difficulty
         self.progress = progress if progress is not None else XumiProgress()
-        self.teams = TeamSetup()
-        self.gear = EquipmentSetup()
-        self.equipping = False
-        self.gear_team = None
-        self.gear_required = False
-        self.gear_ready = set()
-        self.gear_saved = False
         self.hall_swipes = 0
+
+    def skip_trial(self, scene, reason):
+        label = TRIALS[self.mode]+'：'+reason
+        self.progress.blocked_modes[self.mode] = label
+        self.mode = None
+        if self.trial is not None or scene.back is None:
+            return DailyDecision('defer', status=label)
+        return tap('back', scene.back, label)
 
     def step(self, frame, scene, rows=()):
         kind = scene.kind
         if kind == 'score_confirm':
             return DailyDecision('unavailable', status='确认编队变更会重置积分，保留当前积分并交回调度')
-        if self.gear_saved:
-            if kind != 'team' or scene.team_number != self.gear_team:
-                return DailyDecision(status='等待确认大千装备搭配已保存')
-            self.gear_saved = self.equipping = False
-            self.gear_ready.add(self.gear_team)
-            self.gear_team = None
+        if kind in TEAM_PAGES or kind.startswith('equipment'):
+            return DailyDecision('defer', status='当前处于手动编队或装备界面，跳过须弥幻境')
         if kind == 'home':
-            return tap(scene.point, '进入集会所寻找须弥幻境')
+            return tap('open_hall', scene.point, '进入集会所寻找须弥幻境')
         if kind == 'hall':
             if scene.point:
-                return tap(scene.point, '进入须弥幻境', (scene.point[0]-100,130,scene.point[0]+100,195))
+                return tap('open_xumi', scene.point, '进入须弥幻境', (scene.point[0]-100,130,scene.point[0]+100,195))
             if self.hall_swipes >= 6:
                 return DailyDecision('unavailable', status='集会所未确认须弥幻境入口')
             points = ((1080,400),(280,400)) if self.hall_swipes < 3 else ((280,400),(1080,400))
-            return DailyDecision('swipe',points[0],'在集会所寻找须弥幻境',points[1])
+            return DailyDecision.swipe('find_xumi',points[0],'在集会所寻找须弥幻境',points[1])
         if kind == 'guide':
-            return tap(scene.point, '查看须弥幻境说明')
+            return tap('advance_guide', scene.point, '查看须弥幻境说明')
         if kind == 'lobby':
             if self.mode is None:
-                return tap(scene.point, '打开须弥幻境每日任务')
-            return tap(getattr(scene, self.mode), '进入'+TRIALS[self.mode], TITLE)
+                return tap('open_tasks', scene.point, '打开须弥幻境每日任务')
+            return tap('open_'+self.mode, getattr(scene, self.mode), '进入'+TRIALS[self.mode], TITLE)
         if kind == 'tasks':
             if tasks_claimed(rows):
                 return DailyDecision('done', status='须弥幻境方寸和大千每日奖励均已领取')
             pending = next((row for row in rows if row.claim_point is not None), None)
             if pending is not None:
                 x,y = pending.claim_point
-                return tap(pending.claim_point, '领取'+TRIALS[pending.mode]+'每日奖励', (x-48,y-22,x+48,y+22))
+                return tap('claim_task_reward', pending.claim_point, '领取'+TRIALS[pending.mode]+'每日奖励',
+                           (x-48,y-22,x+48,y+22))
             if len(rows) != 4 or any(not row.claimed and (row.current is None or row.current >= row.goal)
                                      for row in rows):
                 return DailyDecision(status='等待确认须弥幻境四项每日任务进度')
@@ -101,66 +101,62 @@ class XumiFlow:
             score_order = sorted(TRIALS,key=lambda mode: (mode == progress.last_mode,scores[mode]))
             mode = next((mode for kind,order in (('match',TRIALS),('score',score_order)) for mode in order if any(
                 row.mode == mode and row.kind == kind and not row.claimed and row.current < row.goal
-                for row in rows) and progress.no_progress[mode] < 2), None)
+                for row in rows) and mode not in progress.blocked_modes and progress.no_progress[mode] < 2), None)
             if mode is None:
+                blocked = [progress.blocked_modes[mode] for mode in TRIALS if mode in progress.blocked_modes and any(
+                    row.mode == mode and not row.claimed and row.current < row.goal for row in rows)]
                 stalled = [TRIALS[mode] for mode in TRIALS if progress.no_progress[mode] >= 2 and any(
                     row.mode == mode and not row.claimed and row.current < row.goal for row in rows)]
                 if stalled:
-                    return DailyDecision('defer', status='、'.join(stalled)+'连续两轮未增加每日积分，保留未完成进度')
+                    blocked.append('、'.join(stalled)+'连续两轮未增加每日积分，保留未完成进度')
+                if blocked:
+                    return DailyDecision('defer', status='；'.join(blocked))
                 return DailyDecision(status='等待确认须弥幻境每日奖励领取状态')
             if settled is not None:
                 return DailyDecision('checkpoint', status='须弥幻境整轮已结算，日常进度已复查，继续调度')
             self.mode = mode
-            return tap(scene.back, '继续'+TRIALS[mode]+'未完成日常')
+            return tap('back', scene.back, '继续'+TRIALS[mode]+'未完成日常')
         if kind == 'result_next' and scene.point is not None:
-            return DailyDecision('continue', scene.point, '继续第二场须弥幻境试炼', guard=(870,610,1075,652))
+            return DailyDecision('continue', scene.point, '继续第二场须弥幻境试炼',
+                                 guard=(870,610,1075,652), operation='continue_trial')
         if kind == 'result_done' and scene.point is not None:
-            return DailyDecision('settle', scene.point, '完成整轮试炼，返回核对每日进度', guard=(778,611,1000,652))
-        if kind == 'equipment_confirm' and self.equipping and scene.point is not None:
-            return DailyDecision('gear_recheck',scene.point,'保存当前装备并重新核对',guard=(730,505,886,550))
-        if kind.startswith('equipment'):
-            if self.equipping and self.mode == 'daqian':
-                return self.gear.step(frame,scene)
-            return tap(scene.back,'返回小队搭配，继续核对须弥日常')
-        if kind.endswith('_setup') or kind in TEAM_PAGES:
-            if self.mode is None or (kind.endswith('_setup') and kind != self.mode+'_setup'):
-                return tap(scene.back, '返回须弥幻境大厅检查每日进度')
-            if kind == 'team' and self.equipping:
-                if scene.team_number != self.gear_team:
-                    if scene.team_number is None:
-                        return DailyDecision(status='等待确认当前装备队伍')
-                    return tap((120,188 if self.gear_team == 1 else 277),
-                               f'切换大千试炼队伍{self.gear_team}',(80,155,195,302))
-                return tap((1250,363),'打开大千试炼装备搭配',(1228,214,1276,508))
-            decision = self.teams.step(frame, kind, self.mode)
-            if (kind == 'daqian_setup' and decision.action == 'start' and
-                    self.gear_required and len(self.gear_ready) != 2):
-                team = 1 if 1 not in self.gear_ready else 2
-                y = 565 if team == 1 else 647
-                return DailyDecision('check_gear',(563,y),f'核对大千试炼队伍{team}的武器',
-                                     guard=(532,y-34,595,y+32))
-            return decision
+            return DailyDecision('settle', scene.point, '完成整轮试炼，返回核对每日进度',
+                                 guard=(778,611,1000,652), operation='settle_trial')
+        if kind.endswith('_setup'):
+            if self.mode is None or kind != self.mode+'_setup':
+                return tap('back', scene.back, '返回须弥幻境大厅检查每日进度')
+            if scene.notice == 'missing_weapon':
+                return self.skip_trial(scene, '队伍缺少武器，请手动装备，跳过本轮')
+            setup = scene.setup
+            if setup is not None and 'empty' in setup.leads:
+                return self.skip_trial(scene, '请先手动配好两支队伍，跳过本轮')
+            if setup is None or setup.leads != ('filled','filled'):
+                return DailyDecision(status='等待确认两支手动配置的队伍')
+            current = setup.selected_difficulty
+            if current is not None:
+                if self.difficulty is not None and current != self.difficulty:
+                    return self.skip_trial(scene, f'当前开放第{current}重，无法进入第{self.difficulty}重')
+                if self.trial is None and current == 3:
+                    return self.skip_trial(scene, '已通过前两重，当前为第三重')
+                if setup.can_start:
+                    return DailyDecision('start', setup.start, f'开始{TRIALS[self.mode]}第{current}重',
+                                         operation='start_trial', value=current)
+            return DailyDecision(status='等待确认试炼难度与开始按钮')
         return DailyDecision(status='等待识别须弥幻境画面')
 
     def completed(self, decision):
         if decision.action == 'swipe':
             self.hall_swipes += 1
-        if decision.action == 'check_gear':
-            self.equipping = True
-            self.gear_team = 1 if decision.point[1] == 565 else 2
-            self.gear = EquipmentSetup(expected_team=self.gear_team)
-        elif decision.action == 'gear_done':
-            self.gear_saved = True
-        elif decision.action == 'gear_recheck':
-            self.gear = EquipmentSetup(expected_team=self.gear_team)
-        elif decision.action == 'settle':
+        if decision.action == 'settle':
             self.progress.last_mode = self.progress.settled_mode = self.mode
             self.mode = None
-        self.gear.completed(decision)
-        self.teams.completed(decision)
 
 
-def run_xumi(folder, index, control, emit, *, progress):
+def run_xumi(folder, index, control, emit, *, progress, trial=None, difficulty=None):
+    if trial is not None and trial not in TRIALS:
+        raise ValueError('须弥试炼须指定方寸或大千')
+    if difficulty is not None and (trial is None or difficulty not in (1,2,3)):
+        raise ValueError('须弥实测须指定试炼及一至三重难度')
     device = native = combat = ocr = diagnostics = None
     root = Path(sys.executable).parent if getattr(sys, 'frozen', False) else project_root()/'data/runtime'
     output = root/'xumi'/('runs')/(time.strftime('%Y%m%d-%H%M%S')+f'-{time.time_ns()%1000000:06d}')
@@ -182,18 +178,18 @@ def run_xumi(folder, index, control, emit, *, progress):
                 log.flush()
 
         def record_input(kind, fields):
-            if (kind == 'native_plan' and fields['finger'] in (3,4) and
+            if (kind == 'native_plan' and fields['finger'] in (3,4,5) and
                     fields['event'] in ('pressed','expired_before_send','dropped')):
                 details = dict(fields)
                 stage = details.pop('event')
-                record('skill_input', stage=stage, **details)
+                record('movement_input' if fields['finger'] == 5 else 'skill_input', stage=stage, **details)
 
         try:
             if prepare_game(folder, index, control, status) is None:
                 return TaskOutcome.STOPPED
             vision = XumiVision()
-            battle_vision = BountyCombatVision()
-            flow = XumiFlow(progress)
+            battle_vision = XumiCombatVision()
+            flow = XumiFlow(progress, trial=trial, difficulty=difficulty)
             ocr = WindowsOcr(persistent=True)
             ocr.warmup()
             device = MuMu(folder, index)
@@ -202,14 +198,30 @@ def run_xumi(folder, index, control, emit, *, progress):
                 raise RuntimeError('须弥幻境需要 NinjaTouch.exe')
             kernel = RealtimeBattleKernel(control)
             kernel.attach(native)
-            combat = BountyCombat(kernel)
+            combat = XumiCombat(kernel,battle_vision)
             diagnostics = FrameDiagnostics()
+
+            def swipe(point, end):
+                native.stop_all()
+                if control.stop.is_set():
+                    return False
+                subprocess.run([str(executable_path()),'--folder',str(folder),'--index',str(index),
+                    '--swipe',*map(str,(*point,*end))],capture_output=True,check=True,timeout=8,
+                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                return True
+
+            ui = GameUI(control,lambda:kernel.capture(device),native,swipe=swipe,clock=kernel.clock)
             control.set_release_input(native.stop_all)
             emit('state','running')
             emit('status','须弥幻境记录：'+str(output))
             sequence = 0
             battle_start = None
             battle_seen = False
+            boss_number = None
+            current_difficulty = None
+            boss_entered_at = None
+            seen_bosses = set()
+            relay_bosses = set()
             failed_starts = 0
             next_snapshot = 0.
             generation = control.generation()
@@ -232,31 +244,64 @@ def run_xumi(folder, index, control, emit, *, progress):
                 if game_update_banner(frame):
                     status('须弥幻境遇到客户端更新，交回调度重启')
                     return TaskOutcome.SCENE_CHANGED
-                if battle_start is not None:
+                if battle_start is not None and not vision.relay(frame):
                     state = battle_vision.detect(frame)
                     if state.active:
                         safe_invite = False
                         if not battle_seen:
-                            record('battle_start',mode=flow.mode)
                             last_frame = None
                             previous_skill_points = None
                             failed_starts = 0
+                        if state.boss_active and boss_entered_at is None:
+                            boss_entered_at = now
+                            seen_bosses.add(boss_number)
+                            next_snapshot = 0.
+                            record('battle_start', mode=flow.mode, difficulty=current_difficulty, boss=boss_number)
                         skill_points = (state.ninjutsu_point,state.weapon_points)
                         if skill_points != previous_skill_points:
                             record('battle_controls',mode=flow.mode,ninjutsu=state.ninjutsu_point,
                                    weapons=state.weapon_points)
                             previous_skill_points = skill_points
+                        boss_elapsed = None if boss_entered_at is None else now-boss_entered_at
                         if now >= next_snapshot:
                             diagnostics.save(output/f'battle-{sequence:04d}.png',frame)
                             sequence += 1
-                            next_snapshot = now+3
+                            capture_detail = (trial is not None and boss_elapsed is not None
+                                              and (boss_elapsed < 15 or 27 < boss_elapsed < 40))
+                            next_snapshot = now+(.25 if capture_detail else 3.)
                         battle_seen = True
-                        status('须弥幻境 · '+TRIALS.get(flow.mode,'试炼')+' · '+combat.update(state,now))
+                        message, dodge = combat.update(frame,state,now,boss_elapsed)
+                        if dodge is not None:
+                            action, point, taps = dodge
+                            filename = f'{sequence:04d}-boss-{boss_number}-dodge-{action}.png'
+                            diagnostics.save(output/filename,frame)
+                            sequence += 1
+                            record('dodge', mode=flow.mode, difficulty=current_difficulty,
+                                   boss=boss_number, action=action, point=point, frame=filename,
+                                   taps=[(item.offset_ms,item.point) for item in taps],
+                                   capture_ms=round(kernel.capture_ms,2), frame_age_ms=kernel.metrics()['frame_age_ms'])
+                        status('须弥幻境 · '+TRIALS.get(flow.mode,'试炼')+' · '+message)
                         last_progress = now
                         control.stop.wait(.012)
                         continue
-                    combat.stop()
+                combat.cancel_board()
                 scene = vision.scene(frame)
+                if battle_start is not None:
+                    if scene.kind == 'relay':
+                        combat.stop()
+                        if boss_number not in relay_bosses:
+                            relay_bosses.add(boss_number)
+                            record('relay', mode=flow.mode, difficulty=current_difficulty, boss=boss_number)
+                            diagnostics.save(output/f'{sequence:04d}-boss-{boss_number}-relay.png', frame)
+                            sequence += 1
+                        status('队伍已倒下，等待接力倒计时结束')
+                        control.stop.wait(.15)
+                        continue
+                    if scene.kind == 'unknown' and battle_seen and now-last_progress < .5:
+                        # Keep the existing bounded plan through brief effects.
+                        control.stop.wait(.03)
+                        continue
+                    combat.stop()
                 invitation = vision.daily.invitations.detect(cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY))
                 if invitation:
                     handoff = bounty_handoff(frame,vision.daily.invitations,ocr,control,safe=safe_invite)
@@ -273,17 +318,17 @@ def run_xumi(folder, index, control, emit, *, progress):
                     if not battle_seen:
                         failed_starts += 1
                         record('start_unconfirmed',mode=flow.mode,notice=scene.notice)
-                        if failed_starts >= 2:
+                        if scene.notice != 'missing_weapon' and (failed_starts >= 2 or trial is not None):
                             status('须弥幻境未确认成功开战，稍后重试')
                             return TaskOutcome.WAITING
-                        if scene.notice == 'missing_weapon':
-                            flow.gear_required = True
-                            flow.gear_ready.clear()
-                            flow.gear = EquipmentSetup()
+                    elif trial is not None:
+                        status('须弥幻境提前退出，未确认整轮结算')
+                        return TaskOutcome.WAITING
                     battle_start = None
                     battle_seen = False
                     battle_vision.reset()
-                    flow.mode = None
+                    if scene.notice is None:
+                        flow.mode = None
                 rows = ()
                 if scene.kind == 'tasks' and not finished:
                     result = ocr.read(frame,stop=control.stop)
@@ -299,17 +344,19 @@ def run_xumi(folder, index, control, emit, *, progress):
                         status('须弥幻境今日积分 · 方寸 '+str(scores['fangcun'])+'/50000 · 大千 '+str(scores['daqian'])+'/50000')
                 if invitation:
                     x,y = invitation
-                    decision = tap(invitation,'拒绝当前不接取的悬赏邀请',(x-58,y-24,x+58,y+24))
+                    decision = tap('decline_invite', invitation,'拒绝当前不接取的悬赏邀请',(x-58,y-24,x+58,y+24))
                 elif finished:
                     if scene.kind == 'home':
                         return TaskOutcome.DAILY_DONE
-                    decision = tap(scene.back,'返回主页，继续调度')
+                    decision = tap('back', scene.back,'返回主页，继续调度')
                 else:
                     decision = flow.step(frame,scene,rows)
+                    if scene.kind == 'result_next' and boss_number == 2:
+                        decision = DailyDecision(status='已确认继续试炼，等待第二个 Boss')
                     if scene.kind == 'unknown':
                         reward, point = vision.daily.navigation(frame)
                         if reward in ('reward','reward_continue'):
-                            decision = tap(point,'确认已获得的须弥幻境奖励')
+                            decision = tap('dismiss_reward', point,'确认已获得的须弥幻境奖励')
                 if scene.kind == 'unknown' and battle_start is not None and now-last_progress < 1:
                     control.stop.wait(.05)
                     continue
@@ -318,7 +365,8 @@ def run_xumi(folder, index, control, emit, *, progress):
                 if key != last_frame:
                     filename = f'{sequence:04d}-{scene.kind}-{decision.action}.png'
                     cv2.imwrite(str(output/filename),cv2.cvtColor(frame,cv2.COLOR_RGB2BGR))
-                    record('decision',page=scene.kind,action=decision.action,point=decision.point,status=decision.status,frame=filename)
+                    record('decision',page=scene.kind,action=decision.action,operation=decision.operation,
+                           point=decision.point,status=decision.status,frame=filename)
                     sequence += 1
                     last_frame = key
                 if decision.action == 'unavailable':
@@ -331,44 +379,27 @@ def run_xumi(folder, index, control, emit, *, progress):
                     finished = True
                     last_progress = now
                     continue
-                if decision.point is not None:
-                    def act():
-                        if control.generation() != generation:
-                            return False
-                        fresh = kernel.capture(device)
-                        fresh_scene = vision.scene(fresh)
-                        if game_update_banner(fresh) or fresh_scene.kind != scene.kind:
-                            return False
-                        if scene.team_number is not None and fresh_scene.team_number != scene.team_number:
-                            return False
-                        if scene.kind in ('home','hall','guide') and fresh_scene.point != scene.point:
-                            return False
-                        if scene.kind == 'equipment_target' and decision.point not in fresh_scene.equipment_targets:
-                            return False
-                        if invitation and vision.daily.invitations.detect(
-                                cv2.cvtColor(fresh,cv2.COLOR_RGB2GRAY)) != invitation:
-                            return False
-                        if decision.status == '确认已获得的须弥幻境奖励':
-                            reward, point = vision.daily.navigation(fresh)
-                            if reward not in ('reward','reward_continue') or point != decision.point:
-                                return False
-                        if decision.guard:
-                            x1,y1,x2,y2 = decision.guard
-                            if cv2.absdiff(frame[y1:y2,x1:x2],fresh[y1:y2,x1:x2]).mean() > 14:
-                                return False
-                        if decision.action == 'swipe':
-                            native.stop_all()
-                            subprocess.run([str(executable_path()),'--folder',str(folder),'--index',str(index),
-                                '--swipe',*map(str,(*decision.point,*decision.end))],capture_output=True,
-                                check=True,timeout=8,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-                            return True
-                        captured = kernel.captured_at
-                        return native.priority_tap(decision.point,captured_at=captured,deadline=captured+.2,
-                                                   wait_seconds=.2,hold_seconds=.055)
-                    if control.run_if_active(act):
+                if decision.point is not None and decision.operation:
+                    if trial is not None and decision.action == 'settle':
+                        result = ocr.read(frame, stop=control.stop)
+                        if control.stop.is_set() or generation != control.generation():
+                            continue
+                        scores = DailyScreen(frame,result).text((90,315,545,447)) if result is not None else ''
+                        record('trial_result', mode=trial, difficulty=current_difficulty, scores=scores,
+                               bosses=sorted(seen_bosses - {None}),
+                               relay_bosses=sorted(relay_bosses - {None}))
+                    observed = vision.menu_observation(frame,scene,decision,invitation,generation,kernel.captured_at)
+                    if ui.perform(observed,decision.operation):
                         flow.completed(decision)
-                        record('input_sent',point=decision.point,action=decision.action)
+                        record('input_sent',point=decision.point,action=decision.action,operation=decision.operation)
                         if decision.action in ('start','continue'):
+                            if decision.action == 'start':
+                                current_difficulty = decision.value
+                                seen_bosses.clear()
+                                relay_bosses.clear()
+                            boss_number = 1 if decision.action == 'start' else 2
+                            boss_entered_at = None
+                            combat.reset_boss()
                             battle_vision.reset()
                             battle_start = control.now()
                             battle_seen = False
@@ -377,6 +408,8 @@ def run_xumi(folder, index, control, emit, *, progress):
                             battle_start = None
                             battle_seen = False
                             battle_vision.reset()
+                            if trial is not None:
+                                return TaskOutcome.MATCH_DONE if seen_bosses == {1, 2} and not relay_bosses else TaskOutcome.WAITING
                         last_progress = now
                         if decision.action == 'start':
                             if not control.stop.wait(.28):
@@ -394,13 +427,9 @@ def run_xumi(folder, index, control, emit, *, progress):
             return TaskOutcome.STOPPED
         finally:
             control.set_release_input(None)
-            if combat is not None:
-                combat.stop()
-            if native is not None:
-                native.close()
-            if device is not None:
-                device.close()
-            if ocr is not None:
-                ocr.close()
-            if diagnostics is not None:
-                diagnostics.close()
+            with ExitStack() as cleanup:
+                for resource in (diagnostics,ocr,device,native):
+                    if resource is not None:
+                        cleanup.callback(resource.close)
+                if combat is not None:
+                    cleanup.callback(combat.stop)

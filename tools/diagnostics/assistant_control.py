@@ -7,6 +7,7 @@ start modes are hayabusa (inputs), observe (no inputs), and run (normal assistan
 from ninja3_assistant.paths import project_root
 import argparse
 from collections import deque
+from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -38,12 +39,14 @@ class AssistantController:
         self.activity_enabled, self.activity_mode = False, 'daily'
         self.weekend_enabled, self.weekend_mode = False, 'daily'
         self.xumi_enabled = False
+        self.abyss_enabled = False
         self.daily_tasks, self.bounty_grade = [], None
         self.bounty_active_invite = self.bounty_passive_invite = True
         self.pet_feed_reward = None
         self.hide_game_window = False
         self.last_status = self.backend = self.error = None
         self.metrics, self.events = {}, deque(maxlen=30)
+        self.navigation = None
 
     def status(self):
         with self.lock:
@@ -51,6 +54,7 @@ class AssistantController:
                     'activity_enabled': self.activity_enabled, 'activity_mode': self.activity_mode,
                     'weekend_enabled': self.weekend_enabled, 'weekend_mode': self.weekend_mode,
                     'xumi_enabled': self.xumi_enabled,
+                    'abyss_enabled': self.abyss_enabled,
                     'daily_tasks':list(self.daily_tasks), 'bounty_grade':self.bounty_grade,
                     'bounty_active_invite':self.bounty_active_invite,
                     'bounty_passive_invite':self.bounty_passive_invite,
@@ -58,7 +62,8 @@ class AssistantController:
                     'hide_game_window':self.hide_game_window,
                     'worker_pid': self.process.pid if self.process is not None and self.process.poll() is None else None,
                     'status': self.last_status, 'backend': self.backend, 'metrics': dict(self.metrics),
-                    'error': self.error, 'recent_events': list(self.events)}
+                    'error': self.error, 'recent_events': list(self.events),
+                    'navigation': dict(self.navigation) if self.navigation is not None else None}
 
     def _event(self, event):
         with self.lock:
@@ -121,7 +126,7 @@ class AssistantController:
     def start(self, mode='hayabusa', *, activity_enabled=False, activity_mode='daily',hide_game_window=False,
               weekend_enabled=False, weekend_mode='daily', xumi_enabled=False, daily_tasks=(),
               bounty_grade=None, pet_feed_reward=None,
-              bounty_active_invite=True, bounty_passive_invite=True):
+              bounty_active_invite=True, bounty_passive_invite=True, abyss_enabled=False):
         if mode not in ('hayabusa', 'observe', 'run'):
             raise ValueError('mode must be hayabusa, observe, or run')
         if not isinstance(activity_enabled, bool):
@@ -142,6 +147,10 @@ class AssistantController:
             raise ValueError('xumi_enabled must be a boolean')
         if xumi_enabled and mode != 'run':
             raise ValueError('xumi is available only in run mode')
+        if not isinstance(abyss_enabled, bool):
+            raise ValueError('abyss_enabled must be a boolean')
+        if abyss_enabled and mode != 'run':
+            raise ValueError('abyss is available only in run mode')
         if not isinstance(daily_tasks,(list,tuple)) or any(
                 not isinstance(kind,str) or kind not in CHORES for kind in daily_tasks):
             raise ValueError('daily_tasks must be a list of known daily chores')
@@ -166,9 +175,11 @@ class AssistantController:
             self.process = self.preparing = None
             self.paused = False
             self.state, self.mode = 'starting', mode
+            self.navigation = None
             self.activity_enabled, self.activity_mode = activity_enabled, activity_mode
             self.weekend_enabled, self.weekend_mode = weekend_enabled, weekend_mode
             self.xumi_enabled = xumi_enabled
+            self.abyss_enabled = abyss_enabled
             self.daily_tasks = list(dict.fromkeys(daily_tasks))
             self.bounty_grade = bounty_grade or ('D' if 'bounty' in self.daily_tasks else None)
             self.bounty_active_invite = bounty_active_invite
@@ -215,6 +226,8 @@ class AssistantController:
                     command += ['--weekend-enabled', '--weekend-mode', self.weekend_mode]
                 if self.xumi_enabled:
                     command.append('--xumi-enabled')
+                if self.abyss_enabled:
+                    command.append('--abyss-enabled')
                 if self.daily_tasks:
                     command += ['--daily-tasks',*self.daily_tasks]
                 if self.bounty_grade is not None:
@@ -278,6 +291,8 @@ class AssistantController:
 
     def pause(self):
         with self.lock:
+            if self.mode == 'navigate':
+                raise RuntimeError('navigation can be stopped with stop')
             if self.state not in ('starting', 'running'):
                 raise RuntimeError('pause requires a starting or running worker')
             self.paused = True
@@ -351,6 +366,50 @@ class AssistantController:
             raise RuntimeError('could not save screenshot')
         return {'path': str(path), 'width': frame.shape[1], 'height': frame.shape[0]}
 
+    def page(self):
+        from ninja3_assistant.game_ui.live import observe_game
+        from ninja3_assistant.runtime.runner import RunControl
+
+        observed = observe_game(str(self.folder), self.index, RunControl())
+        return {'page': observed.page, 'controls': sorted(observed.controls), 'blocking': observed.blocking}
+
+    def navigate(self, target):
+        from ninja3_assistant.game_ui.pages import NAVIGABLE_PAGES
+
+        if not isinstance(target, str) or target not in NAVIGABLE_PAGES:
+            raise ValueError('unknown navigation page: '+str(target))
+        with self.lock:
+            if self.thread is not None and self.thread.is_alive():
+                raise RuntimeError('an assistant worker or navigation is already active')
+            self.stop_requested = threading.Event()
+            self.process = self.preparing = None
+            self.paused = False
+            self.state, self.mode = 'running', 'navigate'
+            self.error = self.last_status = self.backend = None
+            self.metrics, self.events = {}, deque(maxlen=30)
+            self.navigation = {'target': target, 'status': 'running', 'page': None, 'steps': ()}
+            self.thread = threading.Thread(target=self._navigate, args=(target,), daemon=True)
+            self.thread.start()
+        return self.status()
+
+    def _navigate(self, target):
+        try:
+            from ninja3_assistant.game_ui.live import navigate_game
+            from ninja3_assistant.runtime.runner import RunControl
+
+            control = RunControl(stop=self.stop_requested)
+            result = navigate_game(str(self.folder), self.index, control, target)
+            with self.lock:
+                self.navigation.update(asdict(result))
+                self.state = 'stopped'
+                self.lock.notify_all()
+        except Exception as error:
+            with self.lock:
+                self.navigation['status'] = 'error'
+                self.error = str(error)
+                self.state = 'error'
+                self.lock.notify_all()
+
     def command(self, message):
         command = message.get('command')
         if command == 'start':
@@ -361,6 +420,7 @@ class AssistantController:
                               weekend_enabled=message.get('weekend_enabled',False),
                               weekend_mode=message.get('weekend_mode','daily'),
                               xumi_enabled=message.get('xumi_enabled', False),
+                              abyss_enabled=message.get('abyss_enabled', False),
                               daily_tasks=message.get('daily_tasks',()),
                               bounty_grade=message.get('bounty_grade'),
                               bounty_active_invite=message.get('bounty_active_invite',True),
@@ -370,6 +430,10 @@ class AssistantController:
             return self.launch(hide_game_window=message.get('hide_game_window',False))
         if command == 'screenshot':
             return self.screenshot(message.get('output'))
+        if command == 'page':
+            return self.page()
+        if command == 'navigate':
+            return self.navigate(message.get('page'))
         if command in ('status', 'pause', 'resume', 'stop', 'hide', 'launch'):
             return getattr(self, command)()
         if command == 'exit':
@@ -382,7 +446,20 @@ class ControlServer(ThreadingHTTPServer):
 
     def __init__(self, controller, port):
         self.controller = controller
+        self.closing = False
         super().__init__(('127.0.0.1', port), ControlHandler)
+
+    def command(self, message):
+        command = message.get('command')
+        if command in ('start', 'navigate', 'exit'):
+            with self.controller.lock:
+                if command == 'exit':
+                    self.closing = True
+                elif self.closing:
+                    raise RuntimeError('control server is shutting down')
+                else:
+                    return self.controller.command(message)
+        return self.controller.command(message)
 
 
 class ControlHandler(BaseHTTPRequestHandler):
@@ -402,7 +479,7 @@ class ControlHandler(BaseHTTPRequestHandler):
             message = json.loads(self.rfile.read(length))
             if not isinstance(message, dict):
                 raise ValueError('command must be a JSON object')
-            result = self.server.controller.command(message)
+            result = self.server.command(message)
             response = {'id': message.get('id'), 'ok': True, 'result': result}
             code = 200
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
@@ -428,13 +505,14 @@ def main():
     parser.add_argument('--serve', action='store_true', help='serve control requests on 127.0.0.1')
     parser.add_argument('--port', type=int, default=17863)
     parser.add_argument('--command', choices=('start', 'pause', 'resume', 'stop', 'status',
-                                             'screenshot', 'hide', 'launch', 'exit'))
+                                             'screenshot', 'page', 'navigate', 'hide', 'launch', 'exit'))
     parser.add_argument('--mode', choices=('hayabusa', 'observe', 'run'), default='hayabusa')
     parser.add_argument('--activity-enabled', action='store_true')
     parser.add_argument('--activity-mode', choices=('daily', 'continuous'), default='daily')
     parser.add_argument('--weekend-enabled',action='store_true')
     parser.add_argument('--weekend-mode',choices=('daily','25'),default='daily')
     parser.add_argument('--xumi-enabled', action='store_true')
+    parser.add_argument('--abyss-enabled', action='store_true')
     parser.add_argument('--daily-tasks',nargs='+',choices=tuple(CHORES),default=[])
     parser.add_argument('--bounty-grade',choices=('D','C','B','A'))
     parser.add_argument('--no-bounty-active-invite',dest='bounty_active_invite',action='store_false')
@@ -442,11 +520,14 @@ def main():
     parser.add_argument('--pet-feed-reward',choices=tuple(PET_FEED_REWARDS))
     parser.add_argument('--hide-game-window',action='store_true')
     parser.add_argument('--output')
+    parser.add_argument('--page', help='destination page ID for --command navigate')
     args = parser.parse_args()
     if args.index is not None and args.index < 0:
         parser.error('index must not be negative')
     if args.command and args.serve:
         parser.error('--command and --serve cannot be combined')
+    if (args.page is not None) != (args.command == 'navigate'):
+        parser.error('--page is required and only accepted for --command navigate')
     if not args.command and (args.folder is None or args.index is None):
         parser.error('--folder and --index are required for the controller')
     if args.activity_enabled and (args.command != 'start' or args.mode != 'run'):
@@ -455,6 +536,8 @@ def main():
         parser.error('weekend requires --command start --mode run')
     if args.xumi_enabled and (args.command != 'start' or args.mode != 'run'):
         parser.error('xumi requires --command start --mode run')
+    if args.abyss_enabled and (args.command != 'start' or args.mode != 'run'):
+        parser.error('abyss requires --command start --mode run')
     if args.daily_tasks and (args.command != 'start' or args.mode != 'run'):
         parser.error('daily chores require --command start --mode run')
     if args.bounty_grade is not None and (args.command != 'start' or args.mode != 'run' or
@@ -485,6 +568,8 @@ def main():
                 message.update(weekend_enabled=True,weekend_mode=args.weekend_mode)
             if args.xumi_enabled:
                 message['xumi_enabled'] = True
+            if args.abyss_enabled:
+                message['abyss_enabled'] = True
             if args.daily_tasks:
                 message['daily_tasks'] = args.daily_tasks
             if args.bounty_grade is not None:
@@ -499,6 +584,8 @@ def main():
             message['hide_game_window'] = True
         if args.output:
             message['output'] = args.output
+        if args.command == 'navigate':
+            message['page'] = args.page
         request = Request(f'http://127.0.0.1:{args.port}/command',
                           data=json.dumps(message).encode('utf-8'), headers={'Content-Type': 'application/json'})
         try:

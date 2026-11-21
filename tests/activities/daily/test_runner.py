@@ -39,6 +39,10 @@ class DailyRunnerTest(unittest.TestCase):
                 control.resume()
             if current[0].get('stop'):
                 control.request_stop()
+            if current[0]['page'] == 'trial':
+                trial = frame.copy()
+                trial[43:54,1191:1193] = 255
+                return trial
             return frame
 
         def read(*args,**kwargs):
@@ -56,7 +60,8 @@ class DailyRunnerTest(unittest.TestCase):
         device.capture.side_effect = capture
         ocr.read.side_effect = read
         vision.match.side_effect = lambda frame,name,*args,**kwargs: (
-            (1,1) if name == current[0]['page'] and name in ('trial','house') else None)
+            (1,1) if name == 'trial' and current[0]['page'] == 'trial' else None)
+        vision.house.side_effect = lambda frame: current[0]['page'] == 'house'
         vision.food.return_value = 10
         vision.observe.side_effect = lambda frame,result:DailyScreen(frame,result,result['page'])
         vision.invitations.bounty_invitation.return_value = BountyInvitation('friend','A',(818,526))
@@ -95,7 +100,7 @@ class DailyRunnerTest(unittest.TestCase):
         native.priority_tap.assert_not_called()
 
     def test_first_frame_invitation_without_checkpoint_cannot_handoff(self):
-        decline = DailyDecision('tap',(471,526),'拒绝队友或家族邀请')
+        decline = DailyDecision.tap('decline_invite',(471,526),'拒绝队友或家族邀请')
         outcome,_,_,_,native,vision,_,_ = self.run_simulation([
             {'page':'invite','decision':decline}, {'page':'invite'},
             {'page':'monthly','decision':DailyDecision('done')},

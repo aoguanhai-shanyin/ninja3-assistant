@@ -14,15 +14,26 @@ from ninja3_assistant.vision.game_update import game_update_point
 
 class TaskNavigationTest(unittest.TestCase):
     def navigate(self, screens, kinds, control=None, target=None, daily_pages=None, chore=None,
-                 purchase_page=None, update=None, xumi_page=None):
+                 purchase_page=None, update=None, xumi_page=None, gift_points=None, reward_tabs=None):
         control = control or RunControl(clock=Mock(side_effect=range(100)))
         activity, race, device, native = Mock(), Mock(), Mock(), Mock()
         daily, bounty = Mock(), Mock()
-        activity.detect.side_effect = screens
+        tick = 0
+
+        def current(sequence):
+            return lambda frame: sequence[min(tick, len(sequence)-1)]
+
+        def next_tick(*args):
+            nonlocal tick
+            tick += 1
+            return False
+
+        activity.detect.side_effect = current(screens) if screens else None
         activity.navigation.match.return_value = None
-        race.detect.side_effect = kinds
+        race.detect.side_effect = current(kinds) if kinds else None
         daily.navigation.return_value = (None, None)
-        daily.navigation.side_effect = daily_pages
+        daily.navigation.side_effect = daily_pages if callable(daily_pages) else (
+            current(daily_pages) if daily_pages else None)
         daily.chore_navigation.return_value = chore
         if purchase_page is not None:
             daily.observe.return_value = DailyScreen(None,{},purchase_page)
@@ -36,19 +47,42 @@ class TaskNavigationTest(unittest.TestCase):
                 patch('ninja3_assistant.device.mumu.MuMu', return_value=device), \
                 patch('ninja3_assistant.activities.intelligence.vision.ActivityVision', return_value=activity), \
                 patch('ninja3_assistant.activities.weekend.runner.RaceVision', return_value=race), \
+                patch('ninja3_assistant.activities.bounty.daily_vision.DailyBountyVision', return_value=bounty), \
                 patch('ninja3_assistant.activities.daily.vision.DailyVision', return_value=daily), \
                 patch('ninja3_assistant.activities.xumi.vision.XumiVision') as xumi, \
                 patch('ninja3_assistant.activities.intelligence.ocr.WindowsOcr') as ocr, \
-                patch('ninja3_assistant.activities.bounty.daily_vision.DailyBountyVision', return_value=bounty), \
+                patch('ninja3_assistant.vision.promotion_popup.promotion_popup_close',
+                      side_effect=current(gift_points) if gift_points else None, return_value=None), \
+                patch('ninja3_assistant.activities.abyss.vision.reward_dungeon',
+                      side_effect=current(reward_tabs) if reward_tabs else None, return_value=None), \
                 patch('ninja3_assistant.device.native_touch.create_native_touch', return_value=native), \
-                patch.object(control.stop, 'wait', return_value=False):
-            xumi.return_value.scene.return_value = xumi_page or XumiScreen()
+                patch.object(control.stop, 'wait', side_effect=next_tick):
+            if callable(xumi_page):
+                xumi.return_value.scene.side_effect = xumi_page
+            else:
+                xumi.return_value.scene.return_value = xumi_page or XumiScreen()
             if update is not None:
                 ocr.return_value.read.return_value = update.ocr
             result = return_to_home('f', 1, control, target=target)
         native.close.assert_called_once()
         device.close.assert_called_once()
         return result, native
+
+    def test_consecutive_promotions_are_closed_before_task_handoff(self):
+        result, native = self.navigate([ActivityScreen('home')], ['unknown'], target='abyss',
+                                       gift_points=[(1116, 136), (1224, 226), None])
+        self.assertTrue(result)
+        self.assertEqual([call.args[0] for call in native.priority_tap.call_args_list],
+                         [(1116, 136), (1224, 226)])
+
+    def test_daily_task_closes_abyss_rewards_but_abyss_task_can_resume(self):
+        for target in ('daily_monthly', 'abyss'):
+            with self.subTest(target=target):
+                result, native = self.navigate([ActivityScreen(), ActivityScreen('home')], ['unknown'],
+                                               target=target, reward_tabs=[0, None])
+                self.assertTrue(result)
+                self.assertEqual([call.args[0] for call in native.priority_tap.call_args_list],
+                                 [(984, 201)] if target == 'daily_monthly' else [])
 
     def test_confirmed_menu_handoff_closes_modal_and_returns_via_hall(self):
         result, native = self.navigate(
@@ -91,6 +125,28 @@ class TaskNavigationTest(unittest.TestCase):
     def test_xumi_task_can_resume_from_its_team_editor(self):
         result,native = self.navigate([],[],target='xumi',xumi_page=XumiScreen('team',back=(47,40)))
         self.assertTrue(result)
+        native.priority_tap.assert_not_called()
+
+    def test_xumi_editors_require_manual_exit_before_switching_to_another_task(self):
+        for kind, back in (
+                ('team', (47, 40)), ('roster', (624, 76)), ('own_roster', (370, 597)),
+                ('equipment', (47, 40)), ('equipment_detail', (1134, 650)),
+                ('equipment_confirm', None), ('equipment_target', None), ('score_confirm', None)):
+            with self.subTest(scene=kind):
+                scene = XumiScreen(kind, back=back)
+                result, native = self.navigate([ActivityScreen()], ['unknown'], target='daily_weapon',
+                                               xumi_page=scene)
+                self.assertFalse(result)
+                native.priority_tap.assert_not_called()
+
+    def test_fresh_xumi_editor_overrides_a_stale_back_control(self):
+        editor = XumiScreen('own_roster', back=(370, 597))
+        scenes = Mock(side_effect=[XumiScreen(), editor, editor])
+        result, native = self.navigate(
+            [ActivityScreen()], ['unknown'], target='intelligence',
+            daily_pages=[('rank', (75, 50))], xumi_page=scenes)
+        self.assertFalse(result)
+        self.assertEqual(scenes.call_count, 3)
         native.priority_tap.assert_not_called()
 
     def test_unknown_or_combat_never_gets_a_back_tap(self):
@@ -159,6 +215,27 @@ class TaskNavigationTest(unittest.TestCase):
             [ActivityScreen()], ['unknown'], target='daily_rank',
             daily_pages=[('rank', (75, 50))])
         self.assertTrue(result)
+        native.priority_tap.assert_not_called()
+
+    def test_family_handoff_preserves_blessing_and_leaves_for_other_tasks(self):
+        family = ('family', (90, 65))
+        result, native = self.navigate([ActivityScreen()], ['unknown'],
+                                       target='daily_blessing', daily_pages=[family])
+        self.assertTrue(result)
+        native.priority_tap.assert_not_called()
+
+        result, native = self.navigate([ActivityScreen()], ['unknown'], target='daily_weapon',
+                                       daily_pages=[family, ('home', None)])
+        self.assertTrue(result)
+        native.priority_tap.assert_called_once()
+        self.assertEqual(native.priority_tap.call_args.args[0], (90, 65))
+
+    def test_family_handoff_checks_the_button_again_before_going_home(self):
+        pages = Mock(side_effect=[('family', (90, 65)), (None, None), ('home', None)])
+        result, native = self.navigate([ActivityScreen()], ['unknown'], target='daily_weapon',
+                                       daily_pages=pages)
+        self.assertTrue(result)
+        self.assertEqual(pages.call_count, 3)
         native.priority_tap.assert_not_called()
 
     def test_bounty_returns_home_from_a_recognized_quiz_page(self):

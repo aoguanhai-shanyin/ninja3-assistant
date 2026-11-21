@@ -2,7 +2,7 @@ import threading
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ninja3_assistant.activities.bounty.flow import Decision
 from ninja3_assistant.runtime.runner import RunControl, probe, run_flow
@@ -15,11 +15,20 @@ class RunnerTest(unittest.TestCase):
         self.startup = starter.start()
         self.addCleanup(starter.stop)
         native = patch('ninja3_assistant.runtime.runner.create_native_touch',return_value=None)
-        native.start()
+        self.native = native.start()
         self.addCleanup(native.stop)
         warmup = patch('ninja3_assistant.combat.hayabusa.scene.Thread')
         warmup.start()
         self.addCleanup(warmup.stop)
+
+    def use_menu_touch(self, device, control):
+        def press(point, *, captured_at, deadline, hold_seconds, wait_seconds):
+            pressed = time.perf_counter()
+            if device.press(point, control.stop, hold_seconds):
+                return pressed, pressed
+            return None
+
+        self.native.return_value = Mock(priority_tap=Mock(side_effect=press))
 
     def test_new_game_waits_for_display_before_capturing(self):
         class Device:
@@ -48,6 +57,18 @@ class RunnerTest(unittest.TestCase):
             run_flow('test', 0, RunControl(), lambda kind, value: events.append((kind, value)))
         self.assertTrue(device.closed)
         self.assertIn(('status', '等待游戏画面就绪…'), events)
+
+    def test_menu_without_ninja_touch_stops_before_any_sdk_input(self):
+        device = Mock()
+        detector = Mock(backend='test')
+        detector.detect.return_value = Screen(home=(865, 600))
+        events = []
+        with patch('ninja3_assistant.runtime.runner.Vision', return_value=detector), \
+                patch('ninja3_assistant.runtime.runner.MuMu', return_value=device):
+            run_flow('test', 0, RunControl(), lambda kind, value: events.append((kind, value)))
+        device.tap.assert_not_called()
+        self.assertIn(('status', '操作游戏界面需要 NinjaTouch.exe'), events)
+        self.assertEqual(events[-1], ('finished', ''))
 
     def test_pause_does_not_advance_flow_time(self):
         value = [100.0]
@@ -94,7 +115,7 @@ class RunnerTest(unittest.TestCase):
             def capture(self):
                 captured.set()
                 return object()
-            def tap(self, point, stop, hold_seconds=.07):
+            def press(self, point, stop, hold_seconds=.07):
                 self.taps.append(point)
                 return True
             def close(self):
@@ -103,7 +124,7 @@ class RunnerTest(unittest.TestCase):
         class Detector:
             backend = 'test'
             def detect(self, frame):
-                return Screen()
+                return Screen(board=True, a='off', s='on', ss='off', join=(100, 200))
 
         class Flow:
             successful_kills = 0
@@ -118,6 +139,7 @@ class RunnerTest(unittest.TestCase):
         def create_device(*args):
             device = Device(*args)
             devices.append(device)
+            self.use_menu_touch(device, control)
             return device
 
         control = RunControl()
@@ -144,7 +166,7 @@ class RunnerTest(unittest.TestCase):
                 self.presses = []
             def capture(self):
                 return object()
-            def tap(self, point, stop, hold_seconds=.07):
+            def press(self, point, stop, hold_seconds=.07):
                 sequence.append('tap')
                 self.presses.append((time.perf_counter(), hold_seconds))
                 return not stop.wait(hold_seconds)
@@ -158,7 +180,7 @@ class RunnerTest(unittest.TestCase):
             def detect(self, frame):
                 self.frames += 1
                 sequence.append('detect')
-                return Screen()
+                return Screen(board=True, a='off', s='on', ss='off', join=(100, 200))
 
         class Flow:
             successful_kills = 0
@@ -173,8 +195,10 @@ class RunnerTest(unittest.TestCase):
             with self.subTest(interval=interval):
                 sequence.clear()
                 device, detector = Device(), Detector()
+                control = RunControl()
+                self.use_menu_touch(device, control)
                 with patch('ninja3_assistant.runtime.runner.Vision', return_value=detector), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
-                    run_flow('test', 0, RunControl(), lambda *_: None, join_interval_ms=interval)
+                    run_flow('test', 0, control, lambda *_: None, join_interval_ms=interval)
                 self.assertEqual(len(device.presses), 5)
                 self.assertGreaterEqual(detector.frames, 6)
                 self.assertTrue(all(hold == .015 for _, hold in device.presses))
@@ -194,7 +218,7 @@ class RunnerTest(unittest.TestCase):
                 self.count = 0
             def capture(self):
                 return object()
-            def tap(self, point, stop, hold_seconds=.07):
+            def press(self, point, stop, hold_seconds=.07):
                 self.count += 1
                 if self.count == 2:
                     stop.set()
@@ -205,7 +229,7 @@ class RunnerTest(unittest.TestCase):
         class Detector:
             backend = 'test'
             def detect(self, frame):
-                return Screen()
+                return Screen(board=True, a='off', s='on', ss='off', join=(100, 200))
 
         class Flow:
             successful_kills = 0
@@ -215,6 +239,7 @@ class RunnerTest(unittest.TestCase):
                 pass
 
         device = Device()
+        self.use_menu_touch(device, control)
         with patch('ninja3_assistant.runtime.runner.Vision', side_effect=lambda **_: Detector()), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
             run_flow('test', 0, control, lambda *_: None, join_interval_ms=30)
         self.assertEqual(device.count, 2)
@@ -227,7 +252,7 @@ class RunnerTest(unittest.TestCase):
                 self.points = []
             def capture(self):
                 return object()
-            def tap(self, point, stop, hold_seconds=.07):
+            def press(self, point, stop, hold_seconds=.07):
                 self.points.append(point)
                 if point == (1100, 660):
                     stop.set()
@@ -246,6 +271,7 @@ class RunnerTest(unittest.TestCase):
                 return Screen(ready=(1100, 660))
 
         device, detector = Device(), Detector()
+        self.use_menu_touch(device, control)
         with patch('ninja3_assistant.runtime.runner.Vision', return_value=detector), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device):
             run_flow('test', 0, control, lambda *_: None, join_interval_ms=30)
         self.assertEqual(device.points, [(400, 300), (1100, 660)])
@@ -256,7 +282,7 @@ class RunnerTest(unittest.TestCase):
                 self.presses = []
             def capture(self):
                 return object()
-            def tap(self, point, stop, hold_seconds=.07):
+            def press(self, point, stop, hold_seconds=.07):
                 self.presses.append((point, hold_seconds))
                 return True
             def close(self):
@@ -265,7 +291,7 @@ class RunnerTest(unittest.TestCase):
         class Detector:
             backend = 'test'
             def detect(self, frame):
-                return Screen()
+                return Screen(ready=(1100, 660))
 
         class Flow:
             successful_kills = 0
@@ -277,8 +303,10 @@ class RunnerTest(unittest.TestCase):
                 self.done = True
 
         device = Device()
+        control = RunControl()
+        self.use_menu_touch(device, control)
         with patch('ninja3_assistant.runtime.runner.Vision', side_effect=lambda **_: Detector()), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
-            run_flow('test', 0, RunControl(), lambda *_: None)
+            run_flow('test', 0, control, lambda *_: None)
         self.assertEqual(device.presses, [((1100, 660), .07)])
 
     def test_resume_after_pause_recaptures_before_clicking(self):
@@ -290,7 +318,7 @@ class RunnerTest(unittest.TestCase):
                 self.count = 0
             def capture(self):
                 return object()
-            def tap(self, point, stop, hold_seconds=.07):
+            def press(self, point, stop, hold_seconds=.07):
                 self.count += 1
                 pressed.set()
                 release.wait(2)
@@ -304,7 +332,7 @@ class RunnerTest(unittest.TestCase):
                 self.frames = 0
             def detect(self, frame):
                 self.frames += 1
-                return Screen()
+                return Screen(board=True, a='off', s='on', ss='off', join=(100, 200))
 
         class Flow:
             successful_kills = 0
@@ -317,6 +345,7 @@ class RunnerTest(unittest.TestCase):
                 pass
 
         device, detector = Device(), Detector()
+        self.use_menu_touch(device, control)
         with patch('ninja3_assistant.runtime.runner.Vision', return_value=detector), patch('ninja3_assistant.runtime.runner.MuMu', return_value=device), patch('ninja3_assistant.runtime.runner.Flow', Flow):
             thread = threading.Thread(target=run_flow, args=('test', 0, control, lambda *_: None))
             thread.start()

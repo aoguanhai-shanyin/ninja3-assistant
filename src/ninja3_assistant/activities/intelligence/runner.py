@@ -10,14 +10,43 @@ import subprocess
 
 import cv2
 
-from ninja3_assistant.activities.intelligence.flow import ActivityFlow, daily_key
+from ninja3_assistant.activities.intelligence.flow import ActivityFlow, HALL_SEARCH, daily_key
 from ninja3_assistant.activities.intelligence.evidence import UnknownCardRecorder
 from ninja3_assistant.activities.intelligence.vision import ActivityVision
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.device.native_touch import create_native_touch, executable_path
+from ninja3_assistant.game_ui import GameUI, PageAction, PageObservation
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 from ninja3_assistant.vision.invitation import SENDER_BOX, TITLE_BOX
+
+
+PAGE_IDS = {
+    'home': 'game.home',
+    'hall': 'game.hall',
+    'hall_search': 'game.hall',
+    'login': 'game.login',
+    'network_retry': 'game.network_retry',
+    'invite': 'game.invite',
+    'event_home': 'intelligence.lobby',
+}
+OPERATION_NAMES = {
+    'home': 'open_hall',
+    'hall': 'enter_intelligence',
+    'invite': 'decline_invitation',
+    'guide': 'continue_guide',
+    'tasks': 'open_tasks',
+    'claim': 'claim_task',
+    'match': 'start_match',
+    'place': 'place_card',
+    'result_confirm': 'confirm_result',
+}
+
+
+def _observe_action(screen, frame, generation, captured_at, action):
+    page = PAGE_IDS.get(screen.kind, f'intelligence.{screen.kind}')
+    return PageObservation(page, frame, generation, captured_at,
+                           controls={action.name: action}, detail=screen)
 
 
 def _coin_digit_changes(before, after):
@@ -120,18 +149,17 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
         hall_searches = 0
         metrics_at = control.now()
 
-        def swipe(start, end, deadline):
-            if control.generation() != generation or time.perf_counter() >= deadline:
-                return False
+        def swipe(start, end):
             # The one-shot swipe owns the input only after native taps are released.
             native.stop_all()
-            if control.stop.is_set() or time.perf_counter() >= deadline:
+            if control.stop.is_set() or time.perf_counter() >= captured+.5:
                 return False
             subprocess.run([str(executable_path()), '--folder', str(folder), '--index', str(index),
                             '--swipe', *map(str, (*start, *end))], capture_output=True,
                            timeout=8, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             return not control.stop.is_set()
 
+        ui = GameUI(control, device.capture, native, swipe=swipe, clock=time.perf_counter)
         while control.wait_active():
             current_generation = control.generation()
             if current_generation != generation:
@@ -141,6 +169,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
             vision.battle.warmup()
             captured = time.perf_counter()
             frame = device.capture()
+            checked_frame = frame
             capture_ms = (time.perf_counter()-captured)*1000
             vision_started = time.perf_counter()
             screen = vision.detect(frame)
@@ -173,6 +202,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                        for x1, y1, x2, y2 in (SENDER_BOX, TITLE_BOX)):
                     continue
                 frame, screen = refreshed, check
+                checked_frame = refreshed
             if (screen.kind in ('hall', 'unknown') and flow.last_action == 'hall'
                     and control.now()-flow.last_action_at <= 1.5):
                 toast = cv2.resize(frame[225:310, 220:1060], None, fx=2, fy=2)
@@ -197,6 +227,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                 check = vision.detect(refreshed)
                 if check.kind != 'battle' or check.battle.kind != 'result':
                     continue
+                checked_frame = refreshed
             if screen.kind == 'battle' and screen.battle.kind == 'placement':
                 ocr_started = time.perf_counter()
                 result = ocr.read(vision.battle.numbers_image(frame), stop=control.stop)
@@ -229,10 +260,12 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                 if digit_changes is None or digit_changes > 9:
                     discard('coin_digits_changed', frame, refreshed, digit_changes=digit_changes, **placement_timing)
                     continue
+                checked_frame = refreshed
             if screen.kind == 'tasks':
                 task = vision.tasks.read(frame, ocr, stop=control.stop)
                 screen = vision.task_screen(task)
                 # OCR can outlive a page transition; revalidate its anchor and pixels.
+                captured = time.perf_counter()
                 refreshed = device.capture()
                 current = vision.tasks.detect(refreshed)
                 region = vision.tasks.ocr_region(task)
@@ -243,7 +276,7 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                     differences = cv2.absdiff(frame[y:y+h, x:x+w], refreshed[y:y+h, x:x+w])
                     if any(differences[top:top+60].mean() > 3 for top in range(0, h, 60)):
                         continue
-                captured = time.perf_counter()
+                checked_frame = refreshed
             if control.paused() or control.stop.is_set() or control.generation() != generation:
                 continue
             now = control.now()
@@ -257,7 +290,9 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                 if hall_searches >= 3:
                     status('集会所未找到情报模拟战，继续其他任务')
                     return TaskOutcome.UNAVAILABLE
-                if control.run_if_active(lambda: swipe((300, 410), (1150, 410), captured+.5)):
+                action = PageAction('search_intelligence', *HALL_SEARCH, max_age=.5)
+                observed = _observe_action(screen, checked_frame, generation, captured, action)
+                if ui.perform(observed, action.name, refresh=False):
                     hall_searches += 1
                 control.stop.wait(.75)
                 continue
@@ -301,6 +336,11 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
             terminal = decision.action in ('done', 'stop', 'retry')
             try:
                 if decision.point and not terminal:
+                    name = OPERATION_NAMES.get(decision.action, decision.action)
+                    action = PageAction(name, decision.point, decision.end_point,
+                                        hold_seconds=.07, max_age=.5)
+                    observed = _observe_action(screen, checked_frame, generation, captured, action)
+
                     def act():
                         nonlocal clicks, battle_active
                         started = time.perf_counter()
@@ -308,12 +348,9 @@ def run_activity(folder, index, control, emit, mode='daily', *, checkpoint=False
                         deadline = captured+.5
                         if control.generation() != generation or started >= deadline:
                             return
-                        if decision.end_point:
-                            acted = swipe(decision.point, decision.end_point, deadline)
-                        else:
-                            pressed = native.priority_tap(decision.point, captured_at=captured,
-                                                          deadline=deadline, hold_seconds=.07, wait_seconds=.2)
-                            acted = pressed is not None
+                        pressed = ui.perform(observed, name, refresh=False)
+                        acted = pressed is not None
+                        if not decision.end_point:
                             if acted:
                                 record['capture_to_press_ms'] = round((pressed[0]-captured)*1000, 2)
                                 # The native acknowledgement is sent on press. Allow the

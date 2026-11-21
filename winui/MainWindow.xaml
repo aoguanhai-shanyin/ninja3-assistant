@@ -3,14 +3,14 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="忍3助手">
-    <Grid Background="#0C1220" RequestedTheme="Dark" Loaded="Root_Loaded">
+    <Grid Background="#0C1220" RequestedTheme="Dark" Loaded="Root_Loaded" SizeChanged="Root_SizeChanged">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="190" />
+            <ColumnDefinition x:Name="SidebarColumn" Width="190" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
         <Border Background="#111A2A" BorderBrush="#253149" BorderThickness="0,0,1,0">
-            <Grid Padding="20,26">
+            <Grid x:Name="Sidebar" Padding="20,26">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -19,36 +19,39 @@
                 <StackPanel Orientation="Horizontal" Spacing="10">
                     <Image Width="40" Height="40" Source="Assets/Ninja3Icon.png" Stretch="Uniform"
                            AutomationProperties.Name="忍3助手图标" />
-                    <StackPanel VerticalAlignment="Center">
+                    <StackPanel x:Name="BrandText" VerticalAlignment="Center">
                         <TextBlock Text="忍3助手" FontSize="18" FontWeight="SemiBold" />
                         <TextBlock Text="MUMU · WINDOWS" FontSize="9" Foreground="#98A6C3" />
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Margin="0,40,0,0" Spacing="8">
-                    <TextBlock Text="工作空间" Foreground="#91A1BC" FontSize="11" Margin="10,0,0,6" />
+                    <TextBlock x:Name="NavHeading" Text="工作空间" Foreground="#91A1BC" FontSize="11" Margin="10,0,0,6" />
                     <Button x:Name="TaskNav" Click="TaskNav_Click" HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="任务中心" ToolTipService.ToolTip="任务中心"
                             HorizontalContentAlignment="Left" Padding="14,10" Background="#263451">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <FontIcon Glyph="&#xE8B7;" FontSize="15" />
-                            <TextBlock Text="任务中心" />
+                            <TextBlock x:Name="TaskNavLabel" Text="任务中心" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="SettingsNav" Click="SettingsNav_Click" HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="设备设置" ToolTipService.ToolTip="设备设置"
                             HorizontalContentAlignment="Left" Padding="14,10" Background="Transparent">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <FontIcon Glyph="&#xE713;" FontSize="15" />
-                            <TextBlock Text="设备设置" />
+                            <TextBlock x:Name="SettingsNavLabel" Text="设备设置" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="VideoNav" Click="VideoNav_Click" HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="离线调试" ToolTipService.ToolTip="离线调试"
                             HorizontalContentAlignment="Left" Padding="14,10" Background="Transparent">
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <FontIcon Glyph="&#xE714;" FontSize="15" />
-                            <TextBlock Text="离线调试" />
+                            <TextBlock x:Name="VideoNavLabel" Text="离线调试" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
-                <TextBlock Grid.Row="2" Text="本地识图 · MuMu 12" Foreground="#71809B" FontSize="11" />
+                <TextBlock x:Name="SidebarFooter" Grid.Row="2" Text="本地识图 · MuMu" Foreground="#71809B" FontSize="11" />
             </Grid>
         </Border>
 
@@ -111,30 +114,39 @@
             </Grid>
             <Grid x:Name="TaskPage">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="0,0,0,1" Padding="34,16">
+                <Border x:Name="TaskToolbar" Background="#172238" BorderBrush="#2D3D5B" BorderThickness="0,0,0,1" Padding="24,14">
                     <StackPanel Spacing="8">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="FleetText" Text="MuMu 多开" FontSize="15" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" TextWrapping="Wrap" />
+                                <Border Grid.Column="1" CornerRadius="12" Background="#263451" Padding="10,4" VerticalAlignment="Center">
+                                    <TextBlock x:Name="StatusBadge" Text="●  未运行" Foreground="#B6C3DB" FontSize="12" />
+                                </Border>
+                            </Grid>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <ComboBox x:Name="InstanceBox" HorizontalAlignment="Stretch" PlaceholderText="请选择 MuMu 实例"
+                                          AutomationProperties.Name="任务实例" DisplayMemberPath="DisplayName"
+                                          SelectionChanged="Instance_SelectionChanged" />
+                                <Button x:Name="RefreshInstancesButton" Grid.Column="1" Content="刷新" Click="Scan_Click" />
+                            </Grid>
                             <TextBlock x:Name="StatusText" Text="启动助手后自动打开所选模拟器和游戏，并识别当前场景。"
-                                       Foreground="#D6DDF0" TextWrapping="Wrap" />
+                                       Foreground="#D6DDF0" TextWrapping="Wrap" MaxLines="3" />
                             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
-                                <Button x:Name="StartButton" Content="▶  启动助手" Style="{StaticResource AccentButtonStyle}"
-                                        Click="Start_Click" Padding="18,9" />
-                                <Button x:Name="PauseButton" Content="暂停" Click="Pause_Click" IsEnabled="False" Padding="18,9" />
-                                <Button x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False" Padding="18,9" />
+                                <Button x:Name="StartButton" Content="启动" AutomationProperties.Name="启动所选实例"
+                                        Style="{StaticResource AccentButtonStyle}" Click="Start_Click" Padding="15,8" />
+                                <Button x:Name="PauseButton" Content="暂停" Click="Pause_Click" IsEnabled="False" Padding="15,8" />
+                                <Button x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False" Padding="15,8" />
                             </StackPanel>
                         </StackPanel>
                 </Border>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                <StackPanel Padding="34,30,34,30" Spacing="20" MaxWidth="1100" HorizontalAlignment="Stretch">
-                    <Grid>
-                        <StackPanel Spacing="5">
+                <StackPanel x:Name="TaskContent" Padding="34,30,34,30" Spacing="20" MaxWidth="1100" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="5">
                             <TextBlock Text="任务中心" FontSize="27" FontWeight="SemiBold" />
-                            <TextBlock Text="自动识别当前场景，查看运行状态与调试记录。" Foreground="#9EACC5" />
-                        </StackPanel>
-                        <Border HorizontalAlignment="Right" VerticalAlignment="Top"
-                                CornerRadius="14" Background="#263451" Padding="12,6">
-                            <TextBlock x:Name="StatusBadge" Text="●  未运行" Foreground="#B6C3DB" FontSize="12" />
-                        </Border>
-                    </Grid>
+                            <TextBlock Text="以下配置与运行记录对应当前所选实例。" Foreground="#9EACC5" TextWrapping="Wrap" />
+                    </StackPanel>
 
                     <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
                         <StackPanel Spacing="12">
@@ -156,7 +168,7 @@
                                 <StackPanel x:Name="XumiOptions" Spacing="10" Visibility="Collapsed">
                                     <ToggleSwitch x:Name="XumiEnabledSwitch" AutomationProperties.Name="启用须弥幻境"
                                                   OffContent="关闭" OnContent="开启" />
-                                    <TextBlock Text="完成方寸和大千试炼的当日日常并领取奖励后停止。" Foreground="#B9C5D9" TextWrapping="Wrap" />
+                                    <TextBlock Text="先手动配好方寸和大千的两支队伍，并为大千装备武器。助手从当前开放的第一重或第二重开战，结算后复查日常奖励。" Foreground="#B9C5D9" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Grid>
                             <TextBlock Text="可同时开启多个活动，助手按计划依次执行。"
@@ -179,6 +191,19 @@
                                 </ComboBox>
                                 <TextBlock Text="周末开放。测试功能支持识别前方障碍和使用道具卡。" Foreground="#B9C5D9" TextWrapping="Wrap" />
                             </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="家族" FontSize="21" FontWeight="SemiBold" />
+                            <SelectorBar x:Name="FamilyTabs" AutomationProperties.Name="家族">
+                                <SelectorBarItem x:Name="AbyssTab" Text="深渊备战" />
+                            </SelectorBar>
+                            <ToggleSwitch x:Name="AbyssEnabledSwitch" AutomationProperties.Name="启用深渊备战"
+                                          OffContent="关闭" OnContent="开启" />
+                            <TextBlock Text="依次完成三个备战副本的个人进度并领取奖励。"
+                                       Foreground="#B9C5D9" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
 
@@ -306,7 +331,7 @@
                             <StackPanel Spacing="8">
                                 <TextBlock Text="已确认结算" Foreground="#A7B4CB" FontSize="12" />
                                 <TextBlock x:Name="CountText" Text="0" FontSize="23" FontWeight="SemiBold" />
-                                <TextBlock Text="本次窗口累计" Foreground="#7788A5" FontSize="11" />
+                                <TextBlock Text="当前实例累计" Foreground="#7788A5" FontSize="11" />
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -318,17 +343,17 @@
                     <TextBox x:Name="LogBox" Height="145" IsReadOnly="True" AcceptsReturn="True"
                              TextWrapping="Wrap" Background="#111A2A" BorderBrush="#27344E"
                              ScrollViewer.VerticalScrollBarVisibility="Auto" />
-                    <TextBlock Text="请在设备设置中选择模拟器，并保持 1280 × 720 横屏。"
+                    <TextBlock Text="MuMu 实例需保持 1280 × 720 横屏。"
                                Foreground="#91A1BC" FontSize="12" TextWrapping="Wrap" />
                 </StackPanel>
                 </ScrollViewer>
             </Grid>
 
             <ScrollViewer x:Name="SettingsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                <StackPanel Padding="34,30,34,30" Spacing="20" MaxWidth="850" HorizontalAlignment="Stretch">
+                <StackPanel x:Name="SettingsContent" Padding="34,30,34,30" Spacing="20" MaxWidth="850" HorizontalAlignment="Stretch">
                     <StackPanel Spacing="5">
                         <TextBlock Text="设备设置" FontSize="27" FontWeight="SemiBold" />
-                        <TextBlock Text="选择 MuMu 安装目录，自动扫描并选择要控制的实例。" Foreground="#9EACC5" />
+                        <TextBlock Text="设置 MuMu 安装目录，在任务中心切换实例。" Foreground="#9EACC5" TextWrapping="Wrap" />
                     </StackPanel>
                     <Border Background="#172238" BorderBrush="#2D3D5B" BorderThickness="1" CornerRadius="16" Padding="24">
                         <StackPanel Spacing="16">
@@ -342,8 +367,8 @@
                             <TextBlock Text="MuMu 实例" Foreground="#B9C5D9" />
                             <Grid ColumnSpacing="10">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <ComboBox x:Name="InstanceBox" HorizontalAlignment="Stretch" PlaceholderText="请选择实例"
-                                          DisplayMemberPath="DisplayName" SelectionChanged="Instance_SelectionChanged" />
+                                <TextBlock x:Name="SettingsInstanceText" VerticalAlignment="Center" Text="尚未选择实例"
+                                           TextTrimming="CharacterEllipsis" />
                                 <Button x:Name="ScanButton" Grid.Column="1" Content="重新扫描" Click="Scan_Click" />
                             </Grid>
                             <TextBlock x:Name="ScanText" Text="等待扫描模拟器。" Foreground="#91A1BC" FontSize="12" TextWrapping="Wrap" />

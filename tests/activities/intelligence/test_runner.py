@@ -346,6 +346,29 @@ class ActivityRunnerTest(unittest.TestCase):
         self.assertIsNone(observation.refresh_point)
         self.assertEqual(rig.vision.detect.call_count, 2)
 
+    def test_place_card_uses_verified_frame_for_its_touch_deadline(self):
+        placement = ActivityScreen('battle', battle=BattleObservation(
+            'placement', board=(None,)*9, shop=(None,)*5, round_number=2))
+        rig, clock = ActivityRig([placement, placement]), [100.]
+        rig.ocr.read.return_value = {'words': [{'text': '金币：17', 'bbox': [30, 30, 90, 25]}]}
+        decision = ActivityDecision('place', (640, 550))
+        rig.flow.step.return_value = decision
+
+        def advance_capture_clock(index):
+            if index == 0:
+                clock[0] += .2
+            elif index == 1:
+                clock[0] += .1
+
+        rig.capture_hook = advance_capture_clock
+        with patch('ninja3_assistant.activities.intelligence.runner.time.perf_counter',
+                   side_effect=lambda: clock[0]):
+            rig.run()
+
+        self.assert_priority_tap(rig, decision.point)
+        self.assertAlmostEqual(rig.native.priority_tap.call_args.kwargs['captured_at'], 100.2)
+        self.assertEqual(rig.flow.completed.call_args.args[0], decision)
+
     def test_stop_during_recognition_discards_the_frame(self):
         rig = ActivityRig()
         rig.detect_hook = lambda *_: rig.control.stop.set()

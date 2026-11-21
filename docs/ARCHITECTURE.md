@@ -7,6 +7,7 @@ WinUI 启动 Python Worker，Worker 执行任务计划。Plan 管理任务、进
 | `src/ninja3_assistant/scheduling/activity_task.py` | 活动任务接口与入口 |
 | `src/ninja3_assistant/scheduling/task_planner.py` | 日常优先、后续目标、重试与对局恢复 |
 | `src/ninja3_assistant/scheduling/task_scheduler.py` | 执行 Plan 提供的任务顺序 |
+| `src/ninja3_assistant/game_ui/` | 页面观察、具名操作和菜单导航图 |
 | `src/ninja3_assistant/runtime/realtime_battle.py` | 共用实时内核：新鲜帧、识别节奏、动作计划和撤回 |
 | `src/ninja3_assistant/device/native_touch.py` | Python 到 C++ 的有界命令协议 |
 | `native_touch/main.cpp` | 多手指触控执行、截止时间及释放 |
@@ -17,6 +18,41 @@ WinUI 启动 Python Worker，Worker 执行任务计划。Plan 管理任务、进
 运行代码位于 `src/ninja3_assistant/`，使用绝对包导入。`paths.py` 集中处理项目根目录与冻结程序资源位置；`packaging/` 集中维护入口和资源清单。测试按领域对应分组，工具与运行包分离。具体目录见 `DIRECTORY_LAYOUT.md`。
 
 目录迁移不改变任务优先级、触控时序或玩法策略。数据与发布输出隔离，公开仓库不包含游戏派生素材。
+
+## 游戏页面操作与导航
+
+`GameUI.observe()` 返回当前页面 ID、已确认的控件和采集代次。活动根据识别结果选择具名操作，由 `GameUI.perform(observation, name)` 核对新帧、动作时限和运行状态后提交 NinjaTouch。购买、领取、编队和开战的条件与结果确认由各活动管理。高频战斗与抢队继续使用已有的实时输入机制。
+
+`GameUI.plan_route(source, target)` 查询已登记的最短菜单路径。`GameUI.navigate(target)` 每次执行一个安全跳转，观察落点后重新规划，并在观察到目标页面时报告到达。抢队、购买、领奖和保存等需要活动主动选择的控件由活动执行。页面 ID 和跳转登记在 `game_ui/pages.py`。
+
+需要读取业务状态时，可以传页面类型取得同一会话中的页面对象。页面在 `game_ui/` 中定义识别证据、只读字段和操作。活动决定何时执行动作。小屋页也供每日清理使用。
+
+```python
+from ninja3_assistant.game_ui.house import HousePage
+
+house = ui.navigate(HousePage)
+if house.can_collect_fragments:
+    house.collect_fragments()
+
+# 确认弹窗出现后读取当前页。
+confirm = ui.read_page(HousePage)
+if confirm and confirm.can_continue_training:
+    confirm.continue_training()
+```
+
+`house.training_remaining` 是该帧确认的剩余秒数。控件匹配优先使用局部画面和前景掩码，动作提交前复核新帧中的目标及相关条件。未确认状态保留为未知。续练确认核对饭团费用和按钮，导航图仅负责进出小屋。
+
+模拟器已经打开游戏时，可以通过 `assistant_control` 查看当前页面并单独验证菜单路径。服务只监听本机。导航与本版 Worker 按模拟器实例独占输入，旧版 Worker 需先退出。
+
+```powershell
+python -m tools.diagnostics.assistant_control --folder '<MuMu安装目录>' --index 1 --serve
+python -m tools.diagnostics.assistant_control --command page
+python -m tools.diagnostics.assistant_control --command navigate --page intelligence.tasks
+python -m tools.diagnostics.assistant_control --command status
+python -m tools.diagnostics.assistant_control --command exit
+```
+
+同样的命令可通过 JSON 行或 HTTP `POST /command` 发送。导航命令形如 `{"command":"navigate","page":"intelligence.tasks"}`。`status` 的 `navigation` 字段报告目标、状态、最后观察到的页面和已执行步骤。需要取消时发送 `stop`。
 
 ## 每日清理
 

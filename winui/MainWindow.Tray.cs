@@ -195,21 +195,20 @@ public sealed partial class MainWindow
         if (_exiting) return;
         _exiting = true;
         _closeDialog?.Hide();
-        _stopping = true;
         _videoPlayTimer.Stop();
         _videoSeekTimer.Stop();
         _videoPlaying = false;
-        SetBusy(_worker is not null);
+        UpdateControls();
         PauseButton.IsEnabled = StopButton.IsEnabled = false;
         DebugPauseButton.IsEnabled = DebugStopButton.IsEnabled = false;
         ShowMessage("正在停止任务并退出助手…");
-        var results = await Task.WhenAll(StopProcessForExitAsync(_worker), StopProcessForExitAsync(_videoWorker));
+        var workers = _sessions.Values.Select(session => session.Process).Append(_videoWorker).ToArray();
+        var results = await Task.WhenAll(workers.Select(StopProcessForExitAsync));
         if (results.Any(success => !success))
         {
             _exiting = false;
-            _stopping = false;
             RestoreFromTray();
-            SetBusy(_worker is not null);
+            UpdateControls();
             ShowMessage("退出未完成，运行组件仍在停止中，请稍后重试。");
             return;
         }

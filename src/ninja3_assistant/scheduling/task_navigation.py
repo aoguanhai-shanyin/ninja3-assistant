@@ -1,7 +1,13 @@
 """Recognized menu handoff shared by activity tasks."""
 import time
 
+from ninja3_assistant.game_ui import GameUI, PageAction, PageObservation
+from ninja3_assistant.game_ui.pages import HALL, HOME, NAVIGABLE_PAGES, ROUTES, page_id
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
+
+
+def _editing_xumi(kind):
+    return kind in ('team', 'roster', 'own_roster', 'score_confirm') or kind.startswith('equipment')
 
 
 def _ready_to_run(target, activity_page, race_page, daily_page, bounty_page, race_active):
@@ -13,6 +19,8 @@ def _ready_to_run(target, activity_page, race_page, daily_page, bounty_page, rac
         return target == 'weekend'
     if daily_page in ('login','shop_dialog','bounty_dialog'):
         return False
+    if daily_page == 'family':
+        return target in ('daily_blessing', 'abyss')
     if daily_page == 'home' or activity_page == 'home':
         return True
     if target == 'intelligence':
@@ -27,6 +35,9 @@ def _ready_to_run(target, activity_page, race_page, daily_page, bounty_page, rac
 def return_to_home(folder, index, control, *, target=None):
     """Find a frame the target can handle or leave a recognized menu."""
     import cv2
+    from ninja3_assistant.activities.abyss.vision import (
+        REWARDS_CLOSE, preparation_page, relay_prompt, result_panel, reward_dungeon, same_region,
+    )
     from ninja3_assistant.activities.intelligence.vision import ActivityVision
     from ninja3_assistant.activities.weekend.runner import RaceVision
     from ninja3_assistant.device.mumu import MuMu, prepare_game
@@ -36,6 +47,7 @@ def return_to_home(folder, index, control, *, target=None):
     from ninja3_assistant.activities.bounty.daily_vision import DailyBountyVision
     from ninja3_assistant.activities.xumi.vision import XumiVision
     from ninja3_assistant.vision.game_update import game_update_banner, game_update_point
+    from ninja3_assistant.vision.promotion_popup import promotion_popup_close
 
     activity = None
     if target == 'intelligence' and not control.stop.is_set():
@@ -47,7 +59,7 @@ def return_to_home(folder, index, control, *, target=None):
     race = RaceVision()
     daily = DailyVision()
     bounty = DailyBountyVision()
-    xumi = XumiVision(daily) if target == 'xumi' else None
+    xumi = XumiVision(daily)
     native = None
     ocr = None
     safe_invite = getattr(control,'bounty_navigation_safe',False)
@@ -57,6 +69,21 @@ def return_to_home(folder, index, control, *, target=None):
         if native is None:
             raise RuntimeError('多任务切换需要 NinjaTouch.exe')
         control.set_release_input(native.stop_all)
+        ui = GameUI(control, device.capture, native, routes=ROUTES)
+
+        def press(page, name, point, guard):
+            action = PageAction(name, point, guard=lambda fresh: (
+                not game_update_banner(fresh) and guard(fresh) and not _editing_xumi(xumi.scene(fresh).kind)))
+            observation = PageObservation(page, frame, generation, captured, {name: action})
+            if page in NAVIGABLE_PAGES and name == 'back':
+                hall_targets = ('intelligence', 'weekend', 'xumi', 'daily_bounty', 'daily_bounty_s', 'daily_village')
+                destination = HALL if target in hall_targets and page != HALL else HOME
+                route = ui.plan_route(page, destination) or ui.plan_route(page, HOME)
+                if not route:
+                    return None
+                name = route[0].action
+            return ui.perform(observation, name)
+
         deadline = control.now()+20
         last_network_retry = float('-inf')
         restarted_for_update = False
@@ -72,46 +99,51 @@ def return_to_home(folder, index, control, *, target=None):
                 update = DailyScreen(frame,result,'game_update') if result is not None else None
                 point = game_update_point(update) if update is not None else None
                 if point:
-                    def restart():
-                        if generation != control.generation():
-                            return False
-                        decision = DailyDecision('tap',point,'重启客户端安装游戏更新',guard=(510,484,775,552))
-                        current_capture = time.perf_counter()
-                        fresh = device.capture()
-                        if not game_update_banner(fresh) or not daily.current_action(update,decision,fresh):
-                            return False
-                        return native.priority_tap(point,captured_at=current_capture,
-                                                   deadline=current_capture+.2,wait_seconds=.2)
-                    if not restarted_for_update and control.run_if_active(restart):
+                    decision = DailyDecision('tap', point, '重启客户端安装游戏更新', guard=(510,484,775,552),
+                                             operation='restart_for_update')
+                    action = PageAction('restart_for_update', point, guard=lambda fresh: (
+                        game_update_banner(fresh) and daily.current_action(update, decision, fresh)))
+                    observation = PageObservation('game.update', frame, generation, captured, {action.name: action})
+                    if not restarted_for_update and ui.perform(observation, action.name):
                         restarted_for_update = True
                         deadline = max(deadline,control.now()+60)
                     control.stop.wait(.75)
                     continue
-            if target == 'xumi' and xumi.scene(frame).kind != 'unknown':
+            if (close := promotion_popup_close(frame)) is not None:
+                press('game.promotion_popup', 'close_promotion_popup', close,
+                      lambda fresh: promotion_popup_close(fresh) == close)
+                control.stop.wait(.45)
+                continue
+            if (reward_tab := reward_dungeon(frame)) is not None:
+                if target == 'abyss':
+                    return True
+                press('abyss.rewards', 'close_abyss_rewards', REWARDS_CLOSE,
+                      lambda fresh: reward_dungeon(fresh) == reward_tab)
+                control.stop.wait(.45)
+                continue
+            xumi_screen = xumi.scene(frame)
+            if preparation_page(frame):
+                if target == 'abyss':
+                    return True
+                press('abyss.preparation', 'back', (42, 43), preparation_page)
+                control.stop.wait(.75)
+                continue
+            if target == 'xumi' and xumi_screen.kind != 'unknown':
                 return True
+            if _editing_xumi(xumi_screen.kind):
+                return False
             screen, kind = activity.detect(frame), race.detect(frame)
             race_active = kind in ('ready','dash','finish','result','standings') or (
                 kind in ('race','respawn') and race.confirmed_race)
             daily_page,daily_back = daily.navigation(frame)
             bounty_page,bounty_back = bounty.navigation(frame)
             chore_screen = purchase_screen = None
-            xumi_screen = None
             if (daily_page is None and bounty_page is None and screen.kind not in
                     ('login','invite','battle','home','hall','event_home','tasks','guide','hall_search','network_retry') and
                     not race_active and kind not in ('home','hall','tasks')):
-                xumi = xumi or XumiVision(daily)
-                xumi_screen = xumi.scene(frame)
                 if xumi_screen.back is not None:
-                    def leave_xumi():
-                        if generation != control.generation():
-                            return False
-                        current_capture = time.perf_counter()
-                        fresh = device.capture()
-                        if game_update_banner(fresh) or xumi.scene(fresh) != xumi_screen:
-                            return False
-                        return native.priority_tap(xumi_screen.back,captured_at=current_capture,
-                                                   deadline=current_capture+.2,wait_seconds=.2)
-                    control.run_if_active(leave_xumi)
+                    press(page_id('xumi', xumi_screen.navigation_kind), 'back', xumi_screen.back,
+                          lambda fresh: xumi.scene(fresh) == xumi_screen)
                     control.stop.wait(.75)
                     continue
                 if ocr is None:
@@ -122,6 +154,17 @@ def return_to_home(folder, index, control, *, target=None):
                     continue
                 if result is not None:
                     observed = DailyScreen(frame,result)
+                    if '深渊冒险' in observed.text((100, 14, 353, 89)):
+                        if target == 'abyss':
+                            return True
+                        press('abyss.lobby', 'back', (52, 56),
+                              lambda fresh: same_region(frame, fresh, (16, 20, 343, 94)))
+                        control.stop.wait(.75)
+                        continue
+                    if target == 'abyss' and (
+                            (result_panel(frame) and '任意位置继续' in observed.text((505, 612, 780, 665))) or
+                            (relay_prompt(frame) and '忍者接力' in observed.text((490, 40, 790, 101)))):
+                        return True
                     chore = daily.chore_navigation(observed)
                     if chore:
                         daily_page,daily_back = chore
@@ -151,57 +194,59 @@ def return_to_home(folder, index, control, *, target=None):
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             hall = activity.navigation.match(gray, 'startup-hall-title', 80, 0, 300, 110,
                                              threshold=.93, max_error=30)
+            page, point, operation = None, None, 'back'
+            check = None
             if screen.kind == 'invite':
-                point = screen.point
+                page, point, operation = 'game.invite', screen.point, 'decline_invite'
+                check = lambda fresh: activity.detect(fresh) == screen
             elif screen.kind == 'guide':
-                point = screen.point
+                page, point, operation = 'intelligence.guide', screen.point, 'advance_guide'
+                check = lambda fresh: activity.detect(fresh) == screen
             elif screen.kind == 'network_retry':
-                point = screen.point if control.now()-last_network_retry >= 8 else None
+                if control.now()-last_network_retry >= 8:
+                    page, point, operation = 'game.network_retry', screen.point, 'retry_network'
+                    check = lambda fresh: activity.detect(fresh) == screen
             elif screen.kind == 'battle' or race_active:
                 point = None
             elif daily_page == 'login' or screen.kind == 'login':
+                page, operation = 'game.login', 'login'
                 point = daily_back if daily_page == 'login' else screen.point
+                check = (lambda fresh: daily.navigation(fresh) == (daily_page, point)) if daily_page == 'login' else (
+                    lambda fresh: activity.detect(fresh) == screen)
             elif screen.kind == 'tasks':
-                point = (1120, 111)
+                page, point = 'intelligence.tasks', (1120, 111)
+                check = lambda fresh: activity.detect(fresh).kind == screen.kind
             elif kind == 'tasks':
-                point = (1190, 400)
+                page, point = 'weekend.tasks', (1190, 400)
+                check = lambda fresh: race.detect(fresh) == kind
             elif screen.kind == 'event_home':
-                point = (50, 45)
+                page, point = 'intelligence.lobby', (50, 45)
+                check = lambda fresh: activity.detect(fresh).kind == screen.kind
             elif kind == 'home':
-                point = (65, 45)
+                page, point = 'weekend.lobby', (65, 45)
+                check = lambda fresh: race.detect(fresh) == kind
             elif hall or kind == 'hall':
-                point = (50, 45)
+                page, point = 'game.hall', (50, 45)
+                check = (lambda fresh: race.detect(fresh) == kind) if kind == 'hall' else (
+                    lambda fresh: bool(activity.navigation.match(cv2.cvtColor(fresh, cv2.COLOR_RGB2GRAY),
+                        'startup-hall-title', 80, 0, 300, 110, threshold=.93, max_error=30)))
             elif daily_page:
-                point = daily_back
+                page, point = page_id('daily', daily_page), daily_back
+                check = lambda fresh: daily.navigation(fresh) == (daily_page, point)
             elif bounty_page:
-                point = bounty_back
-            else:
-                point = None
+                page, point = page_id('bounty', bounty_page), bounty_back
+                check = lambda fresh: bounty.navigation(fresh) == (bounty_page, point)
             if point:
-                def tap():
-                    if generation == control.generation():
-                        current_capture = captured
-                        if daily_page and daily_page.startswith('friend-'):
-                            current_capture = time.perf_counter()
-                            fresh = device.capture()
-                            if game_update_banner(fresh) or daily.navigation(fresh) != (daily_page,point):
-                                return False
-                        guarded_screen = purchase_screen or chore_screen
-                        if guarded_screen is not None:
-                            if purchase_screen is not None:
-                                guard = ((510,632,780,704) if daily_page == 'bounty_dialog'
-                                         else (535,505,800,570))
-                            else:
-                                x,y = point
-                                guard = (max(0,x-25),max(0,y-25),min(1280,x+25),min(720,y+25))
-                            decision = DailyDecision('tap',point,'返回主页，继续切换任务',
-                                                     guard=guard)
-                            current_capture = time.perf_counter()
-                            if not daily.current_action(guarded_screen,decision,device.capture()):
-                                return False
-                        return native.priority_tap(point, captured_at=current_capture,
-                                                   deadline=current_capture+.2, wait_seconds=.2)
-                if control.run_if_active(tap) and screen.kind == 'network_retry':
+                guarded_screen = purchase_screen or chore_screen
+                if guarded_screen is not None:
+                    if purchase_screen is not None:
+                        guard = (510,632,780,704) if daily_page == 'bounty_dialog' else (535,505,800,570)
+                    else:
+                        x, y = point
+                        guard = (max(0,x-25),max(0,y-25),min(1280,x+25),min(720,y+25))
+                    decision = DailyDecision('tap', point, '返回主页，继续切换任务', guard=guard, operation=operation)
+                    check = lambda fresh: daily.current_action(guarded_screen, decision, fresh)
+                if press(page, operation, point, check) and screen.kind == 'network_retry':
                     last_network_retry = control.now()
             control.stop.wait(.75)
         return False

@@ -45,6 +45,17 @@ def _home_patrol_running(screen):
             (badge.max(axis=2) < 35).mean() > .5 and (badge.min(axis=2) > 200).mean() > .08)
 
 
+def home_entry(screen):
+    point = screen.home_points.get('pet_feed')
+    # The stylized home label often reads only 通 at its fixed slot.
+    return (143, 280) if point is None and screen.hits('通', (108, 297, 132, 325)) else point
+
+
+def patrol_entry(screen):
+    patrol = screen.hits('巡逻', _MAIN_ACTION)
+    return patrol[0].point if patrol and screen.text(_MAIN_ACTION) == '巡逻' else None
+
+
 def _empty_food_slot(frame, label):
     # The unfilled extra-food slot shows a solid white plus on grey.
     y = label.point[1] + 63
@@ -73,14 +84,11 @@ class PetFeed:
         if screen.page == 'home':
             if _home_patrol_running(screen):
                 return DailyDecision('done', status='通灵兽正在巡逻，保留当前任务')
-            point = screen.home_points.get('pet_feed')
-            # The stylized home label often reads only 通 at its fixed slot.
-            if point is None and screen.hits('通', (108, 297, 132, 325)):
-                point = (143, 280)
+            point = home_entry(screen)
             if point is not None:
                 x, y = point
-                return DailyDecision('tap', point, '进入通灵兽',
-                                     guard=(x-25, y-25, x+25, y+25))
+                return DailyDecision.tap('open_pet', point, '进入通灵兽',
+                                         guard=(x-25, y-25, x+25, y+25))
             return DailyDecision(status='寻找主页通灵兽入口')
         if screen.page == 'pet-main':
             if _patrol_running(screen):
@@ -89,13 +97,12 @@ class PetFeed:
                 return DailyDecision('done', status=status)
             claim = screen.hits(_CLAIM, _MAIN_ACTION)
             if claim and not self.claim_sent:
-                return DailyDecision('tap', claim[0].point, _CLAIM, guard=_MAIN_ACTION)
+                return DailyDecision.tap('claim_patrol', claim[0].point, _CLAIM, guard=_MAIN_ACTION)
             if claim or self.start_sent:
                 return DailyDecision(status='等待通灵兽巡逻状态更新')
-            patrol = screen.hits('巡逻', _MAIN_ACTION)
-            if patrol and screen.text(_MAIN_ACTION) == '巡逻':
-                return DailyDecision('tap', patrol[0].point, '打开通灵兽巡逻路线',
-                                     guard=_MAIN_ACTION)
+            if point := patrol_entry(screen):
+                return DailyDecision.tap('open_patrol_routes', point, '打开通灵兽巡逻路线',
+                                         guard=_MAIN_ACTION)
             return DailyDecision(status='确认通灵兽巡逻状态')
         if screen.page != 'pet-routes':
             return None
@@ -115,28 +122,28 @@ class PetFeed:
         if not route:
             if self.scrolls < 2:
                 start, end = ((620, 225), (620, 530)) if self.route == '忍村' else ((620, 530), (620, 230))
-                return DailyDecision('swipe', start, _SCROLL, end, guard=_TITLE)
+                return DailyDecision.swipe('scroll_patrol_routes', start, _SCROLL, end, guard=_TITLE)
             return DailyDecision('unavailable', status=f'未找到可选的巡逻路线 {self.route}')
         _, y = route[0].point
         if not extra or not 12 <= y-extra[0].point[1] <= 72:
             if screen.hits('未解锁|解锁后', (0, y-35, 1250, y+75)):
                 return DailyDecision('unavailable', status=f'巡逻路线 {self.route} 尚未解锁')
             # The floating chest can intercept taps over the left route name.
-            return DailyDecision('tap', (620, y+20), _SELECT+self.route,
-                                 guard=(0, y-25, 140, y+25))
+            return DailyDecision.tap('select_patrol_route', (620, y+20), _SELECT+self.route,
+                                     guard=(0, y-25, 140, y+25))
         if not _empty_food_slot(screen.frame, extra[0]):
             return DailyDecision(status='等待确认额外食物栏为空')
         start = screen.hits('开始巡逻', _START_BUTTON)
         if start:
-            return DailyDecision('tap', start[0].point, _START, guard=_REWARD_PREVIEW)
+            return DailyDecision.tap('start_patrol', start[0].point, _START, guard=_REWARD_PREVIEW)
         return DailyDecision(status='等待通灵兽巡逻开始按钮')
 
     def completed(self, decision, screen):
-        if decision.status == _CLAIM:
+        if decision.operation == 'claim_patrol':
             self.claim_sent = True
-        elif decision.status == _SELECT+self.route:
+        elif decision.operation == 'select_patrol_route':
             self.route_sent = True
-        elif decision.status == _START:
+        elif decision.operation == 'start_patrol':
             self.start_sent = True
-        elif decision.status == _SCROLL:
+        elif decision.operation == 'scroll_patrol_routes':
             self.scrolls += 1

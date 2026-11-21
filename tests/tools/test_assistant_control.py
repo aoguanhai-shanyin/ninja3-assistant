@@ -16,6 +16,7 @@ import numpy as np
 
 from tools.diagnostics.assistant_control import AssistantController, ControlServer, main
 from ninja3_assistant.activities.daily import CHORES
+from ninja3_assistant.game_ui import NavigationResult, NavigationStep, PageAction, PageObservation
 
 
 class AssistantControlTest(unittest.TestCase):
@@ -262,6 +263,112 @@ print(json.dumps({'event':'finished','value':''}),flush=True)
         np.testing.assert_array_equal(cv2.imread(str(path))[0, 0], (0, 128, 255))
         with self.assertRaises(FileExistsError):
             self.controller.screenshot(path)
+
+    def test_page_captures_and_reports_named_controls_without_acquiring_input(self):
+        frame = np.zeros((720, 1280, 3), np.uint8)
+
+        def observe(image, generation, captured_at):
+            self.assertIs(image, frame)
+            return PageObservation('game.home', image, generation, captured_at, {
+                'open_rank': PageAction('open_rank', (100, 100)),
+                'open_hall': PageAction('open_hall', (200, 200)),
+            })
+
+        with patch('ninja3_assistant.game_ui.live.MuMu') as sdk, \
+                patch('ninja3_assistant.game_ui.live.MenuVision') as vision, \
+                patch('ninja3_assistant.game_ui.live.input_owner') as owner, \
+                patch('ninja3_assistant.game_ui.live.create_native_touch') as input_driver, \
+                patch.object(self.controller, '_prepare') as prepare:
+            sdk.return_value.capture.return_value = frame
+            vision.return_value.side_effect = observe
+            result = self.controller.command({'command': 'page'})
+            sdk.assert_called_once_with(str(self.root.resolve()), 1)
+            sdk.return_value.capture.assert_called_once_with()
+            sdk.return_value.close.assert_called_once_with()
+            sdk.return_value.tap.assert_not_called()
+            owner.assert_not_called()
+            input_driver.assert_not_called()
+            prepare.assert_not_called()
+        self.assertEqual(result, {'page': 'game.home', 'controls': ['open_hall', 'open_rank'], 'blocking': False})
+        self.assertEqual(self.controller.status()['state'], 'idle')
+
+    def test_navigation_rejects_an_active_or_paused_worker(self):
+        with patch.object(self.controller, '_prepare'), \
+                patch('ninja3_assistant.game_ui.live.navigate_game') as navigate:
+            self.controller.start('observe')
+            self.wait_state('running')
+            with self.assertRaisesRegex(RuntimeError, 'already active'):
+                self.controller.command({'command': 'navigate', 'page': 'game.home'})
+            self.controller.pause()
+            self.assertEqual(self.controller.status()['state'], 'paused')
+            with self.assertRaisesRegex(RuntimeError, 'already active'):
+                self.controller.command({'command': 'navigate', 'page': 'game.home'})
+            navigate.assert_not_called()
+            self.assertEqual(self.controller.stop()['state'], 'stopped')
+
+    def test_navigation_owns_the_command_slot_and_reports_the_confirmed_route(self):
+        entered, release = threading.Event(), threading.Event()
+
+        def navigate(folder, index, control, target):
+            entered.set()
+            if not release.wait(3):
+                raise RuntimeError('test navigation timed out')
+            return NavigationResult('arrived', target, (NavigationStep('game.home', 'open_hall', target),))
+
+        with patch('ninja3_assistant.game_ui.live.navigate_game', side_effect=navigate) as route:
+            try:
+                accepted = self.controller.command({'command': 'navigate', 'page': 'game.hall'})
+                self.assertTrue(entered.wait(3))
+                self.assertEqual((accepted['state'], accepted['navigation']['status']), ('running', 'running'))
+                with self.assertRaisesRegex(RuntimeError, 'already active'):
+                    self.controller.start()
+                with self.assertRaisesRegex(RuntimeError, 'already active'):
+                    self.controller.navigate('game.home')
+                with self.assertRaisesRegex(RuntimeError, 'stopped with stop'):
+                    self.controller.pause()
+                self.assertIsNone(self.controller.status()['worker_pid'])
+            finally:
+                release.set()
+            self.wait_state('stopped')
+            self.controller.thread.join(3)
+        folder, index, control, target = route.call_args.args
+        self.assertEqual((folder, index, target), (str(self.root.resolve()), 1, 'game.hall'))
+        self.assertFalse(control.stop.is_set())
+        self.assertEqual(self.controller.status()['navigation'], {
+            'target': 'game.hall', 'status': 'arrived', 'page': 'game.hall',
+            'steps': ({'source': 'game.home', 'action': 'open_hall', 'expected': 'game.hall'},),
+        })
+
+    def test_stop_and_exit_cancel_navigation_and_join_the_owner(self):
+        for command in ('stop', 'exit'):
+            entered = threading.Event()
+
+            def navigate(folder, index, control, target):
+                entered.set()
+                if not control.stop.wait(3):
+                    raise RuntimeError('navigation cancellation was not received')
+                return NavigationResult('stopped', 'game.home')
+
+            with self.subTest(command=command), \
+                    patch('ninja3_assistant.game_ui.live.navigate_game', side_effect=navigate):
+                self.controller.navigate('game.hall')
+                self.assertTrue(entered.wait(3))
+                status = self.controller.command({'command': command})
+                self.assertEqual((status['state'], status['navigation']['status']), ('stopped', 'stopped'))
+                self.assertFalse(self.controller.thread.is_alive())
+
+    def test_invalid_navigation_target_does_not_connect_or_acquire_input(self):
+        with patch('ninja3_assistant.game_ui.live.navigate_game') as navigate, \
+                patch('ninja3_assistant.game_ui.live.MuMu') as device, \
+                patch('ninja3_assistant.game_ui.live.input_owner') as owner:
+            for target in (None, [], '', 'missing.page'):
+                with self.subTest(target=target), self.assertRaisesRegex(ValueError, 'unknown navigation page'):
+                    self.controller.command({'command': 'navigate', 'page': target})
+            navigate.assert_not_called()
+            device.assert_not_called()
+            owner.assert_not_called()
+        self.assertIsNone(self.controller.thread)
+        self.assertEqual(self.controller.status()['state'], 'idle')
 
     def test_hide_and_launch_target_only_the_selected_instance(self):
         with patch.object(self.controller, '_manager', return_value={}) as manager:

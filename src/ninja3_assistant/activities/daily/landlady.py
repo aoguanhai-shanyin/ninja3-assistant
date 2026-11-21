@@ -139,10 +139,10 @@ class LandladyQuiz:
                 return DailyDecision('unavailable' if self.unavailable else 'done', status=(
                     '老板娘问答无未尝试选项，保留未完成状态' if self.unavailable else '老板娘今日问答完成'))
             if screen.page in ('landlady-quiz', 'arena', 'arena-menu'):
-                return tap(screen.point, '返回主页，继续每日清理')
+                return tap('back', screen.point, '返回主页，继续每日清理')
         if screen.page == 'arena':
             entry = lobby_entry(screen)
-            return tap(entry, '进入老板娘问答') if entry else DailyDecision(status='寻找老板娘问答入口')
+            return tap('open_quiz', entry, '进入老板娘问答') if entry else DailyDecision(status='寻找老板娘问答入口')
         if screen.page != 'landlady-quiz':
             if screen.page == 'home':
                 self.pending = None
@@ -156,13 +156,13 @@ class LandladyQuiz:
             text = screen.text((435, 112, 1200, 370))
             claim = screen.hits(CLAIM, (755, 380, 1235, 530))
             if len(claim) == 1 and not self.reward_pending:
-                return tap(claim[0].point, '领取老板娘答题奖励')
+                return tap('claim_quiz_reward', claim[0].point, '领取老板娘答题奖励')
             if re.search(FINISHED, text):
                 self.finished = True
-                return tap(BACK, '返回主页，继续每日清理')
+                return tap('back', BACK, '返回主页，继续每日清理')
             start = screen.hits(r'准备好了[吗嗎]?|继续答题|开始答题', (755, 380, 1235, 530))
             if len(start) == 1:
-                return tap(start[0].point, '开始老板娘每日问答')
+                return tap('start_quiz', start[0].point, '开始老板娘每日问答')
             return DailyDecision(status='等待识别完整题干和选项',
                                  defer_on_timeout=question_panel_visible(screen.frame))
         if self.pending:
@@ -178,10 +178,10 @@ class LandladyQuiz:
         if selected is None:
             skip = screen.hits('跳过(?:本题)?', (405, 340, 1240, 700))
             if len(skip) == 1:
-                return tap(skip[0].point, '跳过所有选项均已确认错误的题目')
+                return tap('skip_question', skip[0].point, '跳过所有选项均已确认错误的题目')
             self.finished = self.unavailable = True
-            return tap(BACK, '返回主页，继续每日清理')
-        return tap(question.options[selected], '提交老板娘答题选项', QUIZ_GUARD)
+            return tap('back', BACK, '返回主页，继续每日清理')
+        return tap('answer_question', question.options[selected], '提交老板娘答题选项', QUIZ_GUARD)
 
     def observe_feedback(self, frame):
         correct, wrong, revealed = feedback(frame)
@@ -196,9 +196,9 @@ class LandladyQuiz:
         return correct is not None or wrong is not None
 
     def completed(self, decision, screen):
-        if decision.status == '提交老板娘答题选项':
+        if decision.operation == 'answer_question':
             question = read_question(screen)
             selected = next(option for option, point in question.options.items() if point == decision.point)
             self.pending = question, selected, screen.frame[335:563, 640:1180].astype(np.int16)
-        elif decision.status == '领取老板娘答题奖励':
+        elif decision.operation == 'claim_quiz_reward':
             self.reward_pending = True

@@ -5,7 +5,9 @@ import re
 import cv2
 import numpy as np
 
+from ninja3_assistant.game_ui.trial import parse_repeated_counter, trial_counter_glyphs
 from ninja3_assistant.paths import resource_root
+from ninja3_assistant.vision.control_match import match_control, text_foreground
 from ninja3_assistant.vision.game_update import game_update_banner, game_update_point
 from ninja3_assistant.vision.invitation import InvitationVision
 
@@ -46,6 +48,7 @@ class TextHit:
 class DailyScreen:
     def __init__(self, frame, ocr, page='unknown'):
         self.frame,self.ocr,self.page = frame,ocr,page
+        self.point = None
         self.home_summon = None
         self.home_points = {}
         self.chore_page = False
@@ -93,19 +96,8 @@ class DailyVision:
             self.templates[name] = cv2.imread(str(path),0) if path.is_file() else None
         self.invitations = InvitationVision()
 
-    def match(self, frame, name, box=(0,0,1280,720), threshold=.92):
-        template = self.templates.get(name)
-        if template is None:
-            return None
-        x1,y1,x2,y2 = box
-        gray = cv2.cvtColor(frame[y1:y2,x1:x2],cv2.COLOR_RGB2GRAY)
-        if any(a < b for a,b in zip(gray.shape,template.shape)):
-            return None
-        _,score,_,at = cv2.minMaxLoc(cv2.matchTemplate(gray,template,cv2.TM_CCOEFF_NORMED))
-        patch = gray[at[1]:at[1]+template.shape[0],at[0]:at[0]+template.shape[1]]
-        if score < threshold or np.abs(patch.astype(np.int16)-template).mean() > 28:
-            return None
-        return (round(x1+at[0]+template.shape[1]/2),round(y1+at[1]+template.shape[0]/2))
+    def match(self, frame, name, box=(0,0,1280,720), threshold=.92, *, mask=None):
+        return match_control(frame, self.templates.get(name), box, mask=mask, threshold=threshold, max_error=28)
 
     def home(self, frame):
         """Identify fixed home controls while allowing unlocked bottom slots to move."""
@@ -117,6 +109,19 @@ class DailyVision:
 
     def home_monthly(self, frame):
         return self.match(frame,'home-monthly',(10,150,103,400))
+
+    def house(self, frame):
+        template = self.templates.get('house')
+        if template is None:
+            return False
+        # Match each fixed label independently, excluding the furniture and
+        # variable artwork behind the catalog and shop controls.
+        catalog = template[22:43,:73]
+        shop = template[22:43,100:]
+        return bool(match_control(frame,catalog,(1067,76,1167,116),mask=text_foreground(catalog),
+                                  threshold=.94,max_error=22)
+                    and match_control(frame,shop,(1170,76,1268,116),mask=text_foreground(shop),
+                                      threshold=.94,max_error=22))
 
     def login(self, frame):
         point = self.match(frame,'login-button',(500,470,800,560),threshold=.95)
@@ -135,20 +140,24 @@ class DailyVision:
                 return False
         return True
 
+    def family_hall(self, frame):
+        # Only the roster text and Home control matter. The label template was
+        # captured under the welcome overlay, so compare its shape without brightness.
+        template = self.templates.get('family-welcome-members')
+        if match_control(frame, template, (1000,0,1140,90), mask=text_foreground(template), threshold=.98) is None:
+            return False
+        home_button = frame[39:91,60:119]
+        return ((home_button.min(axis=2) > 215).mean() > .20
+                and (home_button.max(axis=2) < 80).mean() > .40)
+
     def family_entry(self, frame):
-        point = self.match(frame,'family',(250,250,650,650))
-        if point:
-            return point
         template = self.templates.get('family')
-        if template is None or template.shape[0] < 36 or template.shape[1] < 46:
+        if template is None or not self.family_hall(frame):
             return None
-        # The drum's centre keeps its shape when courtyard lighting changes.
-        core = template[8:36,18:46]
-        gray = cv2.cvtColor(frame[250:650,250:650],cv2.COLOR_RGB2GRAY)
-        _,score,_,at = cv2.minMaxLoc(cv2.matchTemplate(gray,core,cv2.TM_CCOEFF_NORMED))
-        if score < .96:
-            return None
-        return (250+at[0]+core.shape[1]//2,250+at[1]+core.shape[0]//2)
+        # Keep the rim and star on the side that remains visible behind characters.
+        left = template[11:40,5:34]
+        point = match_control(frame, left, (330,390,485,555), mask=text_foreground(left), threshold=.92)
+        return (point[0]+12,point[1]-2) if point else None
 
     @staticmethod
     def guide_chrome(frame):
@@ -175,6 +184,11 @@ class DailyVision:
 
     def weapon_entry(self, frame):
         return self.match(frame,'weapon-entry',(20,95,280,600),threshold=.94)
+
+    @staticmethod
+    def trial_entry(screen):
+        targets = screen.hits(r'忍[村材].?[试拭][炼烁]',(200,100,1260,240))
+        return (targets[0].point[0],400) if targets else None
 
     def navigation(self, frame):
         """Fast recognized handoff; never uses a game-wide back key."""
@@ -207,6 +221,7 @@ class DailyVision:
             confirm = self.match(frame,'confirm',(200,560,750,715))
             if confirm:
                 return 'reward',confirm
+        page_checks = {'family': self.family_hall, 'house': self.house}
         for page,box,point in (
             ('anniversary',(0,0,650,220),(1195,98)),
             ('ten-signin',(100,0,850,220),(1220,705)),
@@ -219,7 +234,8 @@ class DailyVision:
             ('family',(250,250,650,650),(90,65)),('house',(950,0,1280,135),(65,50)),
             ('shop',(80,0,400,110),(75,45)),('limited-shop',(80,0,450,110),(75,45)),
             ('daily-shop',(80,0,450,110),(75,45)),('summon',(0,0,220,110),(40,48))):
-            if (self.family_entry(frame) if page == 'family' else self.match(frame,page,box)):
+            check = page_checks.get(page)
+            if (check(frame) if check else self.match(frame,page,box)):
                 return page,point
         if self.home(frame):
             return 'home',None
@@ -286,7 +302,8 @@ class DailyVision:
             screen.page = 'rank-preview'
         elif ('忍阶宝箱' in text and '忍阶预览' in text) or self.match(frame,'rank',(120,0,320,110)):
             screen.page = 'rank'
-        elif screen.hits('小屋',(120,0,600,110)) and ('管理' in text or '好友' in text or '修炼' in text):
+        elif self.house(frame) or (
+                screen.hits('小屋',(120,0,600,110)) and ('管理' in text or '好友' in text or '修炼' in text)):
             screen.page = 'house'
         elif '加入家族' in text and '申请加入' in text:
             screen.page = 'no_family'
@@ -297,9 +314,8 @@ class DailyVision:
                 ('trial',(0,0,470,120)),('prayer',(0,0,470,120)),('curse',(0,0,500,120)),
                 ('hall',(0,0,400,120)),('weapon',(800,70,1280,260)),
                 ('vault',(800,70,1280,260)),('family',(250,250,650,650)),
-                ('limited-shop',(80,0,450,110)),
-                ('house',(950,0,1280,135))):
-                if (self.family_entry(frame) if page == 'family' else self.match(frame,page,box)):
+                ('limited-shop',(80,0,450,110))):
+                if (self.family_hall(frame) if page == 'family' else self.match(frame,page,box)):
                     screen.page = page
                     break
         if screen.page == 'unknown':
@@ -346,23 +362,31 @@ class DailyVision:
     def current_action(self, screen, decision, fresh):
         if screen.page != 'game_update' and game_update_banner(fresh):
             return False
-        fresh_page,_ = self.navigation(fresh)
+        fresh_page, fresh_point = self.navigation(fresh)
         if screen.page == 'login':
-            return fresh_page == 'login'
+            return fresh_page == 'login' and fresh_point == decision.point
         if fresh_page in ('invite','login','paged-guide','summon-guide','menu-guide','family-welcome','reward','reward_continue') and fresh_page != screen.page:
+            return False
+        if fresh_page != screen.page and fresh_page != self.navigation(screen.frame)[0]:
             return False
         if screen.page.startswith('friend-') and fresh_page != screen.page:
             return False
         if decision.rice_gifts:
             from ninja3_assistant.activities.daily.friend_rice import same_gift
             return same_gift(fresh,self,decision)
-        if decision.status.startswith('返回主页，') and self.home(fresh):
+        if decision.operation == 'back' and self.home(fresh):
             return False
-        if decision.status == '进入主页活动，检查每日签到':
+        if decision.operation == 'open_monthly' and screen.page == 'home':
             return fresh_page == 'home' and self.home_monthly(fresh) == decision.point
-        if decision.status in ('领取忍阶已完成每日任务','领取忍阶每周随机道具'):
+        if decision.operation == 'open_summon' and screen.page == 'home':
+            return fresh_page == 'home' and self.home(fresh) == decision.point
+        if decision.operation in ('claim_rank_daily','claim_rank_weekly'):
             return self.match(fresh,'rank',(120,0,320,110)) is not None
-        if decision.status == '提交老板娘答题选项':
+        if screen.page == 'arena' and decision.operation == 'open_arena_reward':
+            from ninja3_assistant.game_ui.arena import rank_reward_entry
+            point = rank_reward_entry(fresh)
+            return point is not None and max(abs(a-b) for a,b in zip(point,decision.point)) <= 5
+        if decision.operation == 'answer_question':
             from ninja3_assistant.activities.daily.landlady import same_prompt
             if not same_prompt(screen.frame,fresh):
                 return False
@@ -378,17 +402,35 @@ class DailyVision:
         if decision.free_kind:
             if not self.free(DailyScreen(fresh,screen.ocr,screen.page),decision.free_kind):
                 return False
-        if decision.status == '确认仅使用忍币购买悬赏奖册':
+        if decision.operation == 'confirm_booklet_purchase':
             if not self.coin(DailyScreen(fresh,screen.ocr,screen.page),(510,640,610,705),large=True):
                 return False
-        if decision.status == '进入白银武库' and self.weapon_entry(fresh) != decision.point:
+        if decision.operation == 'confirm_coin_purchase':
+            if not self.coin(DailyScreen(fresh,screen.ocr,screen.page),(535,505,635,570),large=True):
+                return False
+        if decision.operation == 'open_weapon' and self.weapon_entry(fresh) != decision.point:
             return False
-        if decision.status == '开始通灵兽巡逻':
+        if decision.operation == 'open_prayer':
+            point = self.family_entry(fresh) if fresh_page == 'family' else None
+            return point is not None and max(abs(a-b) for a,b in zip(point,decision.point)) <= 5
+        if decision.operation == 'sweep_trial' and not np.array_equal(
+                trial_counter_glyphs(screen.frame),trial_counter_glyphs(fresh)):
+            return False
+        if decision.operation == 'start_patrol':
             from ninja3_assistant.activities.daily.pet_feed import extra_food_still_empty
             if not extra_food_still_empty(screen,fresh):
                 return False
-        if decision.guard:
-            x1,y1,x2,y2 = decision.guard
+        if decision.operation == 'decline_invite' and (fresh_page != 'invite' or fresh_point != decision.point):
+            return False
+        if decision.operation == 'advance_guide' and fresh_point is not None and fresh_point != decision.point:
+            return False
+        guard = decision.guard
+        if guard is None and decision.operation and decision.point and (
+                fresh_page is None or screen.page == 'home' and decision.operation.startswith('open_')):
+            x, y = decision.point
+            guard = (max(0,x-23),max(0,y-18),min(1280,x+24),min(720,y+19))
+        if guard:
+            x1,y1,x2,y2 = guard
             before = cv2.GaussianBlur(screen.frame[y1:y2,x1:x2],(3,3),0)
             after = cv2.GaussianBlur(fresh[y1:y2,x1:x2],(3,3),0)
             if np.abs(before.astype(np.int16)-after).mean() > 12:
@@ -404,11 +446,9 @@ class DailyVision:
         if hits:
             return int(hits[0].text)
         repeated = screen.ocr.get('food_counter_repeat',{}).get('text','')
-        if repeated.strip() == '0':
-            return 0
-        count = re.fullmatch(r'\s*(\d+)\s+\1\s+\1\s*',repeated.replace('》',' '))
-        if count:
-            return int(count[1])
+        count = parse_repeated_counter(repeated)
+        if count is not None:
+            return count
         for name in self.templates:
             if name.startswith('food-') and self.match(screen.frame,name,(1175,27,1222,67),.98):
                 return int(name[5:])

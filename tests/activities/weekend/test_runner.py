@@ -185,6 +185,40 @@ class WeekendRaceTest(unittest.TestCase):
             self.assertTrue(vision.on_rope)
             self.assertEqual(vision.opening.ground_frames,0)
 
+    def test_hall_entry_requires_the_race_card_on_the_refreshed_frame(self):
+        control = RunControl()
+        device, native, vision = Mock(), Mock(), Mock()
+        hall = np.zeros((720, 1280, 3), np.uint8)
+        different_hall_view = np.full_like(hall, 255)
+        vision.detect.return_value = 'hall'
+        vision.match.side_effect = lambda frame, *_: frame is hall
+
+        captures = iter((hall, different_hall_view))
+
+        def capture():
+            frame = next(captures, None)
+            if frame is not None:
+                return frame
+            control.request_stop()
+            return different_hall_view
+
+        device.capture.side_effect = capture
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT', Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game', return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision', return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu', return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.subprocess.run') as swipe, \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch', return_value=native):
+            outcome = run_weekend('folder', 1, control, lambda *_: None)
+
+        self.assertIs(outcome, TaskOutcome.STOPPED)
+        self.assertIs(vision.match.call_args_list[1].args[0], different_hall_view)
+        native.priority_tap.assert_not_called()
+        swipe.assert_not_called()
+
     def test_zero_remaining_stops_before_sending_match(self):
         vision = Mock()
         vision.detect.side_effect = ['tasks','tasks','home']

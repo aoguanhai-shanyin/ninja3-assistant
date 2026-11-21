@@ -1,5 +1,6 @@
 """Observed weekend race navigation and generic native-input racing loop."""
 from ninja3_assistant.paths import resource_root
+from dataclasses import replace
 import json
 from pathlib import Path
 import re
@@ -15,6 +16,7 @@ from ninja3_assistant.activities.intelligence.vision import ActivityVision
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.device.native_touch import create_native_touch, executable_path, TimedTap
 from ninja3_assistant.combat.opening_actions import OpeningActions
+from ninja3_assistant.game_ui import GameUI, PageAction, PageObservation
 from ninja3_assistant.runtime.realtime_battle import RealtimeBattleKernel, FrameDiagnostics
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
@@ -23,6 +25,13 @@ from ninja3_assistant.activities.weekend.obstacles import RaceObstacleVision
 from ninja3_assistant.activities.weekend.rope import RaceRopeTraversal
 
 ROOT = resource_root()
+HALL_ENTRY = (1130, 390)
+HALL_ENTRY_REGION = (900, 110, 380, 120)
+HALL_SEARCH = ((1150, 410), (300, 410))
+OPEN_TASKS = (885, 47)
+CLOSE_TASKS = (1190, 400)
+MATCH_REGION = (1030, 655, 230, 55)
+PAGE_IDS = {'home': 'weekend.lobby', 'hall': 'game.hall', 'invite': 'game.invite'}
 
 
 def remaining_matches(text):
@@ -311,6 +320,14 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
         native = kernel.attach(native)
         control.set_release_input(native.stop_all)
         device = MuMu(folder,index)
+
+        def swipe(start, end):
+            subprocess.run([str(executable_path()), '--folder', str(folder), '--index', str(index),
+                            '--swipe', *map(str, (*start, *end))], capture_output=True, timeout=8,
+                           check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            return not control.stop.is_set()
+
+        ui = GameUI(control, lambda: kernel.capture(device), native, swipe=swipe, clock=kernel.clock)
         emit('backend','C++ NinjaTouch / 起跳2次→下滑循环 / Windows OCR')
         if record:
             recorder = cv2.VideoWriter(str(output/'race.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),20,(1280,720))
@@ -441,26 +458,32 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                     if now-last_action < 1:
                         control.stop.wait(.05)
                         continue
+                    action = navigation_screen = None
                     if kind == 'finish':
-                        point,message = (640,680),'比赛结束，继续查看结算'
+                        action, message = PageAction('open_result', (640, 680)), '比赛结束，继续查看结算'
                     elif kind == 'standings':
                         message = '等待成绩展示完成，不发送战斗动作'
                     elif kind == 'invite':
-                        point,message = vision.invitations.detect(gray),'拒绝队友邀请'
+                        message = '拒绝队友邀请'
+                        if decline := vision.invitations.detect(gray):
+                            def same_invitation(fresh):
+                                return vision.invitations.detect(cv2.cvtColor(fresh, cv2.COLOR_RGB2GRAY)) == decline
+                            action = PageAction('decline_invitation', decline, guard=same_invitation)
                     elif kind == 'result':
-                        point,message = (1145,681),'确认同屏竞速结算'
+                        action, message = PageAction('confirm_result', (1145, 681)), '确认同屏竞速结算'
                         checked,armed = False,False
                         recovering = False
                     elif kind == 'reward':
-                        point,message = (640,644),'确认周末任务奖励'
+                        action, message = PageAction('confirm_reward', (640, 644)), '确认周末任务奖励'
                     elif kind == 'tasks':
                         if vision.claimable(frame):
-                            point,message = (1055,679),'一键领取周末日常奖励'
+                            action = PageAction('claim_tasks', (1055, 679), guard=vision.claimable)
+                            message = '一键领取周末日常奖励'
                         elif vision.claimed(frame) and mode == 'daily':
                             emit('status','同屏竞速五项日常已全部领取，任务结束')
                             return TaskOutcome.DAILY_DONE
                         else:
-                            point,message = (1190,400),'关闭任务页，准备继续竞速'
+                            action, message = PageAction('close_tasks', CLOSE_TASKS), '关闭任务页，准备继续竞速'
                             checked = True
                     elif kind == 'home':
                         if checkpoint and result_confirmed:
@@ -476,47 +499,61 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                         if armed:
                             message = '等待竞速比赛加载'
                         elif not checked:
-                            point,message = (885,47),'检查周末每日任务'
-                        elif vision.match(frame,'match',(1030,655,230,55)):
+                            action, message = PageAction('open_tasks', OPEN_TASKS), '检查周末每日任务'
+                        elif vision.match(frame,'match',MATCH_REGION):
                             result = ocr.read(cv2.resize(frame[638:718,995:1270],None,fx=3,fy=3),stop=control.stop)
                             left = remaining_matches((result or {}).get('text',''))
                             if left == 0 and not practice:
                                 emit('status','今日25场积分比赛已用完，任务结束')
                                 return TaskOutcome.LIMIT_REACHED
                             if left is not None:
-                                point,message = (1140,677),(f'开始同屏竞速，今日剩余 {left} 场积分比赛' if left else '积分次数已用完，仅实测避障动作')
+                                action = PageAction('start_match', (1140, 677),
+                                                    guard=lambda fresh: vision.match(fresh, 'match', MATCH_REGION))
+                                message = (f'开始同屏竞速，今日剩余 {left} 场积分比赛'
+                                           if left else '积分次数已用完，仅实测避障动作')
                             else:
                                 message = '等待读取今日剩余积分场次'
                     elif kind == 'ready':
-                        point,message = (640,579),'准备同屏竞速'
+                        action, message = PageAction('ready', (640, 579)), '准备同屏竞速'
                         armed = True
                         observed_race = False
                         recovering = False
                     elif kind == 'hall':
-                        if vision.match(frame,'entry',(900,110,380,120)):
-                            point,message = (1130,390),'进入已确认的同屏竞速'
+                        if vision.match(frame,'entry',HALL_ENTRY_REGION):
+                            action = PageAction('enter_weekend', HALL_ENTRY,
+                                                guard=lambda fresh: vision.match(fresh, 'entry', HALL_ENTRY_REGION))
+                            message = '进入已确认的同屏竞速'
                         else:
                             if hall_swipes >= 3:
                                 emit('status','当前周末入口未确认同屏竞速，任务结束')
                                 return TaskOutcome.UNAVAILABLE
-                            native.quiesce()
-                            control.run_if_active(lambda:subprocess.run([str(executable_path()),'--folder',str(folder),'--index',str(index),'--swipe','1150','410','300','410'],capture_output=True,timeout=8,check=True,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)))
-                            last_action = now
-                            hall_swipes += 1
+                            action = PageAction('search_weekend', *HALL_SEARCH, guard=lambda fresh: not
+                                                vision.match(fresh, 'entry', HALL_ENTRY_REGION))
                             message = '向右查找周末活动；仅进入同屏竞速'
                     else:
                         nav = navigation.detect(frame)
-                        if nav.kind in ('login','home'):
-                            point,message = nav.point,'前往集会所'
-                    if point:
-                        def tap():
-                            refreshed = kernel.capture(device)
-                            if vision.detect(refreshed) != kind:
-                                return None
-                            return native.priority_tap(point,captured_at=kernel.captured_at,
-                                                       deadline=kernel.captured_at+.2,wait_seconds=.2)
-                        if control.run_if_active(tap):
+                        if nav.kind in ('login','home') and nav.point:
+                            navigation_screen = nav
+                            name = 'login' if nav.kind == 'login' else 'open_hall'
+                            def same_navigation_control(fresh):
+                                current = navigation.detect(fresh)
+                                return (current.kind, current.point) == (nav.kind, nav.point)
+                            action, message = PageAction(name, nav.point, guard=same_navigation_control), '前往集会所'
+                    if action:
+                        check_control = action.guard
+                        def same_page(fresh):
+                            return vision.detect(fresh) == kind and (check_control is None or check_control(fresh))
+                        page = (f'game.{navigation_screen.kind}' if navigation_screen is not None else
+                                PAGE_IDS.get(kind, f'weekend.{kind}'))
+                        action = replace(action, guard=same_page)
+                        observed = PageObservation(page, frame, kernel.generation, kernel.captured_at,
+                                                   controls={action.name: action}, detail=kind)
+                        if action.end is None:
+                            point = action.point
+                        if ui.perform(observed, action.name):
                             last_action = now
+                            if action.name == 'search_weekend':
+                                hall_swipes += 1
                             if kind == 'result':
                                 result_confirmed = True
                 state = (kind,message)

@@ -1,0 +1,5 @@
+[plugins."winui@winappcli"]
+enabled = true
+
+[plugins."winappcli@winappcli"]
+enabled = true

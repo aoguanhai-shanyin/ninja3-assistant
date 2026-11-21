@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 from ninja3_assistant.activities.intelligence.policy import Card, choose_purchase
 
 CHINA = timezone(timedelta(hours=8))
+OPEN_TASKS = (866, 51)
+CLOSE_TASKS = (1120, 111)
+HALL_SEARCH = ((300, 410), (1150, 410))
 
 
 @dataclass(frozen=True)
@@ -114,7 +117,7 @@ class ActivityFlow:
                     offset = 3-len(rows)
                 elif 'incomplete' in self.task_states.values():
                     self.checked_day=day
-                    return ActivityDecision('close_tasks',(1120,111),'日常仍未完成，继续对战后复查')
+                    return ActivityDecision('close_tasks',CLOSE_TASKS,'日常仍未完成，继续对战后复查')
                 elif self.tasks_scanned<2:
                     return ActivityDecision('scroll_tasks',(760,315),'继续滚动检查未显示的日常',(760,177))
                 else:
@@ -150,19 +153,19 @@ class ActivityFlow:
                 self.daily_complete = False
                 if self.mode == 'continuous':
                     self.checked_day = day
-                    return ActivityDecision('close_tasks', (1120, 111), '日常状态暂未确认，继续活动对战')
+                    return ActivityDecision('close_tasks', CLOSE_TASKS, '日常状态暂未确认，继续活动对战')
                 return ActivityDecision('retry',status='日常进度暂未确认，交回计划重新检查') if rows else ActivityDecision(status='未确认完整日常任务状态，保留当前画面')
             self.checked_day = day
             if self.daily_complete and self.mode == 'daily':
                 return ActivityDecision('done', status='情报模拟战日常已全部领取，任务结束')
-            return ActivityDecision('close_tasks', (1120, 111), '关闭任务页，准备对战')
+            return ActivityDecision('close_tasks', CLOSE_TASKS, '关闭任务页，准备对战')
         if screen.kind == 'event_home':
             if self.await_home:
                 self.await_home = False
                 self.completed_matches += 1
                 self.checked_day = None
             if self.checked_day != day:
-                return ActivityDecision('tasks', (866, 51), '检查情报模拟战每日任务')
+                return ActivityDecision('tasks', OPEN_TASKS, '检查情报模拟战每日任务')
             if self.daily_complete and self.mode == 'daily':
                 return ActivityDecision('done', status='情报模拟战日常已全部领取，任务结束')
             if not matching_open(wall_time):

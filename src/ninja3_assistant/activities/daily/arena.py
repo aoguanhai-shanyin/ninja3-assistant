@@ -1,6 +1,8 @@
 """Navigate to the arena and collect its available settlement rewards."""
 import re
 
+from ninja3_assistant.game_ui.arena import ArenaRewardPage, rank_reward_entry
+
 
 ARENA_TITLE = r'[竞竟][技枝]场'
 QUIZ_ENTRY = r'老板娘(?:[问問向间]|[i丨]司)[答荅]|老板娘答题'
@@ -43,6 +45,8 @@ def observe(screen, vision=None):
             return 'arena-history', confirm[0].point
     if screen.hits('排名奖励规则', (645, 130, 1050, 240)):
         return 'arena-rules', RULES_CLOSE
+    if ArenaRewardPage.observe(screen) is not None:
+        return 'arena-reward', None
     if (screen.hits(r'(?:竞技场|排名|每日|每周|分组)结算', (200, 25, 1080, 260)) and
             re.search(rf'{NO_REWARD}|竞技币|排名|领取', screen.text((180, 150, 1090, 650)))):
         return 'arena-reward', close_reward(screen)
@@ -55,13 +59,13 @@ def observe(screen, vision=None):
     return None
 
 
-def tap(point, status, guard=None):
+def tap(operation, point, status, guard=None):
     from ninja3_assistant.activities.daily.flow import DailyDecision
 
     if guard is None:
         x, y = point
         guard = (max(0, x - 50), max(0, y - 25), min(1280, x + 50), min(720, y + 25))
-    return DailyDecision('tap', point, status, guard=guard)
+    return DailyDecision.tap(operation, point, status, guard=guard)
 
 
 def menu_entry(screen, vision):
@@ -76,19 +80,19 @@ def menu_entry(screen, vision):
 
 def navigate(screen, vision):
     if screen.page == 'arena-history' and screen.point:
-        return tap(screen.point, '关闭竞技场上次成绩', HISTORY_BUTTON)
+        return tap('dismiss_arena_history', screen.point, '关闭竞技场上次成绩', HISTORY_BUTTON)
     if screen.page == 'arena-trophy' and screen.point:
-        return tap(screen.point, '关闭竞技场奖杯结算', TROPHY_BUTTON)
+        return tap('dismiss_arena_trophy', screen.point, '关闭竞技场奖杯结算', TROPHY_BUTTON)
     if screen.page == 'arena-currency' and screen.point:
-        return tap(screen.point, '确认上次未领取竞技币', CURRENCY_BUTTON)
+        return tap('dismiss_arena_currency', screen.point, '确认上次未领取竞技币', CURRENCY_BUTTON)
     if screen.page == 'home':
         hits = screen.hits(rf'{ARENA_TITLE}|决[斗鬥]场', (970, 525, 1280, 700))
         point = hits[0].point if hits else (1110, 625)
-        return tap(point, '从主页进入决斗场', (985, 550, 1245, 682))
+        return tap('open_arena_menu', point, '从主页进入决斗场', (985, 550, 1245, 682))
     if screen.page == 'arena-menu':
         point = menu_entry(screen, vision)
         if point:
-            return tap(point, '进入竞技场', MENU_CARD)
+            return tap('open_arena', point, '进入竞技场', MENU_CARD)
     return None
 
 
@@ -106,6 +110,7 @@ class ArenaReward:
     def __init__(self):
         self.claimed = False
         self.pending = False
+        self.opening = False
         self.finished = False
 
     def step(self, screen, vision):
@@ -115,43 +120,54 @@ class ArenaReward:
             if screen.page == 'home':
                 return DailyDecision('done', status='竞技场结算奖励已检查')
             if screen.page in ('arena', 'arena-menu'):
-                return tap(screen.point, '返回主页，继续每日清理')
+                return tap('back', screen.point, '返回主页，继续每日清理')
         if screen.page in ('reward', 'reward_continue') and self.pending:
             self.claimed = True
             self.pending = False
             return None  # Use the shared reward dismissal.
         if screen.page == 'arena-reward':
+            self.opening = False
+            reward = ArenaRewardPage.observe(screen)
+            if reward is not None:
+                if not (self.claimed or self.pending) and reward.claim_point is not None:
+                    return tap('claim_arena_reward', reward.claim_point, '领取竞技场排名奖励')
+                return DailyDecision(status='等待确认竞技场排名奖励状态')
             region = (180, 125, 1090, 670)
             if re.search(NO_REWARD, screen.text(region)) or self.claimed:
                 self.pending = False
                 self.claimed = True
                 close = close_reward(screen)
                 if close:
-                    return tap(close, '关闭竞技场结算奖励')
+                    return tap('back', close, '关闭竞技场结算奖励')
             else:
                 claim = screen.hits(r'(?<![已未])领取(?:奖励)?|确认领取', (200, 490, 1070, 680))
                 if len(claim) == 1 and not self.pending:
-                    return tap(claim[0].point, '领取竞技场结算奖励')
+                    return tap('claim_arena_reward', claim[0].point, '领取竞技场结算奖励')
             return DailyDecision(status='等待确认竞技场结算奖励状态')
         if screen.page == 'arena-rules':
-            return tap(RULES_CLOSE, '关闭竞技场排名奖励规则', (640, 135, 1050, 230))
+            return tap('back', RULES_CLOSE, '关闭竞技场排名奖励规则', (640, 135, 1050, 230))
         if screen.page == 'arena':
             stripe = screen.text(RANK_STRIPE)
-            if re.search(RANK_REWARD, stripe):
-                buttons = screen.hits(r'(?<![已未])领取(?:奖励)?', (620, 410, 875, 480))
-                if len(buttons) == 1 and not self.pending and not re.search(NO_REWARD, stripe):
-                    return tap(buttons[0].point, '领取竞技场结算奖励', RANK_STRIPE)
+            if not (self.opening or self.pending or self.claimed or re.search(NO_REWARD, stripe)):
+                if point := rank_reward_entry(screen.frame):
+                    return tap('open_arena_reward', point, '打开竞技场排名奖励')
             countdown = (re.search(RANK_REWARD, stripe) and
                          re.search(r'\d+(?:小[时時]|分钟?|秒)', screen.text((670, 410, 855, 480))))
             unranked = screen.hits('50名玩家共同参加小组赛', (280, 415, 1000, 500))
-            if self.claimed or countdown or unranked or re.search(NO_REWARD, stripe):
+            exhausted = countdown or re.search(NO_REWARD, stripe)
+            if self.pending and exhausted:
+                self.pending = False
+                self.claimed = True
+            if self.claimed or exhausted or unranked:
                 self.finished = True
-                return tap(BACK, '返回主页，继续每日清理')
+                return tap('back', BACK, '返回主页，继续每日清理')
             return DailyDecision(status='等待确认竞技场结算奖励入口', defer_on_timeout=True)
         if screen.page.startswith('landlady-'):
             return None  # Leave quiz screens through shared daily navigation.
         return navigate(screen, vision)
 
     def completed(self, decision, screen):
-        if decision.status == '领取竞技场结算奖励':
+        if decision.operation == 'open_arena_reward':
+            self.opening = True
+        elif decision.operation == 'claim_arena_reward':
             self.pending = True

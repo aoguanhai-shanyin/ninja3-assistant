@@ -118,12 +118,26 @@ class DailyBountyVisionTest(unittest.TestCase):
         self.assertEqual(after.entry,(1045,161))
         flow=DailyBountyFlow('bounty','A')
         swipe=flow.step(before,self.vision)
-        self.assertEqual((swipe.point,swipe.end),((1080,400),(280,400)))
+        self.assertEqual((swipe.point,swipe.end),((850,400),(430,400)))
         self.assertTrue(self.vision.current_action(before,swipe,first))
         self.assertFalse(self.vision.current_action(before,swipe,second))
         tap=flow.step(after,self.vision)
         self.assertTrue(self.vision.current_action(after,tap,second))
         self.assertFalse(self.vision.current_action(after,tap,first))
+
+        mask=self.vision.hall_entry_mask != 0
+        height,width=mask.shape
+        x,y=after.entry[0]-width//2,after.entry[1]-height//2
+        moved=first.copy()
+        patch=moved[y:y+height,x-339:x-339+width]
+        patch[:]=(25,155,175)
+        patch[mask]=second[y:y+height,x:x+width][mask]
+        relocated=self.vision.observe(moved,{'words':[]})
+        self.assertEqual(relocated.entry,(706,161))
+        self.assertFalse(self.vision.current_action(after,tap,moved))
+        self.assertFalse(self.vision.current_action(before,swipe,moved))
+        current=flow.step(relocated,self.vision)
+        self.assertTrue(self.vision.current_action(relocated,current,moved))
 
     def test_real_bounty_task_panel_including_claimed_ocr_error(self):
         folder=project_root()/'data/evidence/2026-11-17/daily-exploration'

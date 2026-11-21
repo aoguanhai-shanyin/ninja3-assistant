@@ -10,6 +10,7 @@ from ninja3_assistant.activities.daily.landlady import (
     LandladyQuiz, ROW_CENTERS, observe as quiz_page, read_question, recover_question_ocr, same_prompt,
 )
 from ninja3_assistant.activities.daily.vision import DailyScreen
+from ninja3_assistant.game_ui.arena import rank_reward_entry
 
 
 def screen(*words, page='unknown', frame=None):
@@ -110,6 +111,35 @@ class ArenaRewardTests(unittest.TestCase):
         self.assertEqual(flow.step(panel, None).action, 'wait')
         self.assertIsNone(flow.step(screen(page='reward_continue'), None))
         self.assertEqual(flow.step(screen(page='arena'), None).point, (60, 50))
+
+    def test_rank_reward_requires_a_visible_control_and_confirms_only_after_feedback(self):
+        frame = np.zeros((720, 1280, 3), np.uint8)
+        frame[414:472, 140:876] = (242, 155, 18)
+        for x in range(727, 855, 20):
+            frame[435:451, x:x+3] = (246, 240, 231)
+            frame[435:439, x:x+14] = (246, 240, 231)
+            frame[447:451, x:x+14] = (246, 240, 231)
+        lobby = screen(page='arena', frame=frame)
+        reward = ArenaReward()
+        action = reward.step(lobby, None)
+        self.assertEqual(action.operation, 'open_arena_reward')
+        self.assertEqual(action.point, rank_reward_entry(frame))
+        reward.completed(action, lobby)
+        self.assertEqual(reward.step(lobby, None).action, 'wait')
+        self.assertFalse(reward.pending)
+        self.assertFalse(reward.claimed)
+        panel = screen(('竞技场结算', 552, 135, 130), ('领取奖励', 590, 581, 100), page='arena-reward')
+        claim = reward.step(panel, None)
+        self.assertEqual(claim.operation, 'claim_arena_reward')
+        reward.completed(claim, panel)
+        self.assertIsNone(reward.step(screen(page='reward_continue'), None))
+        self.assertEqual(reward.step(lobby, None).operation, 'back')
+
+        countdown = frame.copy()
+        countdown[425:461, 683:849] = (71, 38, 7)
+        self.assertIsNone(rank_reward_entry(countdown))
+        self.assertEqual(ArenaReward().step(screen(('领取', 753, 433, 50), page='arena',
+                                                   frame=countdown), None).action, 'wait')
 
 
 class LandladyQuizTests(unittest.TestCase):

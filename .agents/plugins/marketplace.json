@@ -1,0 +1,28 @@
+{
+  "name": "winappcli",
+  "interface": { "displayName": "WinApp CLI" },
+  "plugins": [
+    {
+      "name": "winappcli",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/microsoft/WinAppCli.git",
+        "path": "./plugins/winapp",
+        "sha": "83bd114b14c270a4fd4cef8a2394c448eb5f43db"
+      },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "winui",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/microsoft/WinAppCli.git",
+        "path": "./plugins/winui",
+        "sha": "83bd114b14c270a4fd4cef8a2394c448eb5f43db"
+      },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    }
+  ]
+}

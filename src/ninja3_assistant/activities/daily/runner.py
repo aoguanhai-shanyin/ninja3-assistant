@@ -10,11 +10,16 @@ import cv2
 from ninja3_assistant.paths import project_root
 from ninja3_assistant.activities.daily import DEFAULT_PET_FEED_REWARD
 from ninja3_assistant.activities.daily.flow import DailyFlow
-from ninja3_assistant.activities.daily.vision import DailyScreen, DailyVision
-from ninja3_assistant.activities.daily.resources import resource_path, load_deadline, save_deadline, remaining_seconds
+from ninja3_assistant.game_ui.trial import read_trial_counter
+from ninja3_assistant.activities.daily.vision import DailyVision
+from ninja3_assistant.activities.daily.resources import resource_path, load_deadline, save_deadline
 from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.device.native_touch import create_native_touch, executable_path
+from ninja3_assistant.game_ui import GameUI, NavigationError, PageAction, PageObservation
+from ninja3_assistant.game_ui.arena import ArenaRewardPage
+from ninja3_assistant.game_ui.house import HousePage, house_view, read_house_clock
+from ninja3_assistant.game_ui.pages import MenuVision, ROUTES, page_id
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
 
@@ -40,7 +45,7 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
         from ninja3_assistant.activities.daily.friend_rice import FriendRice
         task_flow = FriendRice(resources.with_name(resources.stem+'-friend-rice.json'))
     flow = DailyFlow(kind,training_finishes_at=load_deadline(resources),task_flow=task_flow)
-    persistent_ocr = kind in ('blessing','daily_shop','friend_rice')
+    persistent_ocr = kind in ('blessing','daily_shop','friend_rice','house','village','arena_reward')
     vision,ocr = DailyVision(),WindowsOcr(persistent=persistent_ocr)
     lock = threading.Lock()
     with (output/'events.jsonl').open('w',encoding='utf-8') as log:
@@ -59,6 +64,22 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
             if native is None:
                 raise RuntimeError('每日清理需要 NinjaTouch.exe')
             control.set_release_input(native.stop_all)
+
+            def swipe(point, end):
+                native.stop_all()
+                if control.stop.is_set():
+                    return False
+                subprocess.run([str(executable_path()),'--folder',str(folder),'--index',str(index),
+                    '--swipe',*map(str,(*point,*end))],capture_output=True,check=True,timeout=8,
+                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                return True
+
+            recognize = None
+            if kind in ('house','arena_reward'):
+                recognize = MenuVision(control.stop)
+                recognize.daily = vision
+                recognize.ocr = ocr
+            ui = GameUI(control,device.capture,native,swipe=swipe,recognize=recognize,routes=ROUTES)
             emit('state','running')
             emit('status','每日清理记录：'+str(output))
             started = control.now()
@@ -68,6 +89,7 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
             waiting_state = waiting_since = waiting_snapshot_at = None
             while control.wait_active() and control.now()-started < 240:
                 generation = control.generation()
+                captured_at = time.perf_counter()
                 frame = device.capture()
                 if kind == 'landlady_quiz' and task_flow.pending:
                     # Answer feedback advances automatically while full-frame OCR is still running.
@@ -76,6 +98,7 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                         if (task_flow.observe_feedback(frame) or time.perf_counter() >= until or
                                 control.stop.wait(.12)):
                             break
+                        captured_at = time.perf_counter()
                         frame = device.capture()
                 # Trial counters are small; enlarging sign-in pages loses whole rows.
                 scale = 1.5 if vision.match(frame,'trial',(0,0,470,120)) else 1
@@ -92,38 +115,16 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                 if scale != 1:
                     for word in result['words']:
                         word['bbox'] = [v/scale for v in word['bbox']]
-                    header = cv2.copyMakeBorder(cv2.resize(frame[:90,1100:],None,fx=3,fy=3),
-                                                60,60,100,100,cv2.BORDER_CONSTANT,value=(0,0,0))
-                    counter = ocr.read(header,stop=control.stop)
+                    counter = read_trial_counter(frame,ocr,control.stop)
                     if counter is None:
                         continue
                     result['words'] = [w for w in result['words'] if not
                                        (w['bbox'][0] >= 1100 and w['bbox'][1] < 90)]
-                    for word in counter['words']:
-                        x,y,w,h = word['bbox']
-                        result['words'].append({**word,'bbox':[(x-100)/3+1100,(y-60)/3,w/3,h/3]})
-                    result['food_counter'] = counter
-                    if vision.food(DailyScreen(frame,result)) is None:
-                        digits = cv2.resize(frame[38:60,1160:1210],None,fx=4,fy=4)
-                        repeated = cv2.copyMakeBorder(cv2.hconcat([digits]*3),40,40,40,40,
-                                                     cv2.BORDER_CONSTANT,value=(255,255,255))
-                        counter = ocr.read(repeated,stop=control.stop)
-                        if counter is None:
-                            continue
-                        result['food_counter_repeat'] = counter
-                if vision.match(frame,'house',(950,0,1280,135)):
-                    clock_image = cv2.copyMakeBorder(cv2.resize(frame[675:710,250:410],None,fx=4,fy=4),
-                                                     30,30,30,30,cv2.BORDER_CONSTANT,value=(0,0,0))
-                    clock_result = ocr.read(clock_image,stop=control.stop)
-                    if clock_result is None:
+                    result['food_counter_repeat'] = counter
+                if vision.house(frame):
+                    result = read_house_clock(frame,result,ocr,control.stop)
+                    if result is None:
                         continue
-                    result['words'] = [w for w in result['words'] if not
-                                       (250 <= w['bbox'][0]+w['bbox'][2]/2 < 410 and
-                                        675 <= w['bbox'][1]+w['bbox'][3]/2 < 710)]
-                    for word in clock_result['words']:
-                        x,y,w,h = word['bbox']
-                        result['words'].append({**word,'bbox':[(x-30)/4+250,(y-30)/4+675,w/4,h/4]})
-                    result['house_clock'] = clock_result
                 if not control.wait_active():
                     return TaskOutcome.STOPPED
                 if generation != control.generation():
@@ -151,13 +152,14 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                     safe_invite = screen.page not in ('unknown','trial') and not screen.page.startswith('landlady-')
                     if safe_invite:
                         clear_handled_invitation(control)
-                if kind == 'house' and screen.page == 'house':
-                    countdown = remaining_seconds(screen.text((245,590,460,715)))
-                    if countdown is not None and countdown > 0:
+                house = None
+                if kind == 'house' and screen.page in ('house','house_continue'):
+                    house = house_view(vision,screen)
+                    if house.training_remaining:
                         observed_at = time.time()
-                        flow.training_finishes_at = observed_at+countdown
+                        flow.training_finishes_at = observed_at+house.training_remaining
                         save_deadline(resources,flow.training_finishes_at,observed_at)
-                decision = flow.step(screen,vision)
+                decision = flow.step(screen,vision,house)
                 now = control.now()
                 if decision.action == 'wait':
                     current_wait = (screen.page,decision.status)
@@ -174,7 +176,7 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                     image = f'{sequence:04d}-{screen.page}-{decision.action}.png'
                     cv2.imwrite(str(output/image),cv2.cvtColor(frame,cv2.COLOR_RGB2BGR))
                     record({'event':'decision','page':screen.page,'action':decision.action,
-                            'point':decision.point,'status':decision.status,'frame':image,
+                            'operation':decision.operation,'point':decision.point,'status':decision.status,'frame':image,
                             'ocr':result,'free_kind':decision.free_kind,'rice_gifts':decision.rice_gifts})
                     sequence += 1
                     emit('status',decision.status)
@@ -199,35 +201,69 @@ def run_daily(kind, folder, index, control, emit, *, pet_feed_reward=DEFAULT_PET
                     flow.completed(decision,screen)
                     if {'anniversary','ten-signin'} <= flow.limited_checked:
                         return TaskOutcome.DAILY_DONE
+                    if flow.anniversary_missing and screen.page == 'ten-signin':
+                        emit('status','十日签到已检查，主页限时签到入口暂未确认')
+                        return TaskOutcome.DEFERRED_TODAY
                     point = (1195,98) if screen.page == 'anniversary' else (1220,705)
                     decision = flow.back(point)
-                if decision.point is not None:
-                    def act():
-                        if generation != control.generation():
-                            return
-                        fresh = device.capture()
+                if decision.operation in ('open_house','open_arena_reward'):
+                    page_type = HousePage if decision.operation == 'open_house' else ArenaRewardPage
+                    try:
+                        page = ui.navigate(page_type)
+                    except NavigationError as error:
+                        result = error.result
+                        record({'event':'navigation','page':result.page,'status':result.status})
+                        if result.status == 'stopped':
+                            return TaskOutcome.STOPPED
+                        if result.page in ('game.invite','game.update','daily.house_continue') or control.paused():
+                            continue
+                        emit('status','未能确认目标页面，稍后重试')
+                        return TaskOutcome.WAITING
+                    details = ({'training_remaining':page.training_remaining} if isinstance(page,HousePage)
+                               else {'rank':page.rank,'amount':page.amount})
+                    record({'event':'navigation','page':page.observation.page,'status':'arrived',**details})
+                    flow.completed(decision,screen)
+                    continue
+                if decision.point is not None and decision.operation:
+                    def still_visible(fresh):
                         if not vision.current_action(screen,decision,fresh):
                             record({'event':'input_rejected','reason':'button_changed_or_not_free'})
-                            return
+                            return False
+                        return True
+
+                    def reserve_gifts():
                         if decision.rice_gifts and not task_flow.reserve(decision.rice_gifts):
                             record({'event':'input_rejected','reason':'rice_gift_limit'})
-                            return
-                        captured = time.perf_counter()
-                        if decision.end:
-                            native.stop_all()
-                            subprocess.run([str(executable_path()),'--folder',str(folder),'--index',str(index),
-                                '--swipe',*map(str,(*decision.point,*decision.end))],capture_output=True,
-                                check=True,timeout=8,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-                            acted = True
-                        else:
-                            acted = native.priority_tap(decision.point,captured_at=captured,
-                                deadline=captured+.25,wait_seconds=.2,hold_seconds=.07)
+                            return False
+                        return True
+
+                    identifier = page_id('daily',screen.page)
+                    if house is not None and decision.operation in house.controls:
+                        observed = PageObservation(identifier,frame,generation,captured_at,house.controls,detail=house)
+                        page = HousePage(ui,observed)
+                        acted = (page.collect_fragments() if decision.operation == 'claim_training'
+                                 else page.continue_training())
+                        if not acted:
+                            record({'event':'input_rejected','reason':'house_action_not_confirmed'})
+                    elif (decision.operation == 'claim_arena_reward' and (reward := ArenaRewardPage.observe(screen))
+                          and (action := reward.claim_action(frame))):
+                        observed = PageObservation(identifier,frame,generation,captured_at,
+                                                   {action.name:action},detail=reward)
+                        acted = ArenaRewardPage(ui,observed).claim_reward()
+                        if not acted:
+                            record({'event':'input_rejected','reason':'arena_reward_not_confirmed'})
+                    else:
+                        action = PageAction(decision.operation,decision.point,decision.end,
+                                            guard=still_visible,hold_seconds=.07,max_age=.25)
+                        observed = PageObservation(identifier,frame,generation,captured_at,
+                                                   {action.name:action},detail=screen)
+                        acted = ui.perform(observed,action.name,before_send=reserve_gifts)
+                    if acted:
+                        if not decision.end:
                             control.stop.wait(.09)
-                        if acted:
-                            flow.completed(decision,screen)
-                            record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind,
-                                    'rice_gifts':decision.rice_gifts})
-                    control.run_if_active(act)
+                        flow.completed(decision,screen)
+                        record({'event':'input_sent','operation':decision.operation,'point':decision.point,
+                                'free_kind':decision.free_kind,'rice_gifts':decision.rice_gifts})
                 control.stop.wait(.17 if screen.page.startswith('landlady-') and decision.action == 'tap' else .65)
             if control.stop.is_set():
                 return TaskOutcome.STOPPED

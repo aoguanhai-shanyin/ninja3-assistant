@@ -7,6 +7,7 @@ from ninja3_assistant.paths import project_root
 from ninja3_assistant.activities.daily.flow import DailyFlow
 from ninja3_assistant.activities.daily.vision import DailyVision
 from ninja3_assistant.activities.daily.resources import remaining_seconds
+from ninja3_assistant.game_ui.house import house_view
 
 
 DATA=project_root()/'data/evidence/2026-11-16/daily-exploration'
@@ -33,6 +34,84 @@ class DailyMenuReplayTest(unittest.TestCase):
         outcome = flow.step(denied, self.vision)
         self.assertEqual(outcome.action, 'maintenance')
         self.assertIsNone(outcome.point)
+
+    def test_arena_rank_reward_survives_missing_ocr_and_unrelated_animation(self):
+        from ninja3_assistant.activities.daily.arena import ArenaReward, RANK_STRIPE
+        from ninja3_assistant.game_ui.arena import rank_reward_entry
+
+        run = '20261119-162520-622800-arena_reward'
+        first = self.runtime_screen(run, '0003-arena-wait.png')
+        fresh = self.runtime_screen(run, '0004-arena-wait.png')
+        self.assertEqual(first.page, 'arena')
+        self.assertNotIn('领取', first.text(RANK_STRIPE))
+        action = ArenaReward().step(first, self.vision)
+        self.assertEqual(action.operation, 'open_arena_reward')
+        self.assertEqual(action.point, (791, 442))
+        self.assertTrue(self.vision.current_action(first, action, fresh.frame))
+
+        animated = fresh.frame.copy()
+        animated[433:464, 345:668] = (220, 220, 220)
+        self.assertTrue(self.vision.current_action(first, action, animated))
+        hidden_label = fresh.frame.copy()
+        hidden_label[428:460, 719:864] = (242, 155, 18)
+        self.assertFalse(self.vision.current_action(first, action, hidden_label))
+
+        countdown = cv2.cvtColor(cv2.imread(str(project_root() /
+            'data/evidence/2026-11-18/daily-exploration/113300-arena-lobby.png')), cv2.COLOR_BGR2RGB)
+        for other in (countdown, self.runtime_screen(run, '0002-arena-wait.png').frame,
+                      self.runtime_screen(run, '0001-arena-menu-tap.png').frame):
+            self.assertIsNone(rank_reward_entry(other))
+            self.assertFalse(self.vision.current_action(first, action, other))
+
+    def test_arena_rank_reward_panel_separates_entry_claim_and_feedback(self):
+        from ninja3_assistant.activities.daily.arena import ArenaReward
+        from ninja3_assistant.activities.daily.vision import DailyScreen
+        from ninja3_assistant.game_ui.arena import ArenaRewardPage
+
+        run = '20261119-164720-257000-arena_reward'
+        lobby = self.runtime_screen(run, '0005-arena-tap.png')
+        panel = self.runtime_screen(run, '0006-unknown-wait.png')
+        fresh = self.runtime_screen(run, '0008-unknown-wait.png')
+        flow = ArenaReward()
+
+        entry = flow.step(lobby, self.vision)
+        self.assertEqual(entry.operation, 'open_arena_reward')
+        flow.completed(entry, lobby)
+        self.assertFalse(flow.pending)
+        self.assertEqual(panel.page, 'arena-reward')
+        self.assertIsNone(panel.point)
+        reward = ArenaRewardPage.observe(panel)
+        self.assertEqual((reward.rank, reward.amount), (28, 2065))
+        action = reward.claim_action(panel.frame)
+        self.assertEqual(action.name, 'claim_arena_reward')
+        decision = flow.step(panel, self.vision)
+        self.assertEqual((decision.operation, decision.point), (action.name, action.point))
+        self.assertTrue(action.guard(fresh.frame))
+
+        other_pixels = fresh.frame.copy()
+        other_pixels[245:490, 320:990] = (190, 190, 190)
+        other_pixels[173:207, 957:1014] = 255
+        self.assertTrue(action.guard(other_pixels))
+        for x1, y1, x2, y2 in ((660, 89, 793, 124), (323, 184, 486, 209),
+                               (521, 550, 803, 612), (763, 564, 797, 594)):
+            with self.subTest(removed=(x1, y1, x2, y2)):
+                changed = fresh.frame.copy()
+                changed[y1:y2, x1:x2] = 0
+                self.assertFalse(action.guard(changed))
+        self.assertFalse(action.guard(lobby.frame))
+
+        hidden_button = panel.frame.copy()
+        hidden_button[540:620, 509:816] = 0
+        observed = ArenaRewardPage.observe(DailyScreen(hidden_button, panel.ocr))
+        self.assertIsNone(observed.claim_action(hidden_button))
+        flow.completed(decision, panel)
+        self.assertTrue(flow.pending)
+        self.assertEqual(flow.step(fresh, self.vision).action, 'wait')
+        self.assertFalse(flow.claimed)
+        feedback = DailyScreen(fresh.frame, {'words': []}, 'reward_continue')
+        self.assertIsNone(flow.step(feedback, self.vision))
+        self.assertTrue(flow.claimed)
+        self.assertEqual(flow.step(lobby, self.vision).operation, 'back')
 
     def test_login_recovers_missing_switch_caption_without_guessing_other_pages(self):
         s=self.runtime_screen('20261117-094029-108500-limited','0001-unknown-wait.png')
@@ -155,6 +234,43 @@ class DailyMenuReplayTest(unittest.TestCase):
                      '172320-summon-guide-dismiss','085932-trial-first-done'):
             with self.subTest(other=stem):
                 self.assertIsNone(self.vision.family_entry(self.read(stem).frame))
+
+    def test_family_courtyard_and_drum_survive_partial_character_occlusion(self):
+        run = '20261119-161355-316100-blessing'
+        for name in ('0004-unknown-wait.png', '0005-unknown-wait.png'):
+            with self.subTest(frame=name):
+                screen = self.runtime_screen(run, name)
+                self.assertEqual(self.vision.navigation(screen.frame), ('family', (90, 65)))
+                self.assertEqual(self.vision.observe(screen.frame, {'words': []}).page, 'family')
+                action = DailyFlow('blessing').step(screen, self.vision)
+                self.assertEqual(action.operation, 'open_prayer')
+                self.assertLess(abs(action.point[0] - 405), 25)
+                self.assertLess(abs(action.point[1] - 465), 25)
+                self.assertTrue(self.vision.current_action(screen, action, screen.frame))
+
+    def test_family_courtyard_can_be_left_while_the_drum_is_fully_hidden(self):
+        run = '20261119-161355-316100-blessing'
+        source = self.runtime_screen(run, '0005-unknown-wait.png')
+        prayer = DailyFlow('blessing').step(source, self.vision)
+        covered = source.frame.copy()
+        covered[250:650, 250:650] = 0
+        screen = self.vision.observe(covered, {'words': []})
+
+        self.assertIsNone(self.vision.family_entry(covered))
+        self.assertEqual(self.vision.navigation(covered), ('family', (90, 65)))
+        self.assertEqual(screen.page, 'family')
+        self.assertIsNone(DailyFlow('blessing').step(screen, self.vision).point)
+        back = DailyFlow('weapon').step(screen, self.vision)
+        self.assertEqual((back.operation, back.point), ('back', (90, 65)))
+        self.assertTrue(self.vision.current_action(screen, back, covered))
+        self.assertEqual(prayer.operation, 'open_prayer')
+        self.assertFalse(self.vision.current_action(source, prayer, covered))
+        for name in ('0000-home-tap.png', '0002-unknown-wait.png'):
+            with self.subTest(frame=name):
+                foreign = self.runtime_screen(run, name).frame
+                self.assertNotEqual(self.vision.navigation(foreign)[0], 'family')
+                self.assertFalse(self.vision.current_action(source, prayer, foreign))
+                self.assertFalse(self.vision.current_action(screen, back, foreign))
 
     def test_free_and_paid_screens_are_distinct_for_all_three_free_operations(self):
         for kind,before,after in (
@@ -345,6 +461,14 @@ class DailyMenuReplayTest(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertEqual(DailyFlow(kind).step(s,self.vision).point,point)
 
+    def test_named_summon_action_rejects_a_moved_control_on_the_same_page(self):
+        before = self.read('104405-rank-back')
+        after = self.read('165731-daily-interference-current')
+        decision = DailyFlow('weapon').step(before,self.vision)
+        self.assertEqual((before.page, after.page, decision.operation), ('home', 'home', 'open_summon'))
+        self.assertTrue(self.vision.current_action(before, decision, before.frame))
+        self.assertFalse(self.vision.current_action(before, decision, after.frame))
+
     def test_rank_daily_and_preview_pages_are_both_recognized_for_handoff(self):
         for stem in ('104338-hidden-state','104526-blocked-state'):
             with self.subTest(stem=stem):
@@ -488,6 +612,47 @@ class DailyMenuReplayTest(unittest.TestCase):
         s=self.runtime_screen('20261116-150734-344900-house','0003-house-wait.png')
         self.assertEqual(remaining_seconds(s.text((245,590,460,715))),17*3600+53*60)
         self.assertEqual(DailyFlow('house').step(s,self.vision).action,'done')
+
+    @unittest.skipUnless((project_root()/'data/runtime/daily-cleanup/runs/20261119-183429-647700-house'
+                         /'0005-house-wait.png').is_file(), 'requires captured house completion')
+    def test_house_completion_recovers_when_ocr_omits_a_glyph_and_the_room_differs(self):
+        run = '20261119-183429-647700-house'
+        observed = self.runtime_screen(run,'0004-house-wait.png')
+        fresh = self.runtime_screen(run,'0005-house-wait.png')
+        self.assertNotIn('修炼完成',observed.text((270,590,420,715)))
+        decision = DailyFlow('house').step(observed,self.vision)
+        self.assertEqual((decision.operation,decision.point),('claim_training',(320,650)))
+        action = house_view(self.vision,observed).controls['claim_training']
+        self.assertTrue(action.guard(fresh.frame))
+        countdown = self.runtime_screen('20261116-150734-344900-house','0003-house-wait.png')
+        self.assertFalse(action.guard(countdown.frame))
+
+    @unittest.skipUnless((project_root()/'data/runtime/daily-cleanup/runs/20261119-162605-204400-house'
+                         /'0004-unknown-wait.png').is_file(), 'requires captured alternate house room')
+    def test_house_control_checks_each_masked_label_on_the_new_room(self):
+        current = self.runtime_screen('20261119-162605-204400-house','0004-unknown-wait.png')
+        self.assertEqual(current.page,'house')
+        self.assertTrue(self.vision.house(current.frame))
+        changed = current.frame.copy()
+        changed[135:600] = 0
+        self.assertTrue(self.vision.house(changed))
+        for left,right in ((1067,1167),(1170,1268)):
+            with self.subTest(missing_label=left):
+                changed = current.frame.copy()
+                changed[76:116,left:right] = 0
+                self.assertFalse(self.vision.house(changed))
+
+    def test_house_continue_rechecks_fee_digit_and_confirm_control(self):
+        prompt = self.read('100018-house-reward-done')
+        view = house_view(self.vision,prompt)
+        self.assertTrue(view.can_continue_training)
+        action = view.controls['continue_training']
+        self.assertTrue(action.guard(prompt.frame))
+        for left,top,right,bottom in ((577,361,589,380),(776,514,840,546)):
+            with self.subTest(changed=left):
+                fresh = prompt.frame.copy()
+                fresh[top:bottom,left:right] = fresh[top:bottom,left-1:left]
+                self.assertFalse(action.guard(fresh))
 
     def test_trial_chooses_the_rightmost_cleared_stage_and_never_launches_battle(self):
         flow=DailyFlow('village')

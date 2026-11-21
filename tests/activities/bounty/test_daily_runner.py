@@ -70,6 +70,7 @@ class DailyBountyRunnerTest(unittest.TestCase):
         vision.navigation.side_effect = navigation_pages
         vision.match.return_value = vision.common.match.return_value = None
         vision.order_result_confirm.return_value = None
+        vision.defeat_confirm.return_value = None
         vision.tasks_panel.return_value = tasks_overlay
         vision.common.invitations.detect.return_value = (470,510) if page == 'invite' else None
         vision.observe.return_value = Mock(page=ocr_page or page or 'unknown')
@@ -195,7 +196,8 @@ class DailyBountyRunnerTest(unittest.TestCase):
         ocr.read.assert_called_once()
 
     def test_changed_free_button_is_rejected_before_touch_and_is_not_completed(self):
-        decision = DailyDecision('tap',(640,480),'领取免费次数',free_kind='bounty',guard=(530,450,746,507))
+        decision = DailyDecision('tap',(640,480),'领取免费次数',free_kind='bounty',guard=(530,450,746,507),
+                                 operation='claim_free_quota')
         _,_,native,vision,_,_,flow,_ = self.run_simulation(
             [BountyBattleState()],page='bounty_free',decision=decision,fresh=False)
         vision.current_action.assert_called_once()
@@ -238,7 +240,7 @@ class DailyBountyRunnerTest(unittest.TestCase):
     def test_expired_invitation_does_not_start_an_unrelated_bounty(self):
         outcome,_,native,_,_,_,flow,_ = self.run_simulation(
             [BountyBattleState()],page='bounty_daily',invite_only=True,
-            decision=DailyDecision('tap',(875,670),'创建A级每日悬赏队伍'))
+            decision=DailyDecision('tap',(875,670),'创建A级每日悬赏队伍',operation='create_room'))
         self.assertIs(outcome,TaskOutcome.WAITING)
         flow.step.assert_not_called()
         native.priority_tap.assert_not_called()
@@ -246,7 +248,7 @@ class DailyBountyRunnerTest(unittest.TestCase):
     def test_changed_invitation_is_not_accepted_or_declined_in_handoff(self):
         outcome,_,native,_,_,_,flow,_ = self.run_simulation(
             [BountyBattleState()],page='invite',invite_only=True,
-            decision=DailyDecision('tap',(470,510),'拒绝队友或家族邀请'))
+            decision=DailyDecision('tap',(470,510),'拒绝队友或家族邀请',operation='decline_invite'))
         self.assertIs(outcome,TaskOutcome.WAITING)
         flow.completed.assert_not_called()
         native.priority_tap.assert_not_called()
@@ -312,9 +314,9 @@ class DailyBountyRunnerTest(unittest.TestCase):
         vision.current_action.return_value = True
         combat_vision.detect.return_value = BountyBattleState()
         ocr.read.return_value = {'words':[]}
-        flow.step.side_effect = [DailyDecision('tap',(810,526),'接受好友A级悬赏邀请'),
-                                 DailyDecision('tap',(1100,660),'悬赏队伍准备'),
-                                 DailyDecision('tap',(640,680),'确认悬赏结算')]
+        flow.step.side_effect = [DailyDecision('tap',(810,526),'接受好友A级悬赏邀请',operation='accept_invite'),
+                                 DailyDecision('tap',(1100,660),'悬赏队伍准备',operation='ready'),
+                                 DailyDecision('tap',(640,680),'确认悬赏结算',operation='confirm_settlement')]
         events = []
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             for name,value in (('project_root',lambda:Path(directory)),('prepare_game',Mock(return_value=False)),
@@ -346,7 +348,7 @@ class DailyBountyRunnerTest(unittest.TestCase):
         vision.current_action.return_value = True
         combat_vision.detect.return_value = BountyBattleState()
         ocr.read.return_value = {'words':[]}
-        flow.step.return_value = DailyDecision('tap',(810,526),'接受好友A级悬赏邀请')
+        flow.step.return_value = DailyDecision('tap',(810,526),'接受好友A级悬赏邀请',operation='accept_invite')
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             for name,value in (('project_root',lambda:Path(directory)),('prepare_game',Mock(return_value=False)),
                                ('MuMu',Mock(return_value=device)),('create_native_touch',Mock(return_value=native)),
@@ -390,7 +392,7 @@ class DailyBountyRunnerTest(unittest.TestCase):
         vision.match.return_value = True
         combat_vision.detect.return_value = BountyBattleState()
         ocr.read.return_value = {'words':[]}
-        flow.step.return_value = DailyDecision('tap',(810,525),'确认离开等待中的悬赏队伍')
+        flow.step.return_value = DailyDecision('tap',(810,525),'确认离开等待中的悬赏队伍',operation='confirm_leave')
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             for name,value in (('project_root',lambda:Path(directory)),('prepare_game',Mock(return_value=False)),
                                ('MuMu',Mock(return_value=device)),('create_native_touch',Mock(return_value=native)),

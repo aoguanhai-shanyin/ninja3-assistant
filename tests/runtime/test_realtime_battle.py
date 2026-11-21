@@ -127,8 +127,13 @@ class KernelTest(unittest.TestCase):
         old = core.stamp()
         self.now += .02
         core.capture(Mock())
-        core.cancel_plan(4)
-        self.assertIsNone(core.plan(4,(TimedTap(30,(900,630)),),frame=old))
+        driver.plan.return_value = 7
+        actions = (TimedTap(30,(900,630)),)
+        for finger in (3,4):
+            with self.subTest(finger=finger):
+                core.cancel_plan(finger)
+                self.assertIsNone(core.plan(finger,actions,frame=old))
+                self.assertEqual(core.plan(finger,actions),7)
         driver.release.assert_not_called()
         driver.stop_all.assert_not_called()
 
@@ -141,6 +146,37 @@ class KernelTest(unittest.TestCase):
         core.capture(Mock())
         self.assertIsNone(core.plan(4,(TimedTap(30,(900,630)),),frame=old))
         driver.plan.assert_not_called()
+
+    def test_board_plan_has_one_second_horizon_and_200ms_admission(self):
+        _,core,driver = self.rig()
+        driver.plan.return_value = 7
+        actions = (TimedTap(350,(720,470)),)
+        self.now += .19
+        self.assertEqual(core.plan(5,actions,deadline=self.now+5),7)
+        driver.plan.assert_called_once_with(5,actions,captured_at=10.,deadline=11.)
+        self.now += .02
+        self.assertIsNone(core.plan(5,actions))
+        self.assertEqual(driver.plan.call_count,1)
+
+    def test_board_cancel_requires_a_new_frame_without_cancelling_skills(self):
+        _,core,driver = self.rig()
+        driver.plan.return_value = 7
+        old = core.stamp()
+        self.now += .03
+        core.capture(Mock())
+        core.cancel_plan(5)
+        board = (TimedTap(350,(720,470)),)
+        self.assertIsNone(core.plan(5,board,frame=old))
+        self.assertIsNone(core.plan(5,board))
+        skill = (TimedTap(60,(900,630)),)
+        self.assertEqual(core.plan(4,skill,frame=old),7)
+        driver.plan.assert_called_once_with(4,skill,captured_at=10.,deadline=10.2)
+        self.now += .01
+        core.capture(Mock())
+        self.assertEqual(core.plan(5,board),7)
+        driver.plan.assert_called_with(5,board,captured_at=self.now,deadline=self.now+1)
+        driver.cancel_plan.assert_called_once_with(5)
+        driver.stop_all.assert_not_called()
 
 
 class CadenceTest(unittest.TestCase):

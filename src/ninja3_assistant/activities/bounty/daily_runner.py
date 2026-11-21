@@ -12,12 +12,14 @@ import cv2
 
 from ninja3_assistant.activities.bounty.combat import BountyBattleState, BountyCombat, BountyCombatVision
 from ninja3_assistant.activities.bounty.daily_flow import BountyProgress, DailyBountyFlow
-from ninja3_assistant.activities.bounty.daily_vision import DailyBountyVision
-from ninja3_assistant.activities.daily.flow import DailyDecision
+from ninja3_assistant.activities.bounty.daily_menu import menu_decision
+from ninja3_assistant.activities.bounty.daily_vision import DailyBountyScreen, DailyBountyVision
 from ninja3_assistant.activities.daily.vision import DailyScreen
 from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
 from ninja3_assistant.device.mumu import MuMu, prepare_game
 from ninja3_assistant.device.native_touch import TimedTap, create_native_touch, executable_path
+from ninja3_assistant.game_ui import GameUI, PageAction, PageObservation
+from ninja3_assistant.game_ui.pages import page_id
 from ninja3_assistant.paths import project_root
 from ninja3_assistant.runtime.realtime_battle import FrameDiagnostics, RealtimeBattleKernel
 from ninja3_assistant.scheduling.invitation_handoff import bounty_handoff, clear_handled_invitation
@@ -32,7 +34,7 @@ def _battle_overlay(frame, vision):
         return 'invite'
     if vision.tasks_panel(frame):
         return 'bounty_tasks'
-    if vision.order_result_confirm(frame) is not None:
+    if vision.order_result_confirm(frame) is not None or vision.defeat_confirm(frame) is not None:
         return 'result'
     for name,page,box in (
         ('result-title','result',(540,40,820,135)),
@@ -186,6 +188,15 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
             if native is None:
                 raise RuntimeError('每日悬赏需要 NinjaTouch.exe')
             kernel.attach(native)
+
+            def swipe(start, end):
+                native.stop_all()
+                subprocess.run([str(executable_path()),'--folder',str(folder),'--index',str(index),
+                    '--swipe',*map(str,(*start,*end))],capture_output=True,check=True,timeout=8,
+                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                return True
+
+            ui = GameUI(control,lambda:kernel.capture(device),kernel,swipe=swipe)
             combat = BountyCombat(kernel)
             burst = _OrderJoinBurst(kernel) if grade == 'S' and not invite_only else None
             control.set_release_input(native.stop_all)
@@ -228,6 +239,7 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                 capture_count += 1
                 capture_ms += kernel.capture_ms
                 observed_generation = generation
+                observed_at = kernel.captured_at
                 if game_update_banner(frame):
                     combat.stop()
                     if burst:
@@ -300,7 +312,11 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                     else:
                         combat.stop()
                     if not unknown_grace and (rapid is not None or time.perf_counter() >= next_menu):
-                        if rapid is None:
+                        if page == 'hall':
+                            result = {}
+                            screen = DailyBountyScreen(frame,result,'hall',entry=vision.hall_entry(frame))
+                            next_menu = time.perf_counter()+.12
+                        elif rapid is None:
                             before = time.perf_counter()
                             result = ocr.read(frame,stop=control.stop)
                             menu_ocr_ms += (time.perf_counter()-before)*1000
@@ -354,8 +370,7 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                             in_battle = False
                         if (invite_only and screen.page == 'bounty_room' and
                                 screen.grade is not None and screen.grade != grade):
-                            decision = DailyDecision('tap',(65,50),'悬赏队伍等级不符，离开后继续原任务',
-                                                     guard=(280,0,360,85))
+                            decision = menu_decision(screen,'leave_wrong_grade','悬赏队伍等级不符，离开后继续原任务')
                         else:
                             decision = flow.step(screen,vision)
                         if (burst and rapid is None and page == screen.page == 'bounty_order' and
@@ -364,7 +379,7 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                                 decision.action != 'retry'):
                             order_reference = (screen.remaining,vision.order_counter(frame).copy())
                         accepts_invite = (screen.page == 'invite' and screen.invitation is not None and
-                                          decision.action == 'tap' and decision.point == screen.invitation.accept)
+                                          decision.operation == 'accept_invite' and decision.point == screen.invitation.accept)
                         if invitation and invitation.phase == 'offered' and not accepts_invite:
                             outcome = TaskOutcome.WAITING
                             break
@@ -373,9 +388,8 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                         tracking = progress.tracking(now)
                         tracking['tasks_reused'] = flow.tasks_cached is True
                         menu = (screen.page,decision.action,decision.status,decision.point,remaining,observed_grade,tracking)
-                        order_poll = screen.page == 'bounty_order' and decision.status in (
-                            '刷新悬赏队伍列表','持续刷新，等待S级队伍')
-                        order_burst = burst and decision.status == '加入S级悬赏队伍'
+                        order_poll = screen.page == 'bounty_order' and decision.operation in ('refresh','poll_orders')
+                        order_burst = burst and decision.operation == 'join_order'
                         if burst and not order_burst:
                             burst.stop()
                         if order_poll:
@@ -390,6 +404,7 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                             image = f'{sequence:04d}-{screen.page}-{decision.action}.png'
                             diagnostics.save(output/image,frame)
                             record({'event':'decision','page':screen.page,'action':decision.action,
+                                    'operation':decision.operation,
                                     'point':decision.point,'status':decision.status,'free_kind':decision.free_kind,
                                     'remaining':remaining,'observed_grade':observed_grade,'progress':tracking,
                                     'guard':decision.guard,'frame':image,'ocr':result,
@@ -422,32 +437,25 @@ def run_daily_bounty(folder, index, control, emit, *, grade='D', active_invite=T
                                                 'revision':revision,'remaining':remaining,
                                                 'frame_age_ms':(before-kernel.captured_at)*1000})
                         elif decision.point is not None:
-                            def act():
-                                if observed_generation != control.generation():
-                                    return False
-                                fresh = kernel.capture(device)
-                                if (decision.status == '悬赏队伍等级不符，离开后继续原任务' and
-                                        not vision.match(fresh,'room-footer',(1030,580,1220,625))):
-                                    return False
-                                if not vision.current_action(screen,decision,fresh):
+                            def verify(fresh):
+                                valid = vision.current_action(screen,decision,fresh)
+                                if not valid:
                                     record({'event':'input_rejected','reason':'button_changed_or_not_free'})
-                                    return False
-                                captured = kernel.captured_at
-                                if decision.end:
-                                    native.stop_all()
-                                    subprocess.run([str(executable_path()),'--folder',str(folder),'--index',str(index),
-                                        '--swipe',*map(str,(*decision.point,*decision.end))],capture_output=True,
-                                        check=True,timeout=8,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-                                    acted = True
-                                else:
-                                    acted = kernel.priority_tap(decision.point,captured_at=captured,
-                                        deadline=captured+.2,wait_seconds=.2,hold_seconds=.07)
+                                return valid
+
+                            action = PageAction(decision.operation,decision.point,decision.end,guard=verify,hold_seconds=.07)
+                            observation = PageObservation(page_id('bounty',screen.page),frame,observed_generation,observed_at,
+                                                          {action.name:action},detail=screen)
+
+                            def act():
+                                acted = ui.perform(observation,action.name)
+                                if acted and not decision.end:
                                     control.stop.wait(.09)
                                 if acted:
                                     flow.completed(decision,screen)
                                     if invitation and accepts_invite:
                                         invitation.sent(control.now())
-                                    if invitation and screen.page == 'result':
+                                    if invitation and decision.operation == 'confirm_settlement':
                                         invitation.phase = 'settling'
                                     record({'event':'input_sent','point':decision.point,'free_kind':decision.free_kind,
                                             'status':decision.status})

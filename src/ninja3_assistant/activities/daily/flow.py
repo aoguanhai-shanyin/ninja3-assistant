@@ -5,9 +5,10 @@ import time
 
 import numpy as np
 
-from ninja3_assistant.activities.daily.resources import reserve_food, remaining_seconds
+from ninja3_assistant.activities.daily.resources import reserve_food
 from ninja3_assistant.activities.daily.shop_stock import coin_stock
 from ninja3_assistant.activities.daily.vision import booklet_dialog_grade, bounty_booklet
+from ninja3_assistant.game_ui.house import house_view
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,16 @@ class DailyDecision:
     guard: tuple | None = None
     defer_on_timeout: bool = False
     rice_gifts: int = 0
+    operation: str = ''
+    value: object = None
+
+    @classmethod
+    def tap(cls, operation, point, status, **kwargs):
+        return cls('tap', point, status, operation=operation, **kwargs)
+
+    @classmethod
+    def swipe(cls, operation, point, status, end, **kwargs):
+        return cls('swipe', point, status, end, operation=operation, **kwargs)
 
 
 class DailyFlow:
@@ -31,6 +42,7 @@ class DailyFlow:
         self.reward_seen = False
         self.scans = 0
         self.limited_checked = set()
+        self.anniversary_missing = False
         self.visited_stages = set()
         self.stage = None
         self.bounty_at_start = False
@@ -39,49 +51,48 @@ class DailyFlow:
         self.rank_daily_checked = False
         self.rank_weekly_checked = False
 
-    def tap(self, point, status, **kwargs):
-        return DailyDecision('tap',point,status,**kwargs)
-
     def back(self, point=(65,50)):
-        return self.tap(point,'返回主页，继续每日清理')
+        return DailyDecision.tap('back',point,'返回主页，继续每日清理')
 
-    def step(self, screen, vision):
+    def step(self, screen, vision, house=None):
         page,text = screen.page,screen.text()
         if page == 'invite':
-            return self.tap(screen.point,'拒绝队友或家族邀请',guard=(340,475,940,585))
+            return DailyDecision.tap('decline_invite',screen.point,'拒绝队友或家族邀请',guard=(340,475,940,585))
         if page == 'login':
-            return self.tap(screen.point,'登录当前已选账号')
+            return DailyDecision.tap('login',screen.point,'登录当前已选账号')
         if page == 'summon-guide':
-            return self.tap((640,100),'关闭召唤说明，继续每日清理',guard=(650,230,785,280))
+            return DailyDecision.tap('dismiss_guide',(640,100),'关闭召唤说明，继续每日清理',guard=(650,230,785,280))
         if page == 'menu-guide':
-            return self.tap((640,100),'关闭商店说明，继续每日清理',guard=(280,300,1000,370))
+            return DailyDecision.tap('dismiss_guide',(640,100),'关闭商店说明，继续每日清理',guard=(280,300,1000,370))
         if page == 'family-welcome':
-            return self.tap((640,650),'关闭家族入场展示，继续每日清理',guard=(200,240,1100,490))
+            return DailyDecision.tap('dismiss_welcome',(640,650),'关闭家族入场展示，继续每日清理',guard=(200,240,1100,490))
         if page == 'friend-guide':
-            return self.tap(screen.point,'关闭好友功能提示，继续每日清理',guard=(250,313,586,349))
+            return DailyDecision.tap('dismiss_guide',screen.point,'关闭好友功能提示，继续每日清理',guard=(250,313,586,349))
         if page == 'paged-guide':
-            return self.tap(screen.point,'继续功能说明',guard=(650,225,1220,480))
+            return DailyDecision.tap('advance_guide',screen.point,'继续功能说明',guard=(650,225,1220,480))
         if self.task_flow is not None:
             decision = self.task_flow.step(screen,vision)
             if decision is not None:
                 return decision
         if page == 'reward_continue':
-            return self.tap((1130,590),'关闭已领取奖励，继续每日清理')
+            return DailyDecision.tap('dismiss_reward',(1130,590),'关闭已领取奖励，继续每日清理')
         if page == 'reward':
             hits = screen.hits('确定',(200,560,750,715))
             if hits:
-                return self.tap(hits[0].point,'确认领取奖励',guard=(250,560,750,715))
+                return DailyDecision.tap('dismiss_reward',hits[0].point,'确认领取奖励',guard=(250,560,750,715))
             point = vision.match(screen.frame,'confirm',(200,560,750,715))
-            return self.tap(point,'确认领取奖励') if point else DailyDecision(status='等待奖励确定按钮')
+            return DailyDecision.tap('dismiss_reward',point,'确认领取奖励') if point else DailyDecision(status='等待奖励确定按钮')
         if screen.chore_page:
             if screen.point is None:
                 return DailyDecision(status='等待当前日常页面的返回入口')
             x,y = screen.point
-            return self.tap(screen.point,'返回主页，继续每日清理',
-                            guard=(max(0,x-25),max(0,y-25),min(1280,x+25),min(720,y+25)))
+            return DailyDecision.tap('back',screen.point,'返回主页，继续每日清理',
+                                     guard=(max(0,x-25),max(0,y-25),min(1280,x+25),min(720,y+25)))
         if page == 'home':
+            if self.kind == 'limited' and 'anniversary' not in self.limited_checked:
+                self.anniversary_missing = 'limited' not in screen.home_points and 'summon' in screen.home_points
             target = ('summon' if self.kind in ('weapon','curse') or
-                      (self.kind == 'limited' and 'anniversary' in self.limited_checked) else
+                      (self.kind == 'limited' and ('anniversary' in self.limited_checked or self.anniversary_missing)) else
                       'shop' if self.kind in ('bounty_shop','daily_shop') else self.kind)
             point = getattr(screen,'home_points',{}).get(target) or {
                 'blessing':(1010,450),'village':(865,600),
@@ -89,7 +100,9 @@ class DailyFlow:
             if point is None:
                 return DailyDecision(status='寻找主页每日清理入口：'+target,
                                      defer_on_timeout=target == 'limited')
-            return self.tap(point,'进入主页活动，检查每日签到' if target == 'monthly' else '进入每日清理项目')
+            destination = {'limited':'anniversary','blessing':'family','village':'hall'}.get(target,target)
+            return DailyDecision.tap('open_'+destination,point,
+                                     '进入主页活动，检查每日签到' if target == 'monthly' else '进入每日清理项目')
         if page == 'monthly':
             if self.kind != 'monthly':
                 sidebar = vision.monthly_sidebar(screen)
@@ -104,12 +117,12 @@ class DailyFlow:
                     if day <= count:
                         return DailyDecision('done',status=f'今日已签到，本月累计{count}次')
                     if day == count+1:
-                        return self.tap(point,f'领取第{day}天签到奖励')
+                        return DailyDecision.tap('claim_signin',point,f'领取第{day}天签到奖励',value=day)
             if self.scans < 5:
                 visible = screen.hits(r'第(\d+)天',(130,270,1250,700))
                 if count is not None and visible and min(int(re.search(r'\d+',h.text)[0]) for h in visible) > count:
-                    return DailyDecision('swipe',(950,365),'回到月签到当前天数',(950,625))
-                return DailyDecision('swipe',(950,625),'滚动检查月签到',(950,365))
+                    return DailyDecision.swipe('scroll_signin_back',(950,365),'回到月签到当前天数',(950,625))
+                return DailyDecision.swipe('scroll_signin',(950,625),'滚动检查月签到',(950,365))
             return DailyDecision('unavailable',status='未确认今天签到状态，保留截图')
         if page in ('anniversary','ten-signin'):
             if self.kind != 'limited':
@@ -119,7 +132,7 @@ class DailyFlow:
                     strips = screen.frame[y1:y2,x1-12:x1+13]
                     white = ((strips.min(axis=2)>205)&(strips.max(axis=2)-strips.min(axis=2)<55)).mean(axis=0).max()
                     if white > .20:
-                        return self.tap(((x1+x2)//2,(y1+y2)//2),'领取当前限时签到奖励')
+                        return DailyDecision.tap('claim_signin',((x1+x2)//2,(y1+y2)//2),'领取当前限时签到奖励')
                 if not screen.hits(r'第[一二三四五六七八九十0-9]+天') and not re.search(r'已[领倾]取',text):
                     return DailyDecision(status='等待限时签到奖励展示完成')
             else:
@@ -129,13 +142,13 @@ class DailyFlow:
                 for _,point in highlights:
                     x,y = point
                     if not vision.match(screen.frame,'limited-check',(x+30,max(0,y+5),min(1280,x+115),min(720,y+95)),.9):
-                        return self.tap(point,'领取十日签到奖励')
+                        return DailyDecision.tap('claim_signin',point,'领取十日签到奖励')
             return DailyDecision('limited_checked',status=page+'当前奖励已检查')
         if self.kind == 'blessing' and page == 'no_family':
             return DailyDecision('unavailable',status='账号未加入家族，暂不能免费祈福')
         if self.kind == 'blessing' and page == 'family':
             point = vision.family_entry(screen.frame)
-            return self.tap(point,'进入家族祈福') if point else DailyDecision(status='寻找家族祈福入口')
+            return DailyDecision.tap('open_prayer',point,'进入家族祈福') if point else DailyDecision(status='寻找家族祈福入口')
         expected = {'blessing':'prayer','weapon':'weapon','curse':'curse'}.get(self.kind)
         if page == expected:
             if self.kind == 'blessing' and self.free_sent and screen.hits(
@@ -147,7 +160,8 @@ class DailyFlow:
                 point,guard = {'blessing':((310,651),(185,620,440,690)),
                                'weapon':((780,650),(620,610,950,695)),
                                'curse':((430,625),(300,590,565,660))}[self.kind]
-                return self.tap(point,'执行明确标为免费的今日次数',free_kind=self.kind,guard=guard)
+                return DailyDecision.tap('use_free_attempt',point,'执行明确标为免费的今日次数',
+                                         free_kind=self.kind,guard=guard)
             if self.kind == 'blessing':
                 count = re.search(r'[祈析]福?次数:([1-5])/5',text)
                 done = bool(count and int(count[1]) > 0)
@@ -162,36 +176,36 @@ class DailyFlow:
             if self.kind == 'weapon':
                 point = vision.weapon_entry(screen.frame)
                 if point:
-                    return self.tap(point,'进入白银武库')
+                    return DailyDecision.tap('open_weapon',point,'进入白银武库')
                 if self.scans < 3:
-                    return DailyDecision('swipe',(150,545),'滚动召唤列表，寻找白银武库',(150,325))
+                    return DailyDecision.swipe('scroll_summons',(150,545),'滚动召唤列表，寻找白银武库',(150,325))
                 return DailyDecision(status='等待确认白银武库入口')
             if self.kind == 'curse':
-                return self.tap((1215,365) if page == 'vault' else (140,462),'进入免费咒印炼化')
-            if 'anniversary' not in self.limited_checked:
+                return DailyDecision.tap('open_curse',(1215,365) if page == 'vault' else (140,462),'进入免费咒印炼化')
+            if 'anniversary' not in self.limited_checked and not self.anniversary_missing:
                 return self.back((40,48))
             if page != 'summon':
-                return self.tap((140,155),'选择当前限时召唤页')
+                return DailyDecision.tap('open_summon',(140,155),'选择当前限时召唤页')
             entries = screen.hits(r'十日签[到角]?',(0,600,580,715))
             point = entries[0].point if entries else vision.match(screen.frame,'ten-signin-entry',(0,600,580,715),threshold=.94)
-            return self.tap(point,'打开十日签到') if point else DailyDecision(status='寻找召唤页十日签到入口')
+            return DailyDecision.tap('open_ten_signin',point,'打开十日签到') if point else DailyDecision(
+                status='寻找召唤页十日签到入口',defer_on_timeout=self.anniversary_missing)
         if self.kind in ('bounty_shop','daily_shop'):
             decision = self.shop(screen,vision)
             if decision:
                 return decision
-        if self.kind == 'house':
+        if self.kind == 'house' and page in ('house','house_continue'):
+            house = house if house is not None else house_view(vision,screen)
             if page == 'house_continue':
-                if '勾玉' not in text and '是否消耗5饭团继续进行修炼' in text:
-                    return self.tap((810,530),'消耗5饭团沿用原角色继续修炼',guard=(430,340,920,568))
+                if house.can_continue_training:
+                    return DailyDecision.tap('continue_training',house.controls['continue_training'].point,
+                                             '消耗5饭团沿用原角色继续修炼')
                 return DailyDecision('unavailable',status='续练费用未确认，不操作')
-            if page == 'house':
-                region = screen.text((270,590,420,715))
-                countdown = remaining_seconds(region)
-                if countdown is not None and countdown > 0:
-                    return DailyDecision('done',status='小屋正在修炼，保留当前角色和倒计时')
-                if '修炼完成' in region or vision.match(screen.frame,'house-complete',(260,665,420,715)):
-                    return self.tap((320,650),'领取小屋修炼碎片',guard=(270,590,420,715))
-                return DailyDecision(status='等待确认小屋修炼状态')
+            if house.training_remaining:
+                return DailyDecision('done',status='小屋正在修炼，保留当前角色和倒计时')
+            if house.can_collect_fragments:
+                return DailyDecision.tap('claim_training',house.controls['claim_training'].point,'领取小屋修炼碎片')
+            return DailyDecision(status='等待确认小屋修炼状态')
         if self.kind == 'village':
             decision = self.village(screen,vision)
             if decision:
@@ -203,7 +217,7 @@ class DailyFlow:
         if page in ('curse','weapon','vault','prayer','trial','hall','family','shop','limited-shop','daily_shop','bounty_shop','no_family','summon','house'):
             return self.back((90,65) if page == 'family' else (65,50))
         if page == 'activities':
-            return self.tap((135,180),'进入每日签到') if self.kind == 'monthly' else self.back((1238,48))
+            return DailyDecision.tap('open_monthly',(135,180),'进入每日签到') if self.kind == 'monthly' else self.back((1238,48))
         return DailyDecision(status='等待识别日常页面')
 
     def rank(self, screen):
@@ -215,7 +229,7 @@ class DailyFlow:
             box = (1060,top,1235,bottom)
             claims = screen.hits('点击[领颌倾]取',box)
             if claims:
-                return self.tap(claims[0].point,'领取忍阶已完成每日任务')
+                return DailyDecision.tap('claim_rank_daily',claims[0].point,'领取忍阶已完成每日任务')
             states = screen.hits('已领取|点击前往',box)
             # Claimed rows disappear. Green rows still need a readable claim label.
             buttons = screen.frame[int(top):int(bottom),1060:1235]
@@ -226,12 +240,12 @@ class DailyFlow:
                 self.rank_daily_checked = True
                 if self.rank_weekly_checked:
                     return DailyDecision('done',status='忍阶每日可领取奖励与每周道具已检查')
-                return self.tap((135,685),'检查当前忍阶每周随机道具')
+                return DailyDecision.tap('open_rank_weekly',(135,685),'检查当前忍阶每周随机道具')
             return DailyDecision(status='等待确认忍阶每日任务领取状态')
         if screen.hits('特殊[忍思]阶',(1080,0,1250,120)):
             weekly = screen.hits('点击[领颌倾]取每周.{0,3}[道遒]具',(600,430,1050,515))
             if weekly:
-                return self.tap(weekly[0].point,'领取忍阶每周随机道具')
+                return DailyDecision.tap('claim_rank_weekly',weekly[0].point,'领取忍阶每周随机道具')
             if screen.hits(r'每周.{0,2}获得[道遒]具\d+个',(600,350,1100,460)):
                 self.rank_weekly_checked = True
             if self.rank_daily_checked and self.rank_weekly_checked:
@@ -239,17 +253,18 @@ class DailyFlow:
             if not self.rank_weekly_checked:
                 return DailyDecision(status='等待确认忍阶每周道具领取状态')
             next_rank = screen.hits('下一[忍思]?阶',(1030,660,1250,720))
-            return (self.tap(next_rank[0].point,'从忍阶预览进入下一忍阶任务') if next_rank else
+            return (DailyDecision.tap('open_next_rank',next_rank[0].point,'从忍阶预览进入下一忍阶任务') if next_rank else
                     DailyDecision(status='等待忍阶预览的任务入口'))
         if self.scans < 2:
-            return DailyDecision('swipe',(930,330),'回到忍阶每日任务列表顶部',(930,630))
+            return DailyDecision.swipe('scroll_rank_tasks',(930,330),'回到忍阶每日任务列表顶部',(930,630))
         return DailyDecision('unavailable',status='未确认完整忍阶每日任务区域，保留截图')
 
     def shop(self, s, v):
         if s.page == 'limited-shop':
-            return self.tap((1190,378) if self.kind == 'bounty_shop' else (1000,690),'进入指定商店分类')
+            return DailyDecision.tap('open_'+self.kind,(1190,378) if self.kind == 'bounty_shop' else (1000,690),'进入指定商店分类')
         if s.page == 'shop':
-            return self.tap((755,690) if self.kind == 'bounty_shop' else (1000,690),'进入忍币购买页面')
+            return DailyDecision.tap('open_coin_shop',(755,690) if self.kind == 'bounty_shop' else (1000,690),'进入忍币购买页面',
+                                     value=self.kind)
         if s.page == 'bounty_dialog' and self.kind in ('bounty_shop','daily_shop'):
             if self.pending_item is None:
                 return self.back((1100,90))
@@ -257,19 +272,19 @@ class DailyFlow:
             selected = self.pending_item == grade or (self.pending_item == 'booklet' and
                 bounty_booklet(s.text((500,75,860,122))) == grade)
             if grade and selected and v.coin(s,(510,640,610,705),large=True):
-                return self.tap((640,668),'确认仅使用忍币购买悬赏奖册',guard=(510,632,780,704))
+                return DailyDecision.tap('confirm_booklet_purchase',(640,668),'确认仅使用忍币购买悬赏奖册',guard=(510,632,780,704))
             return DailyDecision('unavailable',status='奖册购买内容或忍币图标未确认，不购买')
         if s.page == 'shop_dialog' and self.kind == 'daily_shop':
             if self.pending_item is None:
                 return self.back((1100,90))
             if self.pending_item and v.coin(s,(535,505,635,570),large=True):
-                return self.tap((666,537),'确认仅使用忍币购买当前商品',guard=(535,505,800,570))
+                return DailyDecision.tap('confirm_coin_purchase',(666,537),'确认仅使用忍币购买当前商品',guard=(535,505,800,570))
             return DailyDecision('unavailable',status='购买窗口不是已选忍币商品，不购买')
         if s.page == 'shop_dialog' or s.page == 'bounty_dialog':
             return self.back((1100,90))
         if s.page == 'bounty_shop' and self.kind == 'bounty_shop':
             if not self.bounty_at_start:
-                return DailyDecision('swipe',(250,400),'检查悬赏商店最左侧',(950,400))
+                return DailyDecision.swipe('scroll_bounty_shop_start',(250,400),'检查悬赏商店最左侧',(950,400))
             found = False
             for name,template in (('D级','bounty-d'),('C级','bounty-c')):
                 point = v.match(s.frame,template,(20,250,1080,470))
@@ -281,7 +296,7 @@ class DailyFlow:
                 text = s.text(region)
                 available = re.search(r'(?:今日|日)剩余(\d+)',text)
                 if available and int(available[1]) > 0 and v.coin(s,(x-70,580,x+100,635)):
-                    return self.tap((x,360),'选择'+name+'悬赏奖册')
+                    return DailyDecision.tap('select_booklet',(x,360),'选择'+name+'悬赏奖册',value=name)
                 if available and int(available[1]) > 0:
                     return DailyDecision(status='剩余奖册可买，但忍币图标未确认，不操作')
                 return DailyDecision(status='等待确认奖册剩余次数')
@@ -294,22 +309,23 @@ class DailyFlow:
                 if count is None:
                     unknown += 1
                 elif count > 0:
-                    return self.tap((x+115,y+130),'选择每日商店忍币商品')
+                    item = bounty_booklet(s.text((x,y,x+230,y+50))) or 'ninbi'
+                    return DailyDecision.tap('select_coin_item',(x+115,y+130),'选择每日商店忍币商品',value=item)
                 else:
                     confirmed += 1
             if confirmed and not unknown:
                 return DailyDecision('done',status='每日商店当前忍币商品均已购买；不付费刷新')
             return DailyDecision(status='等待确认每日商店忍币商品库存')
         if s.page == 'shop' or s.page == 'daily_shop' or s.page == 'bounty_shop':
-            return self.tap((1190,378) if self.kind == 'bounty_shop' else (1000,690),'进入指定商店分类')
+            return DailyDecision.tap('open_'+self.kind,(1190,378) if self.kind == 'bounty_shop' else (1000,690),'进入指定商店分类')
         return None
 
     def village(self, s, vision):
         if s.page == 'hall':
-            targets = s.hits(r'忍[村材].?[试拭][炼烁]',(200,100,1260,240))
-            if targets:
-                return self.tap((targets[0].point[0],400),'进入忍村试炼')
-            return DailyDecision('swipe',(1120,400),'在集会所向右寻找忍村试炼',(320,400))
+            point = vision.trial_entry(s)
+            if point:
+                return DailyDecision.tap('open_trial',point,'进入忍村试炼')
+            return DailyDecision.swipe('find_trial',(1120,400),'在集会所向右寻找忍村试炼',(320,400))
         if s.page != 'trial':
             return None
         energy = vision.food(s)
@@ -337,14 +353,14 @@ class DailyFlow:
                     self.visited_stages.add(number)
                     continue
                 if self.stage != number and '关奖励' in panel:
-                    return self.tap((x,360),f'选择右侧第{number}关')
+                    return DailyDecision.tap('select_trial_stage',(x,360),f'选择右侧第{number}关',value=number)
                 return DailyDecision(status='等待确认右侧关卡剩余次数',defer_on_timeout=True)
             if count:
                 if self.stage != number:
-                    return self.tap((x,360),f'选择右侧第{number}关')
-                return self.tap((895,649),f'扫荡第{number}关（消耗5体力）',guard=(800,620,995,677))
+                    return DailyDecision.tap('select_trial_stage',(x,360),f'选择右侧第{number}关',value=number)
+                return DailyDecision.tap('sweep_trial',(895,649),f'扫荡第{number}关（消耗5体力）',guard=(800,620,995,677))
         if self.scans < 7:
-            return DailyDecision('swipe',(270,400),'按从右到左的顺序寻找可扫荡关卡',(1080,400))
+            return DailyDecision.swipe('scroll_trial_stages',(270,400),'按从右到左的顺序寻找可扫荡关卡',(1080,400))
         return DailyDecision('unavailable',status='未确认其余关卡扫荡状态，保留未完成状态')
 
     def completed(self, decision, screen):
@@ -355,15 +371,11 @@ class DailyFlow:
             self.free_sent = True
         if decision.action == 'swipe' and screen.page != 'hall':
             self.scans += 1
-        if decision.status == '检查悬赏商店最左侧':
+        if decision.operation == 'scroll_bounty_shop_start':
             self.bounty_at_start = True
         if decision.action == 'limited_checked':
             self.limited_checked.add(screen.page)
-        if decision.status.startswith('选择右侧第'):
-            self.stage = int(re.search(r'第(\d+)关',decision.status)[1])
-        if ((decision.status.startswith('选择') and '商' in decision.status) or
-                decision.status.startswith('选择D级') or decision.status.startswith('选择C级')):
-            self.pending_item = 'D级' if 'D级' in decision.status else 'C级' if 'C级' in decision.status else 'ninbi'
-            if decision.status == '选择每日商店忍币商品':
-                x,y = decision.point
-                self.pending_item = bounty_booklet(screen.text((x-115,y-130,x+115,y-80))) or 'ninbi'
+        if decision.operation == 'select_trial_stage':
+            self.stage = decision.value
+        if decision.operation in ('select_booklet','select_coin_item'):
+            self.pending_item = decision.value
