@@ -468,7 +468,14 @@ class PlannerTest(unittest.TestCase):
                              (WeekendTask('25'), 'ninja3_assistant.activities.weekend.runner.run_weekend')):
             with self.subTest(task=task.name), patch(module, return_value=O.DAILY_DONE) as runner:
                 self.assertIs(task.run('f', 1, control, emit, mode='daily'), O.DAILY_DONE)
-                runner.assert_called_once_with('f', 1, control, emit, mode='daily', checkpoint=True)
+                args, kwargs = runner.call_args
+                self.assertEqual(args, ('f', 1, control, emit))
+                self.assertEqual(kwargs['mode'], 'daily')
+                self.assertTrue(kwargs['checkpoint'])
+                if task.name == 'weekend':
+                    self.assertIsNotNone(kwargs['progress'])
+                else:
+                    self.assertNotIn('progress', kwargs)
 
     def test_xumi_uses_china_date_bounds_and_defers_opening_to_the_scene(self):
         task = XumiTask()

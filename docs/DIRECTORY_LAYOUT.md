@@ -13,7 +13,7 @@ src/ninja3_assistant/
   activities/
     bounty/              悬赏流程
     intelligence/        情报模拟战
-    weekend/             同屏竞速、障碍与绳索
+    weekend/             多人竞速、障碍与绳索
   combat/
     boss/                通用 Boss 策略与诊断
     hayabusa/            隼白识别、策略与录像调试

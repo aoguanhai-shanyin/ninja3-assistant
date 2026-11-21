@@ -39,11 +39,20 @@ class IntelligenceTask(ActivityTask):
 
 class WeekendTask(ActivityTask):
     def __init__(self, mode):
-        super().__init__('weekend', '同屏竞速', '25' if mode == '25' else None, ((9, 23),))
+        super().__init__('weekend', '多人竞速', '25' if mode == '25' else None, ((9, 23),))
+        self._progress_day = None
+        self._progress = None
 
     def run(self, folder, index, control, emit, *, mode):
-        from ninja3_assistant.activities.weekend.runner import run_weekend
-        return run_weekend(folder, index, control, emit, mode=mode, checkpoint=True)
+        from ninja3_assistant.activities.weekend.runner import WeekendProgress, run_weekend
+
+        day = daily_key(datetime.now(CHINA))
+        if day != self._progress_day:
+            self._progress_day = day
+            self._progress = WeekendProgress()
+        self._progress.refresh(day)
+        return run_weekend(folder, index, control, emit, mode=mode, checkpoint=True,
+                           progress=self._progress)
 
 
 class XumiTask(ActivityTask):

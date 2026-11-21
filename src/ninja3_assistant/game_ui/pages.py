@@ -242,13 +242,18 @@ class MenuVision:
                 add('advance_guide', intelligence.point)
             return page('intelligence', intelligence.kind, intelligence, intelligence.kind == 'reward')
         if weekend == 'tasks':
-            from ninja3_assistant.activities.weekend.runner import CLOSE_TASKS
-            add('back', CLOSE_TASKS)
+            from ninja3_assistant.activities.weekend.runner import CLOSE_TASKS, CLOSE_TASKS_CURRENT
+            add('back', CLOSE_TASKS_CURRENT if self.weekend.layout == 'current' else CLOSE_TASKS)
             return page('weekend', 'tasks')
         if weekend == 'home':
-            from ninja3_assistant.activities.weekend.runner import OPEN_TASKS
+            from ninja3_assistant.activities.weekend.runner import (
+                ENTER_ACTIVITY, OPEN_TASKS, OPEN_TASKS_CURRENT,
+            )
             add('back', (65, 45))
-            add('open_tasks', OPEN_TASKS)
+            if self.weekend.intro:
+                add('enter_weekend', ENTER_ACTIVITY)
+            else:
+                add('open_tasks', OPEN_TASKS_CURRENT if self.weekend.layout == 'current' else OPEN_TASKS)
             return page('weekend', 'lobby')
 
         daily, back = self.daily.navigation(frame)
@@ -280,7 +285,7 @@ class MenuVision:
             add('back', back if daily == 'hall' else xumi.back if xumi.kind == 'hall' else (50, 45))
             add('open_intelligence', intelligence.point if intelligence.kind == 'hall' else None)
             add('find_intelligence', *INTELLIGENCE_SEARCH)
-            if self.weekend.match(frame, 'entry', HALL_ENTRY_REGION):
+            if self.weekend.match_any(frame, ('entry', 'entry-current'), HALL_ENTRY_REGION):
                 add('open_weekend', HALL_ENTRY)
             add('find_weekend', *HALL_SEARCH)
             if xumi.kind == 'hall':

@@ -1,6 +1,6 @@
 """Observed weekend race navigation and generic native-input racing loop."""
 from ninja3_assistant.paths import resource_root
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import re
@@ -32,6 +32,39 @@ OPEN_TASKS = (885, 47)
 CLOSE_TASKS = (1190, 400)
 MATCH_REGION = (1030, 655, 230, 55)
 PAGE_IDS = {'home': 'weekend.lobby', 'hall': 'game.hall', 'invite': 'game.invite'}
+# The 2026-11-21 rotation replaced the old lobby with an announcement page,
+# a leaderboard layout and a separate five-row daily-task panel. These regions
+# come from data/evidence/2026-11-21/weekend-activity.
+CURRENT_ENTRY_REGION = (900, 100, 380, 130)
+INTRO_ACTION_REGION = (900, 570, 330, 140)
+CURRENT_START_REGION = (820, 610, 340, 110)
+CURRENT_TASKS_REGION = (500, 70, 300, 100)
+CURRENT_CLAIM_REGION = (1000, 640, 200, 80)
+CURRENT_CLAIMED_REGION = (940, 120, 240, 540)
+CURRENT_MARKER_REGION = (850, 0, 160, 90)
+ENTER_ACTIVITY = (1065, 635)
+OPEN_TASKS_CURRENT = (990, 50)
+CLOSE_TASKS_CURRENT = (1160, 105)
+START_MATCH_CURRENT = (990, 675)
+CLAIM_ALL_CURRENT = (1110, 680)
+MAX_DAILY_MATCHES = 25
+CURRENT_TEMPLATES = frozenset({
+    'entry-current', 'intro-go', 'start-current', 'tasks-current',
+    'claim-all-current', 'claimed-current', 'race-marker-current',
+})
+
+
+@dataclass
+class WeekendProgress:
+    day: str = ''
+    matches: int = 0
+
+    def refresh(self, day):
+        if self.day != day:
+            self.day, self.matches = day, 0
+
+    def record(self):
+        self.matches += 1
 
 
 def remaining_matches(text):
@@ -53,16 +86,45 @@ class RaceVision:
         self.on_rope = False
         self.confirmed_race = False
         self.obscured = False
+        self.layout = None
+        self.intro = False
 
     def match(self, frame, name, box):
         x,y,w,h = box
         image = cv2.cvtColor(frame[y:y+h,x:x+w], cv2.COLOR_RGB2GRAY)
-        template = self.images[name]
-        return cv2.minMaxLoc(cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED))[1] >= (.77 if name == 'match' else .93)
+        template = self.images.get(name)
+        if template is None:
+            if name in CURRENT_TEMPLATES:
+                return False
+            raise RuntimeError(f'缺少周末活动识别模板：{name}')
+        threshold = (.77 if name == 'match' else .70 if name == 'start-current'
+                     else .78 if name in CURRENT_TEMPLATES else .93)
+        return cv2.minMaxLoc(cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED))[1] >= threshold
+
+    def match_any(self, frame, names, box):
+        return any(self.match(frame, name, box) for name in names)
+
+    def count(self, frame, name, box, threshold=.78):
+        x,y,w,h = box
+        template = self.images.get(name)
+        if template is None:
+            return 0
+        image = cv2.cvtColor(frame[y:y+h,x:x+w], cv2.COLOR_RGB2GRAY)
+        scores = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+        height, width = template.shape
+        candidates = sorted(((float(scores[cy,cx]), int(cx), int(cy))
+                             for cy, cx in zip(*np.where(scores >= threshold))), reverse=True)
+        picked = []
+        for _, cx, cy in candidates:
+            if all(abs(cx-px) > width*.6 or abs(cy-py) > height*.6 for px, py in picked):
+                picked.append((cx, cy))
+        return len(picked)
 
     def detect(self, frame, gray=None):
         self.confirmed_race = False
         self.obscured = False
+        self.layout = None
+        self.intro = False
         if gray is None:
             gray = cv2.cvtColor(frame,cv2.COLOR_RGB2GRAY)
         if self.invitations.detect(gray):
@@ -98,7 +160,8 @@ class RaceVision:
         effect = cv2.minMaxLoc(cv2.matchTemplate(cv2.inRange(gray[0:65,875:940],180,255),self.effect,cv2.TM_CCOEFF_NORMED))[1]
         board = (self.match(frame,'race-distance',(1130,25,90,38)) and
                  self.match(frame,'race-distance',(1140,72,90,38)))
-        self.confirmed_race = effect >= .93 or board
+        current_marker = self.match(frame, 'race-marker-current', CURRENT_MARKER_REGION)
+        self.confirmed_race = effect >= .93 or board or current_marker
         if self.confirmed_race:
             region = frame[200:580,300:1000]
             neutral = region.max(axis=2)-region.min(axis=2) < 18
@@ -107,20 +170,39 @@ class RaceVision:
             return 'race' if movement or self.on_rope or self.obscured else 'respawn'
         if self.match(frame, 'reward', (510,70,260,90)):
             return 'reward'
-        if self.match(frame, 'tasks', (280,40,210,60)):
+        if self.match(frame, 'intro-go', INTRO_ACTION_REGION):
+            self.layout, self.intro = 'intro', True
+            return 'home'
+        if self.match(frame, 'tasks-current', CURRENT_TASKS_REGION):
+            self.layout = 'current'
             return 'tasks'
         if self.match(frame, 'ready', (510,540,270,80)):
             return 'ready'
+        if self.match(frame, 'start-current', CURRENT_START_REGION):
+            self.layout = 'current'
+            return 'home'
+        if self.match(frame, 'tasks', (280,40,210,60)):
+            return 'tasks'
         if self.match(frame, 'home', (90,5,340,90)):
             return 'home'
         if self.match(frame, 'hall', (100,0,260,100)):
             return 'hall'
         return 'unknown'
 
+    def current_tasks(self, frame):
+        return self.match(frame, 'tasks-current', CURRENT_TASKS_REGION)
+
+    def current_claimed_count(self, frame):
+        return self.count(frame, 'claimed-current', CURRENT_CLAIMED_REGION)
+
     def claimed(self, frame):
+        if self.current_tasks(frame):
+            return self.current_claimed_count(frame) >= 5
         return all(self.match(frame, 'claimed', (925,y,145,55)) for y in (125,225,325,425,525))
 
     def claimable(self, frame):
+        if self.current_tasks(frame):
+            return self.match(frame, 'claim-all-current', CURRENT_CLAIM_REGION)
         return any(self.match(frame, 'claim', (925,y,145,55)) and
                    not self.match(frame, 'claimed', (925,y,145,55)) for y in (125,225,325,425,525))
 
@@ -282,7 +364,8 @@ class RaceSkills:
         self.last = now
 
 
-def run_weekend(folder, index, control, emit, mode='daily', record=False, practice=False, *, checkpoint=False):
+def run_weekend(folder, index, control, emit, mode='daily', record=False, practice=False, *,
+                checkpoint=False, progress=None):
     if mode not in ('daily','25'):
         raise ValueError('weekend mode must be daily or 25')
     device = native = recorder = None
@@ -307,6 +390,7 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
     frames = 0
     measured_at = control.now()
     result_confirmed = False
+    result_pending = False
     safe_invite = False
     unknown_since = None
     rope = RaceRopeTraversal()
@@ -316,7 +400,7 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
         vision, navigation, ocr, avoider = RaceVision(), ActivityVision(), WindowsOcr(), RaceAvoider()
         native = create_native_touch(folder,index,control.stop,emit,observation_timeout=.5,lease_ms=500,movement='jump-two-slide')
         if native is None:
-            raise RuntimeError('同屏竞速需要 NinjaTouch.exe C++ 触控组件')
+            raise RuntimeError('多人竞速需要 NinjaTouch.exe C++ 触控组件')
         native = kernel.attach(native)
         control.set_release_input(native.stop_all)
         device = MuMu(folder,index)
@@ -328,6 +412,10 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
             return not control.stop.is_set()
 
         ui = GameUI(control, lambda: kernel.capture(device), native, swipe=swipe, clock=kernel.clock)
+
+        def weekend_entry(fresh):
+            return vision.match_any(fresh, ('entry', 'entry-current'), HALL_ENTRY_REGION)
+
         emit('backend','C++ NinjaTouch / 起跳2次→下滑循环 / Windows OCR')
         if record:
             recorder = cv2.VideoWriter(str(output/'race.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),20,(1280,720))
@@ -359,6 +447,8 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                     armed = True
                     armed_at = now
                     recovering = kind == 'respawn'
+                    result_confirmed = False
+                    result_pending = True
                 if kind == 'race' and (not armed or not observed_race) and not vision.confirmed_race:
                     kind = 'unknown'
                 if armed and not observed_race and armed_at is not None and now-armed_at >= 60:
@@ -369,7 +459,7 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                     if unknown_since is None:
                         unknown_since = now
                     elif now-unknown_since >= (60 if armed and not observed_race else 15):
-                        emit('error','同屏竞速画面等待超时，交回计划重试')
+                        emit('error','多人竞速画面等待超时，交回计划重试')
                         return TaskOutcome.ERROR
                 else:
                     unknown_since = None
@@ -387,7 +477,7 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                     rope = RaceRopeTraversal()
                     last_ground = last_race = float('-inf')
                     generation = control.generation()
-                point, message = None, '等待识别同屏竞速页面'
+                point, message = None, '等待识别多人竞速页面'
                 if kind == 'dash' and armed:
                     native.tap((1050,385),deadline=captured+.2)
                     message = '倒计时连续点击超级起步'
@@ -458,7 +548,7 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                     if now-last_action < 1:
                         control.stop.wait(.05)
                         continue
-                    action = navigation_screen = None
+                    action = navigation_screen = point = None
                     if kind == 'finish':
                         action, message = PageAction('open_result', (640, 680)), '比赛结束，继续查看结算'
                     elif kind == 'standings':
@@ -470,23 +560,33 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                                 return vision.invitations.detect(cv2.cvtColor(fresh, cv2.COLOR_RGB2GRAY)) == decline
                             action = PageAction('decline_invitation', decline, guard=same_invitation)
                     elif kind == 'result':
-                        action, message = PageAction('confirm_result', (1145, 681)), '确认同屏竞速结算'
+                        action, message = PageAction('confirm_result', (1145, 681)), '确认多人竞速结算'
                         checked,armed = False,False
                         recovering = False
                     elif kind == 'reward':
                         action, message = PageAction('confirm_reward', (640, 644)), '确认周末任务奖励'
                     elif kind == 'tasks':
+                        current = vision.current_tasks(frame)
                         if vision.claimable(frame):
-                            action = PageAction('claim_tasks', (1055, 679), guard=vision.claimable)
+                            claim_point = CLAIM_ALL_CURRENT if current else (1055, 679)
+                            action = PageAction('claim_tasks', claim_point, guard=vision.claimable)
                             message = '一键领取周末日常奖励'
                         elif vision.claimed(frame) and mode == 'daily':
-                            emit('status','同屏竞速五项日常已全部领取，任务结束')
+                            emit('status','多人竞速五项日常已全部领取，任务结束')
+                            return TaskOutcome.DAILY_DONE
+                        elif (mode == 'daily' and progress is not None and
+                              progress.matches >= MAX_DAILY_MATCHES):
+                            emit('status','已完成今日25场积分比赛，日常任务结束')
                             return TaskOutcome.DAILY_DONE
                         else:
-                            action, message = PageAction('close_tasks', CLOSE_TASKS), '关闭任务页，准备继续竞速'
+                            close_point = CLOSE_TASKS_CURRENT if current else CLOSE_TASKS
+                            action, message = PageAction('close_tasks', close_point), '关闭任务页，准备继续竞速'
                             checked = True
                     elif kind == 'home':
                         if checkpoint and result_confirmed:
+                            if mode == '25' and progress is not None and progress.matches >= MAX_DAILY_MATCHES:
+                                emit('status','今日25场积分比赛已打满，任务结束')
+                                return TaskOutcome.LIMIT_REACHED
                             return TaskOutcome.MATCH_DONE
                         if armed and observed_race:
                             emit('error','竞速已返回主页但未确认结算，交回计划重试')
@@ -498,8 +598,22 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                                 return TaskOutcome.WAITING
                         if armed:
                             message = '等待竞速比赛加载'
+                        elif vision.intro is True:
+                            action = PageAction('enter_weekend', ENTER_ACTIVITY,
+                                                guard=lambda fresh: vision.match(fresh, 'intro-go', INTRO_ACTION_REGION))
+                            message = '从活动介绍进入多人竞速主页'
                         elif not checked:
-                            action, message = PageAction('open_tasks', OPEN_TASKS), '检查周末每日任务'
+                            open_point = OPEN_TASKS_CURRENT if vision.layout == 'current' else OPEN_TASKS
+                            action, message = PageAction('open_tasks', open_point), '检查周末每日任务'
+                        elif mode == '25' and progress is not None and progress.matches >= MAX_DAILY_MATCHES:
+                            emit('status','今日25场积分比赛已打满，任务结束')
+                            return TaskOutcome.LIMIT_REACHED
+                        elif vision.layout == 'current':
+                            if vision.match(frame, 'start-current', CURRENT_START_REGION):
+                                action = PageAction('start_match', START_MATCH_CURRENT,
+                                                    guard=lambda fresh: vision.match(fresh, 'start-current', CURRENT_START_REGION))
+                                completed = progress.matches if progress is not None else 0
+                                message = f'开始多人竞速，今日已完成 {completed}/{MAX_DAILY_MATCHES} 场'
                         elif vision.match(frame,'match',MATCH_REGION):
                             result = ocr.read(cv2.resize(frame[638:718,995:1270],None,fx=3,fy=3),stop=control.stop)
                             left = remaining_matches((result or {}).get('text',''))
@@ -509,27 +623,26 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                             if left is not None:
                                 action = PageAction('start_match', (1140, 677),
                                                     guard=lambda fresh: vision.match(fresh, 'match', MATCH_REGION))
-                                message = (f'开始同屏竞速，今日剩余 {left} 场积分比赛'
+                                message = (f'开始多人竞速，今日剩余 {left} 场积分比赛'
                                            if left else '积分次数已用完，仅实测避障动作')
                             else:
                                 message = '等待读取今日剩余积分场次'
                     elif kind == 'ready':
-                        action, message = PageAction('ready', (640, 579)), '准备同屏竞速'
+                        action, message = PageAction('ready', (640, 579)), '准备多人竞速'
                         armed = True
                         observed_race = False
                         recovering = False
                     elif kind == 'hall':
-                        if vision.match(frame,'entry',HALL_ENTRY_REGION):
-                            action = PageAction('enter_weekend', HALL_ENTRY,
-                                                guard=lambda fresh: vision.match(fresh, 'entry', HALL_ENTRY_REGION))
-                            message = '进入已确认的同屏竞速'
+                        if weekend_entry(frame):
+                            action = PageAction('enter_weekend', HALL_ENTRY, guard=weekend_entry)
+                            message = '进入已确认的多人竞速'
                         else:
                             if hall_swipes >= 3:
-                                emit('status','当前周末入口未确认同屏竞速，任务结束')
+                                emit('status','当前周末入口未确认多人竞速，任务结束')
                                 return TaskOutcome.UNAVAILABLE
-                            action = PageAction('search_weekend', *HALL_SEARCH, guard=lambda fresh: not
-                                                vision.match(fresh, 'entry', HALL_ENTRY_REGION))
-                            message = '向右查找周末活动；仅进入同屏竞速'
+                            action = PageAction('search_weekend', *HALL_SEARCH,
+                                                guard=lambda fresh: not weekend_entry(fresh))
+                            message = '向右查找周末活动；仅进入多人竞速'
                     else:
                         nav = navigation.detect(frame)
                         if nav.kind in ('login','home') and nav.point:
@@ -554,8 +667,12 @@ def run_weekend(folder, index, control, emit, mode='daily', record=False, practi
                             last_action = now
                             if action.name == 'search_weekend':
                                 hall_swipes += 1
-                            if kind == 'result':
+                            if action.name == 'confirm_result':
                                 result_confirmed = True
+                                if result_pending:
+                                    result_pending = False
+                                    if progress is not None:
+                                        progress.record()
                 state = (kind,message)
                 if state != last and (kind not in ('race','unknown') or now-getattr(avoider,'logged_at',-1e9) >= 1):
                     avoider.logged_at = now

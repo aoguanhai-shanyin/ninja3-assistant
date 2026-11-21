@@ -23,7 +23,7 @@ if __name__ == '__main__':
                 print(kind,value,flush=True)
             if kind == 'status' and value == 'C++ 滑步避障并释放获取的卡牌':
                 raced = True
-            if raced and kind == 'status' and value == '确认同屏竞速结算':
+            if raced and kind == 'status' and value == '确认多人竞速结算':
                 control.request_stop()
         timer = threading.Timer(240,control.request_stop)
         timer.start()

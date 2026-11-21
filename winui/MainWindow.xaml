@@ -180,16 +180,16 @@
                         <StackPanel Spacing="12">
                             <TextBlock Text="周末活动" FontSize="21" FontWeight="SemiBold" />
                             <SelectorBar x:Name="WeekendTabs" AutomationProperties.Name="周末活动">
-                                <SelectorBarItem x:Name="WeekendTab" Text="同屏竞速" />
+                                <SelectorBarItem x:Name="WeekendTab" Text="多人竞速" />
                             </SelectorBar>
                             <StackPanel Spacing="10">
-                                <ToggleSwitch x:Name="WeekendEnabledSwitch" AutomationProperties.Name="启用同屏竞速"
+                                <ToggleSwitch x:Name="WeekendEnabledSwitch" AutomationProperties.Name="启用多人竞速"
                                               OffContent="关闭" OnContent="开启" Toggled="WeekendEnabled_Toggled" />
                                 <ComboBox x:Name="WeekendModeBox" Header="任务结束方式" SelectedIndex="0" IsEnabled="False">
                                     <ComboBoxItem Content="完成每日任务后停止" />
                                     <ComboBoxItem Content="完成每日最多25场积分比赛" />
                                 </ComboBox>
-                                <TextBlock Text="周末开放。测试功能支持识别前方障碍和使用道具卡。" Foreground="#B9C5D9" TextWrapping="Wrap" />
+                                <TextBlock Text="按当前多人竞速页面识别介绍页、排行榜主页与五项日常；赛后结算、领取奖励和障碍动作均复核画面。" Foreground="#B9C5D9" TextWrapping="Wrap" />
                             </StackPanel>
                         </StackPanel>
                     </Border>

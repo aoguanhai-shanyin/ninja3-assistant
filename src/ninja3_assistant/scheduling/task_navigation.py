@@ -217,7 +217,9 @@ def return_to_home(folder, index, control, *, target=None):
                 page, point = 'intelligence.tasks', (1120, 111)
                 check = lambda fresh: activity.detect(fresh).kind == screen.kind
             elif kind == 'tasks':
-                page, point = 'weekend.tasks', (1190, 400)
+                from ninja3_assistant.activities.weekend.runner import CLOSE_TASKS_CURRENT
+                page, point = 'weekend.tasks', (CLOSE_TASKS_CURRENT if race.layout == 'current'
+                                               else (1190, 400))
                 check = lambda fresh: race.detect(fresh) == kind
             elif screen.kind == 'event_home':
                 page, point = 'intelligence.lobby', (50, 45)

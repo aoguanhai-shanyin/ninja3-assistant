@@ -1507,6 +1507,41 @@
       "sha256": "922e684b0e6a196206da154d842eb56d46aa8d733dc51ebaae3dee7b51a2494e"
     },
     {
+      "path": "weekend-race/claim-all-current.png",
+      "bytes": 10670,
+      "sha256": "3d93f87f02ce595d4a780a2e4688c3821043a3b66dbe7c5d34e985228ebc4fc0"
+    },
+    {
+      "path": "weekend-race/claimed-current.png",
+      "bytes": 8741,
+      "sha256": "da6d041d208ae1656cbdae47447364d7d3e4b12dac819e5ef6c8e15c7db6866e"
+    },
+    {
+      "path": "weekend-race/entry-current.png",
+      "bytes": 28811,
+      "sha256": "72bc77607567d5132cd119399afa826469bde0de5307b1236d6f4eba7f96b93f"
+    },
+    {
+      "path": "weekend-race/intro-go.png",
+      "bytes": 14464,
+      "sha256": "d4d74ef9db8ca094fcf684e79c080cf9cec4de997f9c526d9b62c0f4c634f0a6"
+    },
+    {
+      "path": "weekend-race/race-marker-current.png",
+      "bytes": 6562,
+      "sha256": "3117870fe4539621b602488e76af31f4f721c203863a8972671b6db29901ca69"
+    },
+    {
+      "path": "weekend-race/start-current.png",
+      "bytes": 28004,
+      "sha256": "deddf96582ab8debb91b564fe58abc3b370bb1209ce698e9b749cb945cc91203"
+    },
+    {
+      "path": "weekend-race/tasks-current.png",
+      "bytes": 6335,
+      "sha256": "74a23f9e1b60ef644170114579f4b6cccb9a5b3bf03bfdecf7c4ac15ce05bd61"
+    },
+    {
       "path": "weekend-race/claimed.png",
       "bytes": 3519,
       "sha256": "d1e2edad62423ea998627c2d347ab02fe1c3307c6e1e2570630bdf0edd043467"
@@ -1573,8 +1608,8 @@
     },
     {
       "path": "weekend-race/sources.json",
-      "bytes": 841,
-      "sha256": "2d37a3dc794ce944a45941c5a17ca8013ef4f8f0aca00d22260a1628b31608e2"
+      "bytes": 1911,
+      "sha256": "dcf7693b918e55f48ba893bdeb90b7042225acc5bffa4a343896be4bdbe2636a"
     },
     {
       "path": "weekend-race/standings.png",

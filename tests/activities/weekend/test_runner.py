@@ -3,7 +3,8 @@ from pathlib import Path
 import subprocess
 import unittest
 import cv2
-from ninja3_assistant.activities.weekend.runner import RaceVision, RaceAvoider, RaceSkills, remaining_matches
+from ninja3_assistant.activities.weekend.runner import RaceVision, RaceAvoider, RaceSkills, remaining_matches, WeekendProgress
+from ninja3_assistant.activities.weekend import runner as weekend_runner
 import numpy as np
 from unittest.mock import Mock, patch
 import tempfile
@@ -15,6 +16,11 @@ ROOT = project_root()
 
 def frame(name):
     return cv2.cvtColor(cv2.imread(str(ROOT/'data/weekend-race/live'/name)),cv2.COLOR_BGR2RGB)
+
+
+def current_frame(name):
+    path = ROOT/'data/evidence/2026-11-21/weekend-activity'/name
+    return cv2.cvtColor(cv2.imread(str(path)),cv2.COLOR_BGR2RGB)
 
 class WeekendRaceTest(unittest.TestCase):
     def test_unexpected_home_after_battle_cancels_input_and_yields_retry(self):
@@ -192,6 +198,7 @@ class WeekendRaceTest(unittest.TestCase):
         different_hall_view = np.full_like(hall, 255)
         vision.detect.return_value = 'hall'
         vision.match.side_effect = lambda frame, *_: frame is hall
+        vision.match_any.side_effect = lambda frame, *_: frame is hall
 
         captures = iter((hall, different_hall_view))
 
@@ -215,7 +222,7 @@ class WeekendRaceTest(unittest.TestCase):
             outcome = run_weekend('folder', 1, control, lambda *_: None)
 
         self.assertIs(outcome, TaskOutcome.STOPPED)
-        self.assertIs(vision.match.call_args_list[1].args[0], different_hall_view)
+        self.assertIs(vision.match_any.call_args_list[1].args[0], different_hall_view)
         native.priority_tap.assert_not_called()
         swipe.assert_not_called()
 
@@ -415,3 +422,90 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertIn('SWIPED',run.stdout)
         run = subprocess.run([str(executable),'--mock','--swipe','1280','410','300','410'],capture_output=True,timeout=5)
         self.assertEqual(run.returncode,2)
+
+    def test_current_rotation_recognizes_entry_intro_home_tasks_and_ready(self):
+        vision = RaceVision()
+        hall = current_frame('15-hall-two-swipes.png')
+        self.assertEqual(vision.detect(hall), 'hall')
+        self.assertTrue(vision.match_any(hall, ('entry', 'entry-current'), weekend_runner.HALL_ENTRY_REGION))
+
+        intro = current_frame('17-enter-activity.png')
+        self.assertEqual(vision.detect(intro), 'home')
+        self.assertTrue(vision.intro)
+        self.assertEqual(vision.layout, 'intro')
+
+        home = current_frame('18-activity-home.png')
+        self.assertEqual(vision.detect(home), 'home')
+        self.assertFalse(vision.intro)
+        self.assertEqual(vision.layout, 'current')
+
+        tasks = current_frame('19-daily-tasks.png')
+        self.assertEqual(vision.detect(tasks), 'tasks')
+        self.assertEqual(vision.layout, 'current')
+
+        ready = current_frame('24-start-match.png')
+        self.assertEqual(vision.detect(ready), 'ready')
+        self.assertEqual(vision.detect(current_frame('result-flow-01/005.png')), 'result')
+
+    def test_current_race_marker_confirms_battle_without_old_distance_board(self):
+        vision = RaceVision()
+        image = current_frame('race-02/100.png')
+        self.assertEqual(vision.detect(image), 'race')
+        self.assertTrue(vision.confirmed_race)
+
+    def test_current_task_claim_states_use_one_click_and_claimed_labels(self):
+        vision = RaceVision()
+        claimable = current_frame('tasks-after-race/005.png')
+        self.assertEqual(vision.detect(claimable), 'tasks')
+        self.assertTrue(vision.claimable(claimable))
+        self.assertFalse(vision.claimed(claimable))
+        self.assertEqual(vision.current_claimed_count(claimable), 0)
+
+        claimed = current_frame('tasks-claimed/007.png')
+        self.assertEqual(vision.detect(claimed), 'tasks')
+        self.assertFalse(vision.claimable(claimed))
+        self.assertEqual(vision.current_claimed_count(claimed), 1)
+
+    def test_five_current_claimed_labels_are_counted_separately(self):
+        vision = RaceVision()
+        template = cv2.cvtColor(vision.images['claimed-current'], cv2.COLOR_GRAY2RGB)
+        height, width = template.shape[:2]
+        image = np.zeros((720, 1280, 3), np.uint8)
+        for top in (140, 240, 340, 440, 540):
+            image[top:top+height, 990:990+width] = template
+        self.assertEqual(vision.count(image, 'claimed-current',
+                                      weekend_runner.CURRENT_CLAIMED_REGION), 5)
+
+    def test_weekend_progress_resets_at_daily_boundary(self):
+        progress = WeekendProgress()
+        progress.refresh('2026-11-21')
+        progress.record()
+        progress.record()
+        self.assertEqual(progress.matches, 2)
+        progress.refresh('2026-11-22')
+        self.assertEqual(progress.matches, 0)
+
+    def test_current_rotation_stops_after_twenty_five_confirmed_matches(self):
+        vision = Mock()
+        vision.detect.side_effect = ['tasks', 'tasks', 'home']
+        vision.layout = 'current'
+        vision.intro = False
+        vision.current_tasks.return_value = True
+        vision.claimable.return_value = False
+        vision.claimed.return_value = False
+        device, native = Mock(), Mock()
+        device.capture.return_value = np.zeros((720, 1280, 3), np.uint8)
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT', Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game', return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision', return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu', return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch', return_value=native):
+            progress = WeekendProgress(day='2026-11-21', matches=25)
+            outcome = run_weekend('folder', 1, RunControl(clock=Mock(side_effect=range(0, 40, 2))),
+                                  lambda *_: None, '25', progress=progress)
+        self.assertIs(outcome, TaskOutcome.LIMIT_REACHED)
+        self.assertTrue(all(call.args[0] != weekend_runner.START_MATCH_CURRENT
+                            for call in native.priority_tap.call_args_list))
