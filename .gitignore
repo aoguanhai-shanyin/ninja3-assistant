@@ -33,3 +33,4 @@ assets/*
 *.m4s
 *.apk
 *.ab
+.workbuddy/
