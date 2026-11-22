@@ -91,6 +91,23 @@ JUMP_POINT = (1090, 630)
 OVERHEAD_POINT = (190, 630)
 CARD_POINTS = ((900, 630), (520, 630), (635, 630), (740, 630))
 
+# There are two weapon icons on the bottom bar: the main weapon at x~380 and
+# the side weapon at x~900 (the first card point). Both show a big countdown
+# number while cooling -- green when a reduction is active, white otherwise --
+# and show the weapon art with a bright cyan ready ring once the cooldown ends.
+# Readiness is therefore "no countdown digit", never a brightness guess: the
+# water map's highlights and a ready weapon are equally bright. Measured on the
+# 2026-11-22 user crops: ready centre white 0.245 / ring 0.208; a green or
+# white digit has centre strokes 0.21..0.33 but no cyan ring (0.00..0.02).
+WEAPON_ICONS = ((380, 613), (900, 613))  # (cx, cy) of main & side weapon glyphs
+WEAPON_DIGIT_BOX = 12      # half-size of the centre box holding the countdown
+# A countdown digit (green or white) only fills part of this centre box, while
+# the ready weapon art plus its bright ring fills most of it. Measured on the
+# 2026-11-22 user crops: ready bright-share 0.458; white digit 0.160; green
+# digits 0.203..0.248. Colour is deliberately ignored -- a reduction turns the
+# digit green, so brightness of the strokes is the only stable signal.
+WEAPON_READY_BRIGHT = .30  # centre bright-share at or above which no digit remains
+
 # Ninjutsu (ultimate): the top-left icon is a blue orb ringed by a golden arc
 # that acts as the energy meter. Live race frames show a 0.375 golden arc while
 # charging; the ring is fully gold once the ultimate is ready. The (55,62)
@@ -194,6 +211,30 @@ def ninjutsu_ready(frame):
     return bool(gold(ring(frame, x, y, radius)).any(axis=0).mean() >= NINJUTSU_READY_RATIO)
 
 
+def _weapon_icon_state(frame, cx, cy):
+    """Return True when this weapon icon has no countdown digit (i.e. is armed).
+
+    A cooling weapon paints a countdown number in the middle of the icon. The
+    digit turns green while a cooldown reduction is active and white otherwise,
+    so colour is deliberately ignored. Instead the bright-pixel share of the
+    centre box is read: the digit covers only part of it (0.16..0.25 on the
+    2026-11-22 user crops) while the ready weapon art and its bright ring fill
+    most of it (0.46). 0.30 separates the two on both green and white digits.
+    """
+    half = WEAPON_DIGIT_BOX
+    box = frame[max(0, cy - half):cy + half, max(0, cx - half):cx + half]
+    if box.size == 0:
+        return False
+    bright = (box.max(axis=2) > 185).mean()
+    return bool(bright >= WEAPON_READY_BRIGHT)
+
+
+def ready_weapon_points(frame):
+    """Click points of the main and side weapons with no countdown digit."""
+    return tuple((cx, cy + 17) for cx, cy in WEAPON_ICONS
+                 if _weapon_icon_state(frame, cx, cy))
+
+
 class RaceVision:
     """Answer every scene question from one WinML inference per frame."""
     def __init__(self, session=None):
@@ -204,6 +245,7 @@ class RaceVision:
         self.confirmed_race = False
         self.obscured = False
         self.weapon_ready = False
+        self.weapon_points = ()
         self.ninjutsu_ready = False
         self.controls_hidden = False
         self.hidden_frames = 0
@@ -250,13 +292,12 @@ class RaceVision:
 
     @staticmethod
     def armed_slots(frame):
-        """Bright-pixel ratio of the ability cluster, stable across skins."""
-        x, y, w, h = ABILITY_CLUSTER
-        patch = frame[y:y + h, x:x + w]
-        if patch.size == 0:
-            return 0.
-        hsv = cv2.cvtColor(patch, cv2.COLOR_RGB2HSV)
-        return float(np.mean(hsv[:, :, 2] > 200))
+        """Click points of weapons whose countdown digit has disappeared.
+
+        Kept as the single per-frame question so one inference serves page,
+        obstacle and weapon decisions together.
+        """
+        return ready_weapon_points(frame)
 
     def detect(self, frame, gray=None):
         self.confirmed_race = False
@@ -264,6 +305,7 @@ class RaceVision:
         self.layout = None
         self.intro = False
         self.weapon_ready = False
+        self.weapon_points = ()
         self.ninjutsu_ready = False
         self.controls_hidden = False
         if gray is None:
@@ -297,7 +339,8 @@ class RaceVision:
         if (scores.matched('race-marker-current') or scores.matched('race-distance') or
                 scores.matched('race-effect')):
             self.confirmed_race = True
-            self.weapon_ready = self.armed_slots(frame) >= ABILITY_READY_RATIO
+            self.weapon_points = self.armed_slots(frame)
+            self.weapon_ready = bool(self.weapon_points)
             self.ninjutsu_ready = ninjutsu_ready(frame)
             region = frame[200:580, 300:1000]
             neutral = region.max(axis=2) - region.min(axis=2) < 18
@@ -537,7 +580,7 @@ class WeaponRelease:
 
 
 class RaceSkills:
-    """Tap the weapon only when it is armed; the cards cycle on a cadence."""
+    """Tap only weapons with no countdown digit; the cards keep their cadence."""
     def __init__(self):
         self.last = float('-inf')
 
@@ -548,8 +591,12 @@ class RaceSkills:
         self.last = now
 
     @staticmethod
-    def actions(weapon_ready):
-        points = ((WEAPON_POINT,) if weapon_ready else ()) + CARD_POINTS
+    def actions(weapon_points):
+        if weapon_points is True:
+            weapon_points = (WEAPON_POINT,)
+        elif not isinstance(weapon_points, (tuple, list)):
+            weapon_points = ()
+        points = tuple(weapon_points) + CARD_POINTS
         return tuple(TimedTap(20 + i * 35, point) for i, point in enumerate(points))
 
 
@@ -747,11 +794,14 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                             native.note_frame(captured)
                             native.renew()
                         control.run_if_active(skate)
-                    # The weapon is fired only while its icon is lit; the cards
-                    # keep their own cadence so a ready slot is never skipped.
+                    # Fire each weapon only while its countdown digit is gone;
+                    # the cards keep their own cadence so a ready slot is never
+                    # skipped. weapon_ready is the bool gate, weapon_points the
+                    # actual main/side click points from the digit check.
                     if skills.due(now):
                         armed_now = weapon.due(vision.weapon_ready, now)
-                        if kernel.plan(4, RaceSkills.actions(armed_now)) is not None:
+                        points = vision.weapon_points if armed_now else ()
+                        if kernel.plan(4, RaceSkills.actions(points)) is not None:
                             skills.scheduled(now)
                             if armed_now:
                                 weapon.scheduled(now)

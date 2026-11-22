@@ -913,3 +913,41 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertEqual(native.quiesce.call_count, 3)
         self.assertFalse(any(c.args and c.args[0] == weekend_runner.NINJUTSU_POINT
                              for c in native.priority_tap.call_args_list))
+
+    @staticmethod
+    def _weapon_icon(bright_share, colour=(255, 255, 255)):
+        """A dark icon with a bright centre block covering ``bright_share``."""
+        frame = np.zeros((720, 1280, 3), np.uint8)
+        half = weekend_runner.WEAPON_DIGIT_BOX
+        box = int(2 * half * np.sqrt(bright_share))
+        box = min(box, 2 * half)
+        frame[613 - box // 2:613 - box // 2 + box,
+              380 - box // 2:380 - box // 2 + box] = colour
+        return frame
+
+    def test_weapon_readiness_reads_countdown_digit_not_brightness(self):
+        """倒计时数字（绿或白）判冷却；无数字、武器图案占满中心判就绪。"""
+        ready_fn = weekend_runner._weapon_icon_state
+        # white digit covers only part of the centre -> cooling
+        self.assertFalse(ready_fn(self._weapon_icon(.16, (255, 255, 255)), 380, 613))
+        # green digit (cooldown reduction) also covers part -> cooling
+        self.assertFalse(ready_fn(self._weapon_icon(.24, (60, 220, 60)), 380, 613))
+        # ready weapon art + ring fill most of the centre -> armed
+        self.assertTrue(ready_fn(self._weapon_icon(.50, (240, 180, 120)), 380, 613))
+
+    def test_both_weapon_icons_are_either_ready_or_cooling(self):
+        """主武器和副武器两个图标各自独立判定，就绪的给出点击点。"""
+        frame = np.zeros((720, 1280, 3), np.uint8)
+        half = weekend_runner.WEAPON_DIGIT_BOX
+        # main weapon: ready (full bright centre); side weapon: digit (small)
+        frame[613 - half:613 + half, 380 - half:380 + half] = (240, 180, 120)
+        small = int(2 * half * np.sqrt(.2))
+        frame[613 - small // 2:613 - small // 2 + small,
+              900 - small // 2:900 - small // 2 + small] = (60, 220, 60)
+        points = weekend_runner.ready_weapon_points(frame)
+        self.assertEqual(points, ((380, 630),))
+        # a fully cooling pair yields no points; cards still cycle
+        cooling = np.zeros((720, 1280, 3), np.uint8)
+        self.assertEqual(weekend_runner.ready_weapon_points(cooling), ())
+        self.assertEqual([a.point for a in RaceSkills.actions(())],
+                         [(900, 630), (520, 630), (635, 630), (740, 630)])
