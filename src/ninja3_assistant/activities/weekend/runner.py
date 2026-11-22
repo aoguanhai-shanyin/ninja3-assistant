@@ -597,7 +597,14 @@ class RaceSkills:
         elif not isinstance(weapon_points, (tuple, list)):
             weapon_points = ()
         points = tuple(weapon_points) + CARD_POINTS
-        return tuple(TimedTap(20 + i * 35, point) for i, point in enumerate(points))
+        # The first tap used to be offset 20ms with the default 20ms slack, so
+        # its 40ms deadline expired while the PLAN command travelled down the
+        # pipe: NinjaTouch dropped index 0 -- always the weapon -- and only the
+        # later cards were pressed. Give every tap an 80ms slack so the first
+        # point survives the hand-off, and keep 6 taps inside the finger-4
+        # horizon: last offset 20+5*30=170ms + 15ms hold = 185ms < 200ms.
+        return tuple(TimedTap(20 + i * 30, point, slack_ms=80)
+                     for i, point in enumerate(points))
 
 
 def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=False, practice=False,

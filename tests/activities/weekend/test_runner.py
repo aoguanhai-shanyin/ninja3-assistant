@@ -351,6 +351,12 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertEqual(cooling,[(900,630),(520,630),(635,630),(740,630)])
         self.assertEqual([a.point for a in armed],[(380,630),*cooling])
         self.assertTrue(all(action.offset_ms < 200 for action in armed))
+        # The first tap is the weapon; its deadline must survive the PLAN
+        # hand-off to NinjaTouch, which used to drop index 0 entirely.
+        self.assertGreaterEqual(armed[0].slack_ms, 60)
+        self.assertTrue(all(a.offset_ms + a.hold_ms <= 200 for a in armed))
+        self.assertTrue(all(a.offset_ms >= prev.offset_ms + prev.hold_ms
+                            for prev, a in zip(armed, armed[1:])))
 
     def test_unobserved_road_under_effect_does_not_invent_a_pit(self):
         avoider = RaceAvoider()
