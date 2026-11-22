@@ -11,6 +11,8 @@ import tempfile
 from ninja3_assistant.runtime.runner import RunControl
 from ninja3_assistant.activities.weekend.runner import run_weekend
 from ninja3_assistant.scheduling.task_outcome import TaskOutcome
+from ninja3_assistant.scheduling.invitation_handoff import InvitationHandoff
+from ninja3_assistant.vision.invitation import BountyInvitation
 
 ROOT = project_root()
 
@@ -39,6 +41,7 @@ class WeekendRaceTest(unittest.TestCase):
         vision.detect.side_effect=['race','home']
         vision.confirmed_race=True
         vision.obscured=False
+        vision.ninjutsu_ready=False
         vision.observe.return_value=no_obstacles()
         vision.on_rope=False
         vision.opening.ground_frames=1
@@ -131,6 +134,7 @@ class WeekendRaceTest(unittest.TestCase):
         vision.opening.ground_frames = 0
         vision.on_rope = True
         vision.obscured = False
+        vision.ninjutsu_ready = False
         vision.observe.return_value = no_obstacles()
         captures = 0
         def capture():
@@ -752,3 +756,160 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertIs(outcome, TaskOutcome.LIMIT_REACHED)
         self.assertTrue(all(call.args[0] != weekend_runner.START_MATCH_CURRENT
                             for call in native.priority_tap.call_args_list))
+
+    def _invite_scene(self, *, targets, grade, frames=('home', 'invite', 'home'),
+                      confirmed_race=False):
+        """Drive one invite frame through the real, shared bounty_handoff policy."""
+        control = RunControl()
+        if targets is not None:
+            control.bounty_invite_targets = targets
+        image = np.zeros((720, 1280, 3), np.uint8)
+        native, device, vision = Mock(), Mock(), Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = list(frames)
+        vision.confirmed_race = confirmed_race
+        vision.obscured = False
+        vision.observe.return_value = no_obstacles()
+        vision.invitations.detect.return_value = (340, 520)
+        vision.invitations.bounty_invitation.return_value = (
+            BountyInvitation('friend', grade, (700, 520)) if grade else None)
+        ui = Mock()
+        ui.perform.return_value = False
+        captures = 0
+
+        def capture():
+            nonlocal captures
+            captures += 1
+            if captures >= 3:
+                control.request_stop()
+            return image
+
+        device.capture.side_effect = capture
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT', Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game', return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision', return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr') as ocr_cls, \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI', return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu', return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch', return_value=native):
+            ocr_cls.return_value.read.return_value = {'words': []}
+            outcome = run_weekend('folder', 1, control, lambda *a: None)
+        return outcome, ui, vision
+
+    @staticmethod
+    def _declined(ui):
+        return any(call.args[1] == 'decline_invitation' for call in ui.perform.call_args_list)
+
+    def test_configured_passive_invite_is_handed_off_instead_of_declined(self):
+        """被动邀请开启且等级命中：把邀请交给悬赏任务去同意，不自己点拒绝。"""
+        outcome, ui, vision = self._invite_scene(targets={'A': 'daily_bounty'}, grade='A')
+        self.assertEqual(outcome, InvitationHandoff('daily_bounty'))
+        self.assertTrue(vision.invitations.bounty_invitation.called)
+        self.assertFalse(self._declined(ui))
+
+    def test_invite_is_declined_when_passive_invite_is_off(self):
+        """被动邀请关闭：现有策略不交接，周末 runner 按配置拒绝。"""
+        outcome, ui, vision = self._invite_scene(targets={}, grade='A')
+        self.assertIs(outcome, TaskOutcome.STOPPED)
+        self.assertFalse(vision.invitations.bounty_invitation.called)
+        self.assertTrue(self._declined(ui))
+
+    def test_invite_is_declined_when_grade_does_not_match(self):
+        """等级不在启用的悬赏任务里：按配置拒绝，不误同意。"""
+        outcome, ui, _vision = self._invite_scene(targets={'A': 'daily_bounty'}, grade='S')
+        self.assertIs(outcome, TaskOutcome.STOPPED)
+        self.assertTrue(self._declined(ui))
+
+    def test_live_race_never_hands_off_an_invitation(self):
+        """竞速中不交接去打悬赏，按配置拒绝以免中断比赛。"""
+        outcome, ui, vision = self._invite_scene(
+            targets={'A': 'daily_bounty'}, grade='A',
+            frames=('ready', 'invite', 'home'), confirmed_race=True)
+        self.assertIs(outcome, TaskOutcome.STOPPED)
+        self.assertFalse(vision.invitations.bounty_invitation.called)
+        self.assertTrue(self._declined(ui))
+
+    def _race_scene(self, *, frames, ninjutsu=False, confirmed_race=True):
+        """Drive a scripted frame sequence through the battle loop with mocks.
+
+        GameUI is a mock so ``detect`` only runs in the main loop; the capture
+        count therefore matches ``len(frames)`` exactly.
+        """
+        control = RunControl()
+        frames = list(frames)
+        image = np.zeros((720, 1280, 3), np.uint8)
+        native, device, vision = Mock(), Mock(), Mock()
+        native.movement_remaining.return_value = 0.
+        vision.detect.side_effect = frames
+        vision.confirmed_race = confirmed_race
+        vision.obscured = False
+        vision.ninjutsu_ready = ninjutsu
+        vision.weapon_ready = False
+        vision.observe.return_value = no_obstacles()
+        vision.on_rope = False
+        vision.opening.ground_frames = 1
+        ui = Mock()
+        ui.perform.return_value = False
+        captures = 0
+
+        def capture():
+            nonlocal captures
+            captures += 1
+            if captures >= len(frames):
+                control.request_stop()
+            return image
+
+        device.capture.side_effect = capture
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('ninja3_assistant.activities.weekend.runner.ROOT', Path(directory)), \
+             patch('ninja3_assistant.activities.weekend.runner.prepare_game', return_value=False), \
+             patch('ninja3_assistant.activities.weekend.runner.RealtimeBattleKernel.recognition_due', return_value=True), \
+             patch('ninja3_assistant.activities.weekend.runner.RaceVision', return_value=vision), \
+             patch('ninja3_assistant.activities.weekend.runner.ActivityVision'), \
+             patch('ninja3_assistant.activities.weekend.runner.WindowsOcr'), \
+             patch('ninja3_assistant.activities.weekend.runner.GameUI', return_value=ui), \
+             patch('ninja3_assistant.activities.weekend.runner.MuMu', return_value=device), \
+             patch('ninja3_assistant.activities.weekend.runner.create_native_touch', return_value=native):
+            outcome = run_weekend('folder', 1, control, lambda *a: None)
+        return outcome, native
+
+    def test_ninjutsu_ready_threshold(self):
+        """忍术圆环充满(整圈金色)才就绪；0.375 充电弧不就绪。"""
+        ready_fn = weekend_runner.ninjutsu_ready
+        x, y, r = weekend_runner.NINJUTSU_RING
+        blank = np.zeros((720, 1280, 3), np.uint8)
+        self.assertFalse(ready_fn(blank))
+        full = blank.copy()
+        cv2.circle(full, (x, y), r, (255, 200, 60), 10)
+        self.assertTrue(ready_fn(full))
+        charging = blank.copy()
+        cv2.ellipse(charging, (x, y), (r, r), 0, 180, 315, (255, 200, 60), 10)
+        self.assertFalse(ready_fn(charging))
+
+    def test_ready_ninjutsu_is_fired_during_race(self):
+        """忍术充满时立即点忍术图标(55,60)释放。"""
+        _, native = self._race_scene(frames=['race', 'race', 'race'], ninjutsu=True)
+        self.assertTrue(any(c.args and c.args[0] == weekend_runner.NINJUTSU_POINT
+                            for c in native.priority_tap.call_args_list))
+
+    def test_charging_ninjutsu_is_not_fired(self):
+        """忍术充电中(圆环未满)不点忍术。"""
+        _, native = self._race_scene(frames=['race', 'race', 'race'], ninjutsu=False)
+        self.assertFalse(any(c.args and c.args[0] == weekend_runner.NINJUTSU_POINT
+                             for c in native.priority_tap.call_args_list))
+
+    def test_unknown_race_frame_skates_out_instead_of_freezing(self):
+        """竞速中画面未识别：不停手，复用上跳2次+下滑脱困。"""
+        _, native = self._race_scene(frames=['ready', 'race', 'unknown', 'unknown'])
+        # 只有 ready 页 quiesce 一次；两个 unknown 脱困帧继续移动、不 quiesce。
+        self.assertEqual(native.quiesce.call_count, 1)
+        self.assertGreaterEqual(native.schedule_movement.call_count, 2)
+
+    def test_unknown_frame_outside_race_still_quiesces(self):
+        """未确认竞速的 unknown(菜单/加载)仍停手，不无脑脱困。"""
+        _, native = self._race_scene(frames=['ready', 'unknown', 'unknown'])
+        self.assertEqual(native.quiesce.call_count, 3)
+        self.assertFalse(any(c.args and c.args[0] == weekend_runner.NINJUTSU_POINT
+                             for c in native.priority_tap.call_args_list))

@@ -35,6 +35,7 @@ import time
 import cv2
 import numpy as np
 
+from ninja3_assistant.activities.abyss.vision import gold, ring
 from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
 from ninja3_assistant.activities.intelligence.vision import ActivityVision
 from ninja3_assistant.device.mumu import MuMu, prepare_game
@@ -89,6 +90,15 @@ WEAPON_POINT = (380, 630)
 JUMP_POINT = (1090, 630)
 OVERHEAD_POINT = (190, 630)
 CARD_POINTS = ((900, 630), (520, 630), (635, 630), (740, 630))
+
+# Ninjutsu (ultimate): the top-left icon is a blue orb ringed by a golden arc
+# that acts as the energy meter. Live race frames show a 0.375 golden arc while
+# charging; the ring is fully gold once the ultimate is ready. The (55,62)
+# centre and radius 44 match the magnified live crop, and the arc/ring
+# measurement reuses the abyss rotation's verified gold() and ring() rules.
+NINJUTSU_RING = (55, 62, 44)
+NINJUTSU_POINT = (55, 60)
+NINJUTSU_READY_RATIO = .88
 
 # A race frame is confirmed by the distance board, never by a version flag.
 #
@@ -170,6 +180,20 @@ def relay_dialog(frame):
     return float(np.mean((g > 150) & (g - r > 40) & (g - b > 40))) >= RELAY_GREEN_RATIO
 
 
+def ninjutsu_ready(frame):
+    """True when the ninjutsu ring is fully charged (golden all the way round).
+
+    The ring is the energy meter: captured race frames show a 0.375 golden arc
+    while charging, and the same ring is fully golden once the ultimate can be
+    fired. 0.88 separates a charging arc from a full ring -- no charging frame
+    in the evidence reaches it. The full-ring (ready) sample has not been
+    captured yet, so the threshold follows the abyss rotation's verified rule
+    for the same in-game mechanic and should be confirmed on a live full ring.
+    """
+    x, y, radius = NINJUTSU_RING
+    return bool(gold(ring(frame, x, y, radius)).any(axis=0).mean() >= NINJUTSU_READY_RATIO)
+
+
 class RaceVision:
     """Answer every scene question from one WinML inference per frame."""
     def __init__(self, session=None):
@@ -180,6 +204,7 @@ class RaceVision:
         self.confirmed_race = False
         self.obscured = False
         self.weapon_ready = False
+        self.ninjutsu_ready = False
         self.controls_hidden = False
         self.hidden_frames = 0
         self._session = session
@@ -239,6 +264,7 @@ class RaceVision:
         self.layout = None
         self.intro = False
         self.weapon_ready = False
+        self.ninjutsu_ready = False
         self.controls_hidden = False
         if gray is None:
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -272,6 +298,7 @@ class RaceVision:
                 scores.matched('race-effect')):
             self.confirmed_race = True
             self.weapon_ready = self.armed_slots(frame) >= ABILITY_READY_RATIO
+            self.ninjutsu_ready = ninjutsu_ready(frame)
             region = frame[200:580, 300:1000]
             neutral = region.max(axis=2) - region.min(axis=2) < 18
             brightness = gray[200:580, 300:1000]
@@ -557,6 +584,9 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
     last_action = float('-inf')
     skills = RaceSkills()
     weapon = WeaponRelease()
+    # The ultimate reuses the same once-per-arm-cycle cadence as the weapon:
+    # fire on a full ring, then wait for the ring to drain before re-arming.
+    ninjutsu = WeaponRelease()
     armed = False
     armed_at = None
     hall_swipes = 0
@@ -642,11 +672,19 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                 kind = vision.detect(frame, gray)
                 if kind != 'ranking':
                     ranking_since = None
-                if kind == 'invite' and safe_invite and not armed:
-                    handoff = bounty_handoff(frame, vision.invitations, ocr, control, safe=True)
+                if kind == 'invite':
+                    # The shared passive-invite policy owns this decision. The
+                    # scheduler builds bounty_invite_targets from the enabled
+                    # bounty chores and the BountyPassiveInvite switch, so a
+                    # matching grade hands off to the bounty task (agree) while
+                    # a disabled switch, a mismatched grade or a live race
+                    # falls through to the decline below (disagree). No new
+                    # per-activity invite rules belong here.
+                    handoff = bounty_handoff(frame, vision.invitations, ocr, control,
+                                             safe=safe_invite and not armed)
                     if handoff:
                         return handoff
-                elif kind != 'invite':
+                else:
                     safe_invite = not armed and kind in ('home', 'hall', 'tasks')
                     if safe_invite:
                         clear_handled_invitation(control)
@@ -717,7 +755,14 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                             skills.scheduled(now)
                             if armed_now:
                                 weapon.scheduled(now)
-                    message = '起跳2次→下滑，WinML 障碍识别与武器释放'
+                    # The ultimate fires the moment its ring is full, on its own
+                    # cadence so it never waits for the weapon/card plan. The
+                    # icon sits top-left, clear of the skating controls.
+                    if vision.ninjutsu_ready and ninjutsu.due(True, now):
+                        if kernel.priority_tap(NINJUTSU_POINT, captured_at=captured,
+                                               deadline=captured + .3, hold_seconds=.05) is not None:
+                            ninjutsu.scheduled(now)
+                    message = '起跳2次→下滑，WinML 障碍识别，武器/忍术就绪即释放'
                 elif kind == 'respawn' and armed:
                     # Only the same-screen rotation revives by itself. Hold
                     # still and let the revival land, then hop out of the
@@ -731,7 +776,20 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                     message = ('竞速画面未确认，等待比赛开始' if not vision.confirmed_race
                                else '竞速已确认，等待起跑')
                 else:
-                    native.quiesce()
+                    # While a race is live, an unrecognised frame (a new map or
+                    # a full-screen effect) must not freeze the runner: reuse
+                    # the native jump-two-slide movement to skate out, with the
+                    # unknown_since timeout above as the safety net. A genuine
+                    # menu/loading unknown (not armed, no race seen) quiesces.
+                    recovering_unknown = kind == 'unknown' and armed and observed_race
+                    if recovering_unknown:
+                        def recover_skate():
+                            native.note_frame(captured)
+                            native.renew()
+                        control.run_if_active(recover_skate)
+                        message = '画面未识别，按上跳2次+下滑继续脱困'
+                    else:
+                        native.quiesce()
                     # The settlement board closes itself after about a second,
                     # and a match can also slide straight back to a startable
                     # home with no result page at all. Every settlement page
@@ -742,7 +800,11 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                         control.stop.wait(.05)
                         continue
                     action = navigation_screen = None
-                    if kind == 'relay':
+                    if recovering_unknown:
+                        # Recovery frames only move; there is no page button to
+                        # tap and navigation.detect must not fire on a race.
+                        pass
+                    elif kind == 'relay':
                         # The multi-player rotation answers a death with a
                         # "选择忍者接力" panel. Skip it instead of joining: the
                         # match then settles and a fresh one starts.
@@ -765,7 +827,12 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                                             guard=lambda fresh: vision.match(fresh, 'spectate-back'))
                         message = '退出观战轨迹，继续查看结算'
                     elif kind == 'invite':
-                        message = '拒绝队友邀请'
+                        # Reaching here means the shared policy did not hand
+                        # off: passive invites are off, no enabled bounty chore
+                        # matches this grade/source, or a race is live. Decline
+                        # is the configured answer for those cases; the "agree"
+                        # path above returns an InvitationHandoff instead.
+                        message = '按配置拒绝悬赏邀请，继续周末竞速'
                         if decline := vision.invitations.detect(gray):
                             def same_invitation(fresh):
                                 return vision.invitations.detect(
