@@ -26,6 +26,7 @@ The counts and thresholds below come from the 2026-11-21 live evidence and the
 from ninja3_assistant.paths import resource_root
 from dataclasses import dataclass, replace
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -35,7 +36,7 @@ import time
 import cv2
 import numpy as np
 
-from ninja3_assistant.activities.abyss.vision import gold, ring
+from ninja3_assistant.activities.abyss.vision import ring
 from ninja3_assistant.activities.intelligence.ocr import WindowsOcr
 from ninja3_assistant.activities.intelligence.vision import ActivityVision
 from ninja3_assistant.device.mumu import MuMu, prepare_game
@@ -108,14 +109,18 @@ WEAPON_DIGIT_BOX = 12      # half-size of the centre box holding the countdown
 # digit green, so brightness of the strokes is the only stable signal.
 WEAPON_READY_BRIGHT = .30  # centre bright-share at or above which no digit remains
 
-# Ninjutsu (ultimate): the top-left icon is a blue orb ringed by a golden arc
-# that acts as the energy meter. Live race frames show a 0.375 golden arc while
-# charging; the ring is fully gold once the ultimate is ready. The (55,62)
-# centre and radius 44 match the magnified live crop, and the arc/ring
-# measurement reuses the abyss rotation's verified gold() and ring() rules.
+# Ninjutsu (ultimate): the top-left icon is a blue orb framed by a silver-white
+# ring. The weekend rotation's ready icon is BLUE with a complete bright ring --
+# not the golden arc the abyss rotation uses -- so the abyss gold() rule never
+# fired here (gold ring measured 0.000 on every live race frame). Readiness is
+# read from that complete bright ring instead: on the 2026-11-22 live ready
+# frame the ring at radius 40..46 has white-share 0.28..0.40 / bright-share
+# 0.37..0.61. The charge-up frame is still to be captured, so the threshold is
+# deliberately conservative and should be tuned against one.
 NINJUTSU_RING = (55, 62, 44)
 NINJUTSU_POINT = (55, 60)
-NINJUTSU_READY_RATIO = .88
+NINJUTSU_RING_RADII = (40, 42, 46)
+NINJUTSU_READY_WHITE = .25
 
 # A race frame is confirmed by the distance board, never by a version flag.
 #
@@ -198,17 +203,25 @@ def relay_dialog(frame):
 
 
 def ninjutsu_ready(frame):
-    """True when the ninjutsu ring is fully charged (golden all the way round).
+    """True when the ninjutsu's bright silver ring is complete (ready to fire).
 
-    The ring is the energy meter: captured race frames show a 0.375 golden arc
-    while charging, and the same ring is fully golden once the ultimate can be
-    fired. 0.88 separates a charging arc from a full ring -- no charging frame
-    in the evidence reaches it. The full-ring (ready) sample has not been
-    captured yet, so the threshold follows the abyss rotation's verified rule
-    for the same in-game mechanic and should be confirmed on a live full ring.
+    The weekend rotation draws the charged ultimate as a blue orb inside a
+    complete white ring at (63,78); the abyss rotation's golden-arc rule
+    measures 0.000 on these frames and can never fire here. The icon's position
+    is itself the signal: when full it occupies (63,78) with a 0.28..0.45 white
+    ring, and once fired it disappears from that spot (white-share 0) while the
+    ultimate plays, reappearing only when charged again. A live 2026-11-22
+    before/after tap confirmed this: ring 0.41 before, the ultimate fired, then
+    ring 0 with no orb. Sampling a few radii and taking the largest white-share
+    turns that position/ring switch into a stable ready signal.
     """
-    x, y, radius = NINJUTSU_RING
-    return bool(gold(ring(frame, x, y, radius)).any(axis=0).mean() >= NINJUTSU_READY_RATIO)
+    x, y, _ = NINJUTSU_RING
+    best = 0.
+    for radius in NINJUTSU_RING_RADII:
+        samples = ring(frame, x, y, radius)
+        white = (samples.min(axis=2) > 170).mean()
+        best = max(best, float(white))
+    return bool(best >= NINJUTSU_READY_WHITE)
 
 
 def _weapon_icon_state(frame, cx, cy):
@@ -591,19 +604,24 @@ class RaceSkills:
         self.last = now
 
     @staticmethod
-    def actions(weapon_points):
+    def actions(weapon_points, first=20):
         if weapon_points is True:
             weapon_points = (WEAPON_POINT,)
         elif not isinstance(weapon_points, (tuple, list)):
             weapon_points = ()
         points = tuple(weapon_points) + CARD_POINTS
-        # The first tap used to be offset 20ms with the default 20ms slack, so
-        # its 40ms deadline expired while the PLAN command travelled down the
-        # pipe: NinjaTouch dropped index 0 -- always the weapon -- and only the
-        # later cards were pressed. Give every tap an 80ms slack so the first
-        # point survives the hand-off, and keep 6 taps inside the finger-4
-        # horizon: last offset 20+5*30=170ms + 15ms hold = 185ms < 200ms.
-        return tuple(TimedTap(20 + i * 30, point, slack_ms=80)
+        # PLAN offsets refer to the capture, not dispatch. A fixed 20ms start
+        # expired while the command travelled down the pipe, so NinjaTouch
+        # dropped index 0 -- always the weapon. Start after the current frame
+        # age (the bounty runner's rule) but keep every tap inside the finger-4
+        # 200ms horizon: with up to 6 taps and a 15ms hold, cap the start and
+        # compress the spacing when the frame is old.
+        horizon, hold = 200, 15  # finger-4 horizon; TimedTap default hold_ms
+        n = len(points)
+        start = min(max(first, 20), max(20, horizon - hold - (n - 1) * 20 - 1))
+        step = 20 if start + (n - 1) * 20 + hold < horizon else max(
+            1, (horizon - hold - 1 - start) // max(1, n - 1))
+        return tuple(TimedTap(start + i * step, point, slack_ms=80)
                      for i, point in enumerate(points))
 
 
@@ -801,6 +819,10 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                             native.note_frame(captured)
                             native.renew()
                         control.run_if_active(skate)
+                    # PLAN offsets refer to the capture, not dispatch. Start
+                    # just after the current frame age (the bounty runner's
+                    # proven rule) so no first tap expires in the pipe.
+                    first = max(0, math.ceil((kernel.clock() - captured) * 1000)) + 2
                     # Fire each weapon only while its countdown digit is gone;
                     # the cards keep their own cadence so a ready slot is never
                     # skipped. weapon_ready is the bool gate, weapon_points the
@@ -808,16 +830,18 @@ def run_weekend(folder, index, control, emit, mode=DEFAULT_WEEKEND_MODE, record=
                     if skills.due(now):
                         armed_now = weapon.due(vision.weapon_ready, now)
                         points = vision.weapon_points if armed_now else ()
-                        if kernel.plan(4, RaceSkills.actions(points)) is not None:
+                        if kernel.plan(4, RaceSkills.actions(points, first)) is not None:
                             skills.scheduled(now)
                             if armed_now:
                                 weapon.scheduled(now)
-                    # The ultimate fires the moment its ring is full, on its own
-                    # cadence so it never waits for the weapon/card plan. The
-                    # icon sits top-left, clear of the skating controls.
+                    # The ultimate gets its own finger-5 plan: the bounty runner
+                    # uses finger 3, but here finger 3 is the priority jump for
+                    # obstacle avoidance and finger 4 carries weapons/cards.
+                    # Finger 5 has a 1s horizon and stays clear of both.
                     if vision.ninjutsu_ready and ninjutsu.due(True, now):
-                        if kernel.priority_tap(NINJUTSU_POINT, captured_at=captured,
-                                               deadline=captured + .3, hold_seconds=.05) is not None:
+                        n_actions = tuple(TimedTap(first + i * 70, NINJUTSU_POINT)
+                                          for i in range(3))
+                        if kernel.plan(5, n_actions) is not None:
                             ninjutsu.scheduled(now)
                     message = '起跳2次→下滑，WinML 障碍识别，武器/忍术就绪即释放'
                 elif kind == 'respawn' and armed:

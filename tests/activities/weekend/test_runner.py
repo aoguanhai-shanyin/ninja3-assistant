@@ -357,6 +357,11 @@ class WeekendRaceTest(unittest.TestCase):
         self.assertTrue(all(a.offset_ms + a.hold_ms <= 200 for a in armed))
         self.assertTrue(all(a.offset_ms >= prev.offset_ms + prev.hold_ms
                             for prev, a in zip(armed, armed[1:])))
+        # an old frame must still fit inside the finger-4 horizon
+        both = RaceSkills.actions(((380,630),(900,630)), first=120)
+        self.assertTrue(all(a.offset_ms + a.hold_ms <= 200 for a in both))
+        self.assertTrue(all(a.offset_ms >= prev.offset_ms + prev.hold_ms
+                            for prev, a in zip(both, both[1:])))
 
     def test_unobserved_road_under_effect_does_not_invent_a_pit(self):
         avoider = RaceAvoider()
@@ -882,29 +887,37 @@ class WeekendRaceTest(unittest.TestCase):
         return outcome, native
 
     def test_ninjutsu_ready_threshold(self):
-        """忍术圆环充满(整圈金色)才就绪；0.375 充电弧不就绪。"""
+        """周末忍术是蓝色图标+完整白银环;金色环(abyss)不应误判为就绪。"""
         ready_fn = weekend_runner.ninjutsu_ready
         x, y, r = weekend_runner.NINJUTSU_RING
         blank = np.zeros((720, 1280, 3), np.uint8)
         self.assertFalse(ready_fn(blank))
+        # complete bright ring -> ready (matches the live blue-orb icon)
         full = blank.copy()
-        cv2.circle(full, (x, y), r, (255, 200, 60), 10)
+        cv2.circle(full, (x, y), r, (255, 255, 255), 10)
         self.assertTrue(ready_fn(full))
+        # partial ring -> still charging
         charging = blank.copy()
-        cv2.ellipse(charging, (x, y), (r, r), 0, 180, 315, (255, 200, 60), 10)
+        cv2.ellipse(charging, (x, y), (r, r), 0, 200, 260, (255, 255, 255), 10)
         self.assertFalse(ready_fn(charging))
+        # golden arc from the abyss rule must NOT count as ready here
+        golden = blank.copy()
+        cv2.circle(golden, (x, y), r, (255, 200, 60), 10)
+        self.assertFalse(ready_fn(golden))
 
     def test_ready_ninjutsu_is_fired_during_race(self):
-        """忍术充满时立即点忍术图标(55,60)释放。"""
+        """忍术充满时用独立 finger-5 计划点忍术图标(55,60)释放。"""
         _, native = self._race_scene(frames=['race', 'race', 'race'], ninjutsu=True)
-        self.assertTrue(any(c.args and c.args[0] == weekend_runner.NINJUTSU_POINT
-                            for c in native.priority_tap.call_args_list))
+        ninja_plans = [c for c in native.plan.call_args_list if c.args and c.args[0] == 5]
+        self.assertTrue(ninja_plans)
+        self.assertTrue(any(a.point == weekend_runner.NINJUTSU_POINT
+                            for c in ninja_plans for a in c.args[1]))
 
     def test_charging_ninjutsu_is_not_fired(self):
-        """忍术充电中(圆环未满)不点忍术。"""
+        """忍术充电中(圆环未满)不安排忍术计划。"""
         _, native = self._race_scene(frames=['race', 'race', 'race'], ninjutsu=False)
-        self.assertFalse(any(c.args and c.args[0] == weekend_runner.NINJUTSU_POINT
-                             for c in native.priority_tap.call_args_list))
+        self.assertFalse(any(c.args and c.args[0] == 5
+                             for c in native.plan.call_args_list))
 
     def test_unknown_race_frame_skates_out_instead_of_freezing(self):
         """竞速中画面未识别：不停手，复用上跳2次+下滑脱困。"""
@@ -917,8 +930,8 @@ class WeekendRaceTest(unittest.TestCase):
         """未确认竞速的 unknown(菜单/加载)仍停手，不无脑脱困。"""
         _, native = self._race_scene(frames=['ready', 'unknown', 'unknown'])
         self.assertEqual(native.quiesce.call_count, 3)
-        self.assertFalse(any(c.args and c.args[0] == weekend_runner.NINJUTSU_POINT
-                             for c in native.priority_tap.call_args_list))
+        self.assertFalse(any(c.args and c.args[0] == 5
+                             for c in native.plan.call_args_list))
 
     @staticmethod
     def _weapon_icon(bright_share, colour=(255, 255, 255)):
